@@ -25,7 +25,7 @@
   --shadow-md: 0 4px 16px rgba(20, 32, 52, .09), 0 1px 3px rgba(20, 32, 52, .05);
   --radius: 12px;
   --radius-sm: 8px;
-  --topbar-h: 58px;
+  --topbar-h: 48px;
   --ease: cubic-bezier(.22, .61, .36, 1);
 }
 
@@ -98,8 +98,8 @@ body {
   gap: 14px;
   flex-wrap: nowrap;
   min-height: var(--topbar-h);
-  padding: 9px 16px;
-  padding-top: max(9px, env(safe-area-inset-top));
+  padding: 6px 10px;
+  padding-top: max(6px, env(safe-area-inset-top));
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--border);
@@ -205,14 +205,16 @@ body {
 
 /* ------------------------------------------------------------ app shell */
 
-/* The stacked split. Almost half to notes, the remainder to the agenda. */
+/* The stacked split: notes take two thirds, the agenda the remaining third.
+   Both the gap and the padding are kept small -- the chrome is not the content,
+   and every pixel spent on margin is a folder name that gets cut off. */
 .app-shell {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1.08fr);
-  gap: 10px;
-  padding: 10px 16px 0;
+  grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 8px 0;
 }
 
 .pane {
@@ -221,17 +223,17 @@ body {
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+  border-radius: 9px;
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: none;
-  padding: 9px 12px;
+  padding: 5px 8px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border-soft);
 }
@@ -249,11 +251,11 @@ body {
   margin-left: auto;
   min-width: 0;
   max-width: 55%;
-  padding: 3px 10px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
@@ -272,13 +274,13 @@ body {
 }
 
 .tab {
-  padding: 5px 15px;
+  padding: 4px 13px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: background .15s, color .15s;
@@ -292,10 +294,12 @@ body {
 
 .browse { height: 100%; min-height: 0; }
 
-/* Notes browser: folder tree beside the note list, inside the upper pane. */
+/* Notes browser: folder tree beside the note list, inside the upper pane.
+   Half and half, so a nested folder name has room to be read rather than
+   ellipsised down to two characters. */
 .browse-notes {
   display: grid;
-  grid-template-columns: minmax(150px, 27%) 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0;
 }
 
@@ -311,9 +315,9 @@ body {
 .col-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
-  padding: 7px 8px 7px 11px;
+  padding: 3px 4px 3px 8px;
   border-bottom: 1px solid var(--border-soft);
 }
 .col-head .panel-title { flex: 1; }
@@ -323,23 +327,23 @@ body {
 
 .inline-form {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex: none;
-  padding: 8px;
+  padding: 5px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--surface);
 }
 .inline-form input { flex: 1; min-width: 0; }
 
-.folder-tree { flex: 1; min-height: 0; overflow: auto; padding: 6px; overscroll-behavior: contain; }
+.folder-tree { flex: 1; min-height: 0; overflow: auto; padding: 3px; overscroll-behavior: contain; }
 
 /* --------------------------------------------------------------- folders */
 
 .folder-row {
   display: flex;
   align-items: center;
-  gap: 2px;
-  border-radius: var(--radius-sm);
+  gap: 1px;
+  border-radius: 6px;
   transition: background .13s;
 }
 .folder-row:hover { background: var(--surface-3); }
@@ -350,17 +354,17 @@ body {
 .folder-toggle {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   flex: none;
   border: 0;
-  border-radius: 5px;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
   transition: transform .16s var(--ease), color .15s;
 }
-.folder-toggle .icon { width: 14px; height: 14px; }
+.folder-toggle .icon { width: 12px; height: 12px; }
 .folder-toggle:hover { color: var(--text); }
 .folder-toggle.open { transform: rotate(90deg); }
 /* A childless folder still gets the spacer, so names stay on one left edge. */
@@ -369,60 +373,51 @@ body {
 .folder-select {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   flex: 1;
   min-width: 0;
-  padding: 6px 4px;
+  padding: 4px 2px;
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.folder-select .icon { width: 15px; height: 15px; color: var(--text-faint); }
+.folder-select .icon { width: 13px; height: 13px; color: var(--text-faint); }
 .folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Always on screen, never hover-revealed. A control that appears only on hover
+   is easy to miss on a desktop and unreachable on a touch screen, and hiding it
+   with opacity alone would leave a destructive target tappable while invisible.
+   At rest it is quiet, so it reads as available rather than as an alarm. */
 .folder-del {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   flex: none;
-  margin-right: 3px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  /* Hidden until the row is engaged -- but opacity alone would leave an
-     invisible destructive target tappable, so hit-testing is off too. */
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .13s, background .13s, color .13s;
+  transition: background .13s, color .13s;
 }
-.folder-del .icon { width: 14px; height: 14px; }
-.folder-row:hover .folder-del,
-.folder-row:focus-within .folder-del { opacity: 1; pointer-events: auto; }
+.folder-del .icon { width: 12px; height: 12px; }
 .folder-del:hover { background: var(--danger-soft); color: var(--danger); }
-.folder-del:focus-visible { opacity: 1; outline: 2px solid var(--danger); outline-offset: 1px; }
-
-/* A touch screen has no hover, so the delete control has to be visible or it
-   is unreachable. Reveal it there and let it respond to focus-within as before. */
-@media (hover: none) {
-  .folder-del { opacity: .7; pointer-events: auto; }
-  .folder-row:focus-within .folder-del { opacity: 1; }
-}
+.folder-del:focus-visible { outline: 2px solid var(--danger); outline-offset: 1px; }
+.folder-row.active .folder-del { color: var(--text-dim); }
 
 .count {
   flex: none;
-  padding: 1px 7px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--surface-3);
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -430,17 +425,17 @@ body {
 
 /* ----------------------------------------------------------- item lists */
 
-.item-list { padding: 6px; }
+.item-list { padding: 3px; }
 
 .item-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   width: 100%;
-  padding: 9px 11px;
+  padding: 6px 8px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -448,7 +443,7 @@ body {
   cursor: pointer;
   transition: background .13s, border-color .13s;
 }
-.item-row + .item-row { margin-top: 2px; }
+.item-row + .item-row { margin-top: 1px; }
 .item-row:hover { background: var(--surface-2); border-color: var(--border-soft); }
 .item-row.active { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .item-row:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
@@ -504,10 +499,10 @@ body {
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   height: 100%;
   min-height: 0;
-  padding: 13px;
+  padding: 9px;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -518,17 +513,17 @@ body {
 .form-grid input,
 .form-grid select {
   width: 100%;
-  padding: 9px 11px;
+  padding: 6px 9px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
-.title-input { font-size: 16px; font-weight: 650; }
-.body-input { flex: 1; min-height: 110px; resize: vertical; line-height: 1.55; }
-.body-input.short { flex: none; min-height: 64px; }
+.title-input { font-size: 15.5px; font-weight: 650; }
+.body-input { flex: 1; min-height: 90px; resize: vertical; line-height: 1.5; }
+.body-input.short { flex: none; min-height: 52px; }
 
 .title-input:focus,
 .body-input:focus,
@@ -543,8 +538,8 @@ body {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 7px;
 }
 .form-grid label {
   display: flex;
@@ -561,9 +556,9 @@ body {
   flex-wrap: wrap;
   gap: 4px 10px;
   margin: 0;
-  padding: 9px 11px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   background: var(--surface-2);
 }
 .weekday-picker legend { padding: 0 5px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
@@ -583,13 +578,13 @@ body {
 
 .statusbar {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
   flex: none;
-  padding: 8px 16px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding: 5px 10px;
+  padding-bottom: max(5px, env(safe-area-inset-bottom));
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: 11.5px;
   background: var(--surface-2);
   border-top: 1px solid var(--border);
   transition: background .25s;
@@ -612,13 +607,15 @@ body[data-fatal="true"] .pane { opacity: .55; }
   /* Labels collapse to icons; title/aria-label keep the meaning. */
   .topbar-actions .btn span { display: none; }
   .topbar-actions .btn { padding: 8px; gap: 0; }
-  .topbar { gap: 10px; padding-left: 12px; padding-right: 12px; }
+  .topbar { gap: 10px; padding-left: 10px; padding-right: 10px; }
 
-  .app-shell { padding: 8px 10px 0; gap: 8px; }
-  .browse-notes { grid-template-columns: minmax(112px, 39%) 1fr; }
-  .editor { padding: 11px; }
-  .item-row { padding: 8px 9px; gap: 8px; }
-  .folder-select { font-size: 13px; }
+  /* Half and half here too. Narrowing the folder column further is what made
+     nested names unreadable, and the column is where the delete control lives. */
+  .app-shell { padding: 5px 6px 0; gap: 5px; }
+  .browse-notes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .editor { padding: 8px; }
+  .item-row { padding: 6px 7px; gap: 6px; }
+  .folder-select { font-size: 12.5px; }
   .context-chip { max-width: 46%; }
 }
 

@@ -182,13 +182,18 @@ if "data-del=" not in app or ".folder-del" not in app:
 if ".folder-del" not in css:
     fails.append(".folder-del has no CSS rule, so the folder delete would be invisible")
 else:
-    # A hover-revealed destructive control must not be tappable while invisible,
-    # and must be reachable at all on a touch screen, which has no hover.
+    # It used to be hover-revealed. That was the bug the user hit: the control
+    # existed but could not be found, and on a touch screen (no hover) it could
+    # not be reached at all. It must be on screen at rest.
     del_rule = re.search(r"\.folder-del\s*\{([^}]*)\}", css).group(1)
-    if "opacity: 0" in del_rule and "pointer-events: none" not in del_rule:
-        fails.append(".folder-del is invisible on hover-out but still tappable; add pointer-events: none")
-    if "@media (hover: none)" not in css:
-        fails.append(".folder-del is hover-only, so it is unreachable on a touch screen")
+    for hidden in ("opacity: 0", "opacity:0", "pointer-events: none", "visibility: hidden",
+                   "display: none"):
+        if hidden in del_rule:
+            fails.append(
+                f".folder-del is hidden at rest ({hidden}); a folder delete that only "
+                f"appears on hover is undiscoverable and unreachable on a touch screen")
+    if "color:" not in del_rule:
+        fails.append(".folder-del sets no resting colour, so it would be invisible")
 
 # --- 10. Controls must be wired before anything that can fail ---------------
 # A publish can briefly pair a new index.html with a still-cached app.js. When

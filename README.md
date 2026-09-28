@@ -15,30 +15,38 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 
 ```
 ┌──────────────────────────────────────────────┐
-│ Notes   [New folder] [New note] [New reminder] [Backup]
+│ Notes  [New folder] [New note] [New reminder] [Backup]
 ├──────────────────────────────────────────────┤
-│ (Notes) (Reminders)          Work / Projects │  <- upper half:
-│ ┌──────────┬───────────────────────────────┐ │     browse or edit
-│ │ Folders  │ Notes in the selected folder  │ │
-│ │  Work 12 │ Apollo kickoff       3d ago   │ │
-│ │  Home  4 │ Budget draft         1w ago   │ │
-│ └──────────┴───────────────────────────────┘ │
+│ (Notes) (Reminders)          Work / Projects │  <- upper 2/3:
+│ ┌───────────┬──────────────────────────────┐ │     browse or edit
+│ │ Folders   │ Notes in the selected folder │ │
+│ │  Work  12 │ Apollo kickoff      3d ago   │ │
+│ │  Home   4 │ Budget draft        1w ago   │ │
+│ └───────────┴──────────────────────────────┘ │
 ├──────────────────────────────────────────────┤
-│ Upcoming reminders            7 · soonest first
-│  🕐 Standup        in 2 hours   Mon 29 Sep 15:00
-│  🕐 Passport       in 3 years   Fri 2 Oct 2027  │  <- lower half:
-│                                              │     always visible
+│ Upcoming reminders           7 · soonest first  <- lower 1/3:
+│  🕐 Standup      in 2 hours   Mon 29 Sep 15:00  always visible
+│  🕐 Passport     in 3 years   Fri 2 Oct 2027 │
 └──────────────────────────────────────────────┘
 ```
+
+**The split is two thirds notes, one third agenda.** The agenda is never
+scrolled off: a reminder coming due stays in view while you edit a note above it.
+
+**Inside the notes third, the folders and the note list are half each.** The
+folder column carries the names and the delete control, so it gets an equal
+share rather than whatever is left over.
+
+**The chrome is deliberately thin.** Small gaps, small padding, compact buttons —
+every pixel spent on margin is a folder name that gets cut off.
 
 **The top bar is one row that never wraps.** On a narrow screen the button
 labels collapse and the icons carry the action.
 
-**The upper half browses, then edits in place.** Tapping a note (or a reminder)
-swaps that half into its editor with a back arrow. The reminder agenda below
-never scrolls away, so a reminder coming due stays in view while you type.
+**The upper third browses, then edits in place.** Tapping a note (or a reminder)
+swaps that area into its editor with a back arrow.
 
-**Two tabs in the upper half.** *Notes* shows the folder tree beside the note
+**Two tabs in the upper area.** *Notes* shows the folder tree beside the note
 list. *Reminders* is where reminders are managed — created, edited and deleted.
 The agenda below is read-only, which keeps exactly one place able to change a
 reminder.
@@ -101,6 +109,13 @@ Delete "Work"? This also deletes 3 subfolders and 12 notes. This cannot be undon
 There is no undo and no trash, so the counts are stated first rather than
 discovered afterwards.
 
+The delete control sits on every folder row **at rest** — always on screen, never
+revealed only on hover. It is quiet grey against the row and turns red on hover
+or focus. It used to appear only on hover, which made it impossible to find on a
+desktop and impossible to reach at all on a touch screen, where there is no
+hover. Two checks now hold that open, one static and one in the browser, because
+a control that exists but cannot be found is a control that does not work.
+
 ## Not built yet
 
 - Photo/video attachment bytes (the button is a stub).
@@ -144,7 +159,7 @@ Notes entered in one do not appear in the other.
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 80 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 17 checks in real Chrome
+python tools/browser_check.py                   # 24 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -167,10 +182,18 @@ has already broken once — controls wired before the first `await`, a guarded
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
 resulting DOM — including moving a note and confirming it left the folder it was
-in, not just that it arrived in the new one. Static checks can prove an id exists
-and a listener is attached in the source; they cannot prove a click *does
-anything*, which is the failure this project actually hit — see "Releasing"
-below.
+in (not just that it arrived in the new one), and deleting a folder: that the
+control is on screen without hovering, that cancelling the confirmation keeps the
+folder, that the confirmation names the folder and counts the notes inside it,
+and that confirming removes both. Static checks can prove an id exists and a
+listener is attached in the source; they cannot prove a click *does anything*,
+which is the failure this project actually hit — see "Releasing" below.
+
+It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
+Chrome forever — but answers `confirm()` from a variable, so the destructive path
+can be cancelled and then taken, and the wording it showed can be inspected.
+Every run wipes the browser profile first: IndexedDB lives in the profile, and a
+leftover one would carry notes into the next run and make every count meaningless.
 
 ```sh
 python tools/browser_check.py --compare-stale <commit>

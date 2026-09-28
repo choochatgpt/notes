@@ -74,6 +74,12 @@ PROBE = """<!doctype html>
   const results = [];
   const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail || "" });
 
+  // The confirmation has to state what goes with the folder, and in the singular
+  // -- "1 note", not "1 notes". The count is the entire point of the wording:
+  // "delete this?" reads identically for an empty folder and for one holding
+  // twenty notes.
+  const writingSaysOneNote = text => /(^|\\D)1 note\\b/.test(text) && !/1 notes/.test(text);
+
   async function waitFor(predicate, ms) {
     const deadline = Date.now() + (ms || 15000);
     while (Date.now() < deadline) {
@@ -100,9 +106,16 @@ PROBE = """<!doctype html>
     const status = () => { const el = q("#storage-status"); return el ? el.textContent : "n/a"; };
 
     // Stub the blocking dialogs inside the frame before anything can call them.
+    // confirm() is answerable rather than fixed, so a destructive path can be
+    // cancelled and then taken, and the message it showed can be inspected.
     const alerts = [];
+    const confirms = [];
+    let confirmAnswer = false;
     frame.contentWindow.alert = message => alerts.push(message);
-    frame.contentWindow.confirm = () => false;
+    frame.contentWindow.confirm = message => {
+      confirms.push(String(message));
+      return confirmAnswer;
+    };
 
     // Wait for the app to settle: the status line changes once, whether startup
     // succeeded or threw, and data-fatal is set only on a startup failure.
@@ -169,6 +182,7 @@ PROBE = """<!doctype html>
     // browsed. Make a folder, move the note into it, then check BOTH lists:
     // it must be gone from where it was, not merely present where it went.
     // Read-only counts come from a fresh profile, so they mean something.
+    let movedOk = false;
     q("#new-folder-btn").click();
     await sleep(400);
     q("#new-folder-name").value = "Probe Folder";
@@ -212,9 +226,60 @@ PROBE = """<!doctype html>
           const arrived = doc.querySelectorAll("#note-list .item-row").length;
           check("the note is now in the folder it moved to", arrived === 1,
                 "destination rows=" + arrived);
+          movedOk = arrived === 1;
         } else {
           check("the destination folder can be opened", false, "row not found");
         }
+      }
+    }
+
+    // --- deleting a folder ---
+    // The control exists but used to be hover-revealed, which made it impossible
+    // to find and unreachable on a touch screen -- and the user asked for folder
+    // delete precisely because they could not find it. So this checks it is on
+    // screen at rest, that cancelling is honoured, that the confirmation states
+    // what will be destroyed, and that confirming really removes it.
+    const rowSel = '#folder-tree .folder-row[data-folder="' + targetId + '"]';
+    const delBtn = doc.querySelector(rowSel + " .folder-del");
+    check("the folder row offers a delete control", !!delBtn,
+          "row=" + (!!doc.querySelector(rowSel)));
+
+    if (delBtn) {
+      const style = frame.contentWindow.getComputedStyle(delBtn);
+      const box = delBtn.getBoundingClientRect();
+      check("the delete control is on screen without hovering",
+            box.width > 0 && box.height > 0 && style.opacity !== "0"
+            && style.visibility !== "hidden" && style.pointerEvents !== "none",
+            "w=" + Math.round(box.width) + " opacity=" + style.opacity
+            + " pointerEvents=" + style.pointerEvents);
+
+      // Cancel first. A confirmation that removes the folder whichever way it is
+      // answered is not a confirmation at all, and that is invisible from the
+      // source -- confirm() is stubbed out in every other test here.
+      confirmAnswer = false;
+      delBtn.click();
+      await sleep(600);
+      check("cancelling the confirmation keeps the folder",
+            !!doc.querySelector(rowSel), "row=" + (!!doc.querySelector(rowSel)));
+
+      const wording = confirms[confirms.length - 1] || "";
+      check("the confirmation names the folder",
+            wording.indexOf("Probe Folder") !== -1, "said=" + wording);
+      if (movedOk) {
+        check("the confirmation counts the notes that go with it",
+              writingSaysOneNote(wording), "said=" + wording);
+      }
+
+      confirmAnswer = true;
+      delBtn.click();
+      await sleep(900);
+      check("confirming removes the folder from the tree",
+            !doc.querySelector(rowSel));
+      if (movedOk) {
+        // Only meaningful when the note actually made it in there first.
+        check("its notes go with it",
+              doc.querySelectorAll("#note-list .item-row").length === 0,
+              "rows=" + doc.querySelectorAll("#note-list .item-row").length);
       }
     }
   } catch (error) {

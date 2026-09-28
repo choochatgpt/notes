@@ -17,6 +17,8 @@
 const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url);
 const {
   absoluteLabel,
+  collectSubtree,
+  describeDeletion,
   describeRule,
   esc,
   folderPath,
@@ -170,6 +172,87 @@ console.log("\n=== 6. localInputValue -- datetime-local format ===");
 
 console.log("\n=== 7. absoluteLabel -- non-empty and stable ===");
 check("a valid date produces a label", absoluteLabel("2026-10-01T12:00:00Z").length > 0);
+
+console.log("\n=== 8. collectSubtree -- everything a folder delete takes with it ===");
+{
+  const tree = [
+    { id: "work", parentId: null, name: "Work" },
+    { id: "hr", parentId: "work", name: "HR" },
+    { id: "it", parentId: "work", name: "IT" },
+    { id: "proj", parentId: "work", name: "Projects" },
+    { id: "apollo", parentId: "proj", name: "Apollo" },
+    { id: "zeus", parentId: "proj", name: "Zeus" },
+    { id: "home", parentId: null, name: "Home" },
+    { id: "friends", parentId: "home", name: "Friends" }
+  ];
+
+  const work = collectSubtree("work", tree);
+  equal("a nested delete takes the whole subtree", new Set(work).size, 6);
+  check("...including the folder itself", work.includes("work"));
+  check("...and the deepest descendant", work.includes("apollo"));
+  check("...but nothing from a sibling branch", !work.includes("home") && !work.includes("friends"));
+
+  const leaf = collectSubtree("hr", tree);
+  equal("a childless folder takes only itself", leaf.length, 1);
+
+  equal("an unknown id takes only itself", collectSubtree("ghost", tree).length, 1);
+  equal("no folders at all still terminates", collectSubtree("x", undefined).length, 1);
+  equal("an empty array still terminates", collectSubtree("x", []).length, 1);
+
+  // Deleting two branches in a row must not double-count or drop ids.
+  const seen = new Set([...collectSubtree("work", tree), ...collectSubtree("home", tree)]);
+  equal("two deletes cover both branches exactly once", seen.size, 8);
+}
+{
+  // A parent cycle would hang a naive walker, so it must be guarded.
+  const cyc = [
+    { id: "x", parentId: "y", name: "X" },
+    { id: "y", parentId: "x", name: "Y" },
+    { id: "z", parentId: "x", name: "Z" }
+  ];
+  const ids = collectSubtree("x", cyc);
+  equal("a parent cycle terminates and returns each id once", new Set(ids).size, ids.length);
+  check("...and still reaches the whole component", ids.length === 3);
+}
+
+console.log("\n=== 9. describeDeletion -- counts stated before the point of no return ===");
+equal(
+  "subfolders and notes are both named",
+  describeDeletion("Work", { subfolders: 3, notes: 12 }),
+  'Delete "Work"? This also deletes 3 subfolders and 12 notes. This cannot be undone.'
+);
+equal(
+  "one of each reads in the singular",
+  describeDeletion("Work", { subfolders: 1, notes: 1 }),
+  'Delete "Work"? This also deletes 1 subfolder and 1 note. This cannot be undone.'
+);
+equal(
+  "subfolders only",
+  describeDeletion("Work", { subfolders: 2, notes: 0 }),
+  'Delete "Work"? This also deletes 2 subfolders. This cannot be undone.'
+);
+equal(
+  "notes only",
+  describeDeletion("Home", { notes: 5 }),
+  'Delete "Home"? This also deletes 5 notes. This cannot be undone.'
+);
+equal(
+  "an empty folder claims nothing extra",
+  describeDeletion("Empty", { subfolders: 0, notes: 0 }),
+  'Delete "Empty"? This cannot be undone.'
+);
+equal(
+  "counts are omitted rather than printed as zero",
+  describeDeletion("Empty", {}).includes("0 "),
+  false
+);
+// confirm() renders plain text, so the name is deliberately NOT escaped here --
+// escaping would show the user a literal "&lt;".
+equal(
+  "the name is carried verbatim, since confirm() is not HTML",
+  describeDeletion("<b>Bold</b>", { notes: 1 }),
+  'Delete "<b>Bold</b>"? This also deletes 1 note. This cannot be undone.'
+);
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);
 process.exit(failed ? 1 : 0);

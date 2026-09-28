@@ -87,6 +87,51 @@ export function sortReminders(list) {
   });
 }
 
+/**
+ * Every folder id in the subtree rooted at `folderId`, including the root.
+ *
+ * Deleting a folder deletes its contents, so the caller needs the whole set
+ * before it can count what is about to go. `seen` makes a parent cycle (which
+ * the UI should never create, but a hand-edited database could hold) terminate
+ * and return each id once rather than looping forever.
+ */
+export function collectSubtree(folderId, folders) {
+  const childrenOf = new Map();
+  for (const folder of folders || []) {
+    const parent = folder.parentId ?? null;
+    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+    childrenOf.get(parent).push(folder.id);
+  }
+
+  const ids = [];
+  const seen = new Set();
+  const stack = [folderId];
+
+  while (stack.length) {
+    const id = stack.pop();
+    if (id == null || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    stack.push(...(childrenOf.get(id) || []));
+  }
+  return ids;
+}
+
+/**
+ * The confirmation shown before a folder is destroyed, naming exactly what goes
+ * with it. Counts are stated before the point of no return, never after.
+ */
+export function describeDeletion(name, { subfolders = 0, notes = 0 } = {}) {
+  const parts = [];
+  if (subfolders > 0) parts.push(`${subfolders} subfolder${subfolders === 1 ? "" : "s"}`);
+  if (notes > 0) parts.push(`${notes} note${notes === 1 ? "" : "s"}`);
+
+  const tail = parts.length
+    ? ` This also deletes ${parts.join(" and ")}.`
+    : "";
+  return `Delete "${name ?? "Untitled"}"?${tail} This cannot be undone.`;
+}
+
 /** "Work / Projects / Apollo", built by walking parents up to the root. */
 export function folderPath(folderId, folders) {
   const byId = new Map((folders || []).map(folder => [folder.id, folder]));

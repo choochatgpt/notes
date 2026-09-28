@@ -596,6 +596,16 @@ body {
 }
 #reminder-status { margin-left: auto; }
 
+/* A startup failure has to be impossible to miss: the app looks usable but
+   nothing responds, so a quiet line of small print reads as "the buttons are
+   broken" rather than "this build could not start". */
+body[data-fatal="true"] .statusbar {
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 600;
+}
+body[data-fatal="true"] .pane { opacity: .55; }
+
 /* --------------------------------------------------------------- narrow */
 
 @media (max-width: 760px) {

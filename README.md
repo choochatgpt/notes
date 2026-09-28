@@ -132,6 +132,7 @@ Notes entered in one do not appear in the other.
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 64 tests
+python tools/browser_check.py                   # 11 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -143,12 +144,45 @@ wording of the delete confirmation.
 
 Both take the module path as an argument and default to the `../source/` layout.
 
-## Editing
+`tools/browser_check.py` is the only check that runs the app for real. It serves
+the app, opens it in headless Chrome, clicks every control and inspects the
+resulting DOM. Static checks can prove an id exists and a listener is attached in
+the source; they cannot prove a click *does anything*, which is the failure this
+project actually hit — see "Releasing" below.
 
-**Bump `CACHE_NAME` in `sw.js` on every release.** The service worker is
-network-first for page loads and deletes old caches on activate, so a new version
-reaches an installed device as soon as it is online — but only if the cache name
-changes.
+```sh
+python tools/browser_check.py --compare-stale <commit>
+```
+
+rebuilds the broken pairing (current markup + that revision's `app.js`) and runs
+both, to confirm the harness still detects the fault it was written for.
+
+## Releasing
+
+**Bump `CACHE_NAME` in `sw.js` on every release.** The service worker deletes old
+caches on activate, so a new version reaches an installed device as soon as it is
+online — but only if the cache name changes.
+
+**Markup and script must come from the same release.** They are separate
+requests, so they can be answered by different versions, and the app is written
+by hand with no build step to keep them in step. That went wrong once: a new
+`index.html` ran against a still-cached `app.js` that queried two ids the new
+markup had dropped. The mismatch threw during startup, and because the controls
+were wired *after* the first render, every button on the page went dead with
+nothing on screen explaining why.
+
+Three things now hold that shut, and they are worth keeping:
+
+- **The service worker serves markup, scripts and styles network-first**, with
+  the cache only as the offline fallback. Images stay cache-first; they do not
+  change. Serving code cache-first is what allowed the mismatch.
+- **`wireControls()` runs before the first `await` in `init()`.** A failure in
+  the data layer must leave the app degraded, never inert.
+- **Every handler goes through `on()`**, which tolerates a missing element and
+  reports a rejected handler instead of letting it vanish.
+
+**Before pushing, run the browser check.** A green static check does not mean the
+buttons work.
 
 Icons are generated, not hand-drawn:
 

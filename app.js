@@ -650,10 +650,92 @@ function syncThemeColor() {
     : "#f5f5f5";
 }
 
+/**
+ * Attach a listener, tolerating an element that is not there.
+ *
+ * A published update can briefly pair a new index.html with a still-cached
+ * app.js. Throwing on a missing element at wiring time would leave every control
+ * dead, so a mismatch degrades instead: the missing element is reported and the
+ * controls that do exist keep working.
+ */
+function on(selector, event, handler) {
+  const el = $(selector);
+  if (!el) {
+    console.error(`Missing element ${selector}; its ${event} handler was not attached.`);
+    return;
+  }
+  el.addEventListener(event, domEvent => {
+    // Every handler here is async or calls something that is. An unawaited
+    // rejection would otherwise be completely silent -- the button would simply
+    // appear to do nothing, which is the hardest kind of failure to diagnose.
+    try {
+      const result = handler(domEvent);
+      if (result && typeof result.catch === "function") {
+        result.catch(error => reportFailure(error, `"${selector}" ${event}`));
+      }
+    } catch (error) {
+      reportFailure(error, `"${selector}" ${event}`);
+    }
+  });
+}
+
+/**
+ * Wired before anything that can fail. This used to run after the first render,
+ * so one thrown error left the whole toolbar inert with nothing on screen
+ * explaining why -- the failure looked like "the buttons do nothing".
+ */
+function wireControls() {
+  on("#new-folder-btn", "click", startNewFolder);
+  on("#add-folder-inline", "click", startNewFolder);
+  on("#new-note-btn", "click", createNote);
+  on("#new-reminder-btn", "click", createReminder);
+  on("#backup-btn", "click", backupPlaceholder);
+  on("#delete-note-btn", "click", deleteSelectedNote);
+  on("#delete-reminder-btn", "click", deleteSelectedReminder);
+  on("#editor-back", "click", backToBrowse);
+  on("#notes-tab", "click", () => switchKind("notes"));
+  on("#reminders-tab", "click", () => switchKind("reminders"));
+  on("#new-folder-form", "submit", submitNewFolder);
+  on("#note-editor", "submit", saveNote);
+  on("#reminder-editor", "submit", saveReminder);
+  on("#reminder-repeat", "change", syncWeekdayVisibility);
+  on("#add-media-btn", "click", () => $("#media-input")?.click());
+  on("#media-input", "change", () => {
+    alert("Media bytes are deliberately deferred until the OPFS/IndexedDB storage path is validated.");
+  });
+  on("#new-folder-name", "keydown", event => {
+    if (event.key === "Escape") {
+      els.newFolderName.value = "";
+      els.newFolderForm.classList.add("hidden");
+    }
+  });
+}
+
+function showError(message) {
+  if (els.storageStatus) els.storageStatus.textContent = message;
+}
+
+/** A failed action says so, instead of looking like a button that does nothing. */
+function reportFailure(error, what) {
+  console.error(`${what} failed:`, error);
+  showError(`${what} failed: ${error.message}`);
+}
+
+/** A startup failure the user can act on, not a line of small print. */
+function reportStartupFailure(error) {
+  console.error(error);
+  document.body.dataset.fatal = "true";
+  showError(
+    `Startup error: ${error.message} — reload the page. A new version may have been published and this one could not start.`
+  );
+}
+
 async function init() {
   syncThemeColor();
   window.matchMedia("(prefers-color-scheme: dark)")
     .addEventListener?.("change", syncThemeColor);
+
+  wireControls();
 
   await openDatabase();
 
@@ -672,40 +754,23 @@ async function init() {
   await refreshStorageStatus();
   await renderAll();
 
-  $("#new-folder-btn").addEventListener("click", startNewFolder);
-  $("#add-folder-inline").addEventListener("click", startNewFolder);
-  els.newFolderForm.addEventListener("submit", submitNewFolder);
-  els.newFolderName.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      els.newFolderName.value = "";
-      els.newFolderForm.classList.add("hidden");
-    }
-  });
-
-  $("#new-note-btn").addEventListener("click", createNote);
-  $("#new-reminder-btn").addEventListener("click", createReminder);
-  $("#backup-btn").addEventListener("click", backupPlaceholder);
-  els.notesTab.addEventListener("click", () => switchKind("notes"));
-  els.remindersTab.addEventListener("click", () => switchKind("reminders"));
-  els.editorBack.addEventListener("click", backToBrowse);
-  els.noteEditor.addEventListener("submit", saveNote);
-  els.reminderEditor.addEventListener("submit", saveReminder);
-  $("#delete-note-btn").addEventListener("click", deleteSelectedNote);
-  $("#delete-reminder-btn").addEventListener("click", deleteSelectedReminder);
-  els.reminderRepeat.addEventListener("change", syncWeekdayVisibility);
-  $("#add-media-btn").addEventListener("click", () => $("#media-input").click());
-  $("#media-input").addEventListener("change", () => {
-    alert("Media bytes are deliberately deferred until the OPFS/IndexedDB storage path is validated.");
-  });
-
   if ("serviceWorker" in navigator) {
+    // A device that is already running an older build is controlled by the old
+    // worker for the whole of this page load, so it can pair fresh markup with
+    // stale script. Once the new worker takes over, reload once so the page is
+    // served entirely from the new release.
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloading) return;
+      reloading = true;
+      location.reload();
+    });
+
     navigator.serviceWorker.register("./sw.js").catch(error => {
       console.warn("Service worker registration failed:", error);
     });
   }
 }
 
-init().catch(error => {
-  console.error(error);
-  els.storageStatus.textContent = `Startup error: ${error.message}`;
-});
+init().catch(reportStartupFailure);

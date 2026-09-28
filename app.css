@@ -205,14 +205,16 @@ body {
 
 /* ------------------------------------------------------------ app shell */
 
-/* The stacked split: notes take two thirds, the agenda the remaining third.
-   Both the gap and the padding are kept small -- the chrome is not the content,
-   and every pixel spent on margin is a folder name that gets cut off. */
+/* The stacked split: notes and agenda take half the screen each. Equal tracks,
+   not a ratio -- the agenda is where a reminder actually gets read, and a third
+   of the screen was cutting the list short while the note region had room to
+   spare. Both the gap and the padding are kept small -- the chrome is not the
+   content, and every pixel spent on margin is a folder name that gets cut off. */
 .app-shell {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   gap: 6px;
   padding: 6px 8px 0;
 }

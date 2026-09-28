@@ -126,6 +126,24 @@ PROBE = """<!doctype html>
 
     check("no fatal startup banner", body.dataset.fatal !== "true", "status=" + status());
 
+    // --- the split: the two panes share the screen evenly ---
+    // Equal rows in the source do not prove equal panes on screen; a min-height
+    // or a max-height on either one breaks the split without touching the rule.
+    const upperPane = q(".app-shell > .pane:not(.pane-agenda)");
+    const lowerPane = q(".pane-agenda");
+    if (upperPane && lowerPane) {
+      const notesH = upperPane.getBoundingClientRect().height;
+      const agendaH = lowerPane.getBoundingClientRect().height;
+      const gap = Math.abs(notesH - agendaH);
+      check("the notes pane and the agenda pane are the same height",
+            gap <= Math.max(2, notesH * 0.02),
+            "notes=" + Math.round(notesH) + " agenda=" + Math.round(agendaH)
+            + " gap=" + Math.round(gap));
+    } else {
+      check("both panes are in the shell", false,
+            "notesPane=" + !!upperPane + " agendaPane=" + !!lowerPane);
+    }
+
     // --- top-bar wiring: click the real controls, look for the real effect ---
     const folderForm = q("#new-folder-form");
     q("#new-folder-btn").click();

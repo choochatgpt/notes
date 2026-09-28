@@ -17,21 +17,24 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 ┌──────────────────────────────────────────────┐
 │ Notes  [New folder] [New note] [New reminder] [Backup]
 ├──────────────────────────────────────────────┤
-│ (Notes) (Reminders)          Work / Projects │  <- upper 2/3:
+│ (Notes) (Reminders)          Work / Projects │  <- upper half:
 │ ┌───────────┬──────────────────────────────┐ │     browse or edit
 │ │ Folders   │ Notes in the selected folder │ │
 │ │  Work  12 │ Apollo kickoff      3d ago   │ │
 │ │  Home   4 │ Budget draft        1w ago   │ │
 │ └───────────┴──────────────────────────────┘ │
 ├──────────────────────────────────────────────┤
-│ Upcoming reminders         7 · soonest first  │  <- lower 1/3:
+│ Upcoming reminders         7 · soonest first  │  <- lower half:
 │  🕐 Standup   [Weekly·Tue,Thu]  in 2h · Mon 29 Sep 15:00
 │  🕐 Passport  [Every 5 years]   in 3y · Fri 2 Oct 2027
 └──────────────────────────────────────────────┘
 ```
 
-**The split is two thirds notes, one third agenda.** The agenda is never
-scrolled off: a reminder coming due stays in view while you edit a note above it.
+**The split is half and half — the notes region above, the agenda below.** The
+agenda is never scrolled off: a reminder coming due stays in view while you edit
+a note above it. It is an even split rather than a ratio because the agenda is
+where a reminder actually gets read, and a third of the screen cut the list short
+while the notes region had room to spare.
 
 **Every agenda row is exactly one line**, reading left to right as clock, title,
 how often it repeats, then when it is next due:
@@ -51,7 +54,7 @@ but leaves you to infer whether it repeats weekly or fortnightly, which is the
 inference the label exists to remove. A one-off reads `Once`; a spent one-off
 reads `Past` and carries no due time, because it does not have one.
 
-**Inside the notes third, the folders and the note list are half each.** The
+**Inside the notes half, the folders and the note list are half each.** The
 folder column carries the names and the delete control, so it gets an equal
 share rather than whatever is left over.
 
@@ -61,7 +64,7 @@ every pixel spent on margin is a folder name that gets cut off.
 **The top bar is one row that never wraps.** On a narrow screen the button
 labels collapse and the icons carry the action.
 
-**The upper third browses, then edits in place.** Tapping a note (or a reminder)
+**The upper half browses, then edits in place.** Tapping a note (or a reminder)
 swaps that area into its editor with a back arrow.
 
 **Two tabs in the upper area.** *Notes* shows the folder tree beside the note
@@ -177,7 +180,7 @@ Notes entered in one do not appear in the other.
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 90 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 29 checks in real Chrome
+python tools/browser_check.py                   # 30 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -203,9 +206,12 @@ resulting DOM — including moving a note and confirming it left the folder it w
 in (not just that it arrived in the new one), and deleting a folder: that the
 control is on screen without hovering, that cancelling the confirmation keeps the
 folder, that the confirmation names the folder and counts the notes inside it,
-and that confirming removes both. Static checks can prove an id exists and a
-listener is attached in the source; they cannot prove a click *does anything*,
-which is the failure this project actually hit — see "Releasing" below.
+and that confirming removes both. It also measures the two panes' rendered
+heights, because equal rows in the source do not prove equal panes on screen —
+a `min-height` on either one breaks the split without touching the rule. Static
+checks can prove an id exists and a listener is attached in the source; they
+cannot prove a click *does anything*, which is the failure this project actually
+hit — see "Releasing" below.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

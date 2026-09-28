@@ -127,7 +127,18 @@ else:
         if len(tracks) != 2:
             fails.append(f".app-shell must be a two-row split, found {len(tracks)} tracks")
         else:
-            print(f"stacked split: app-shell rows = {' '.join(tracks)}")
+            # The two rows share the screen evenly. A ratio such as 2fr 1fr is a
+            # different layout and nothing else here would notice it come back,
+            # because it is still a two-row split with the notes row on top.
+            shares = [re.search(r"([\d.]+)fr\b", track) for track in tracks]
+            if not all(shares):
+                fails.append(f".app-shell rows must both be fractional tracks, "
+                             f"found {' '.join(tracks)}")
+            elif shares[0].group(1) != shares[1].group(1):
+                fails.append(f".app-shell must split the screen evenly, "
+                             f"found {' '.join(tracks)}")
+            else:
+                print(f"stacked split: app-shell rows = {' '.join(tracks)} (even)")
 if "pane-agenda" not in html:
     fails.append("index.html has no agenda pane")
 if 'id="agenda-list"' not in html:

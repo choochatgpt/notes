@@ -103,7 +103,8 @@ PROBE = """<!doctype html>
     const doc = frame.contentDocument;
     const body = doc.body;
     const q = sel => doc.querySelector(sel);
-    const status = () => { const el = q("#storage-status"); return el ? el.textContent : "n/a"; };
+    const status = () => { const el = q("#app-status"); return el ? el.textContent : "n/a"; };
+    const statusbar = () => q(".statusbar");
 
     // Stub the blocking dialogs inside the frame before anything can call them.
     // confirm() is answerable rather than fixed, so a destructive path can be
@@ -117,14 +118,64 @@ PROBE = """<!doctype html>
       return confirmAnswer;
     };
 
-    // Wait for the app to settle: the status line changes once, whether startup
-    // succeeded or threw, and data-fatal is set only on a startup failure.
+    // Wait for the app to settle on an explicit signal, never on a string the
+    // app happens to print. data-ready is set at the end of init(); data-fatal
+    // is set instead when startup threw.
     const settled = await waitFor(
-      () => body.dataset.fatal === "true" || status() !== "Local storage: checking\u2026"
+      () => body.dataset.fatal === "true" || body.dataset.ready === "true"
     );
-    check("app settled after startup", settled, "status=" + status());
+    check("app settled after startup", settled,
+          "ready=" + body.dataset.ready + " fatal=" + body.dataset.fatal);
 
     check("no fatal startup banner", body.dataset.fatal !== "true", "status=" + status());
+
+    // --- the status bar is for failures and takes no space otherwise ---
+    // It used to hold two lines of small print: local storage usage, and the
+    // next reminder. The agenda above already says what is coming up, so both
+    // were removed -- and the bar has to actually give the space back, not just
+    // empty out while keeping its padding and border.
+    const bar = statusbar();
+    if (bar) {
+      const style = frame.contentWindow.getComputedStyle(bar);
+      // getComputedStyle hands back a LIVE declaration, so these have to be
+      // read out as strings now. Holding the object and comparing it to itself
+      // after a change compares the new value with the new value.
+      const restDisplay = style.display;
+      const restBg = style.backgroundColor;
+      const box = bar.getBoundingClientRect();
+      const said = q("#storage-status") || q("#reminder-status");
+      check("the footer takes no space when nothing has failed",
+            (restDisplay === "none" || box.height === 0),
+            "display=" + restDisplay + " height=" + Math.round(box.height));
+      check("the storage and next-reminder lines are gone, not just hidden",
+            !said, said ? "still present: " + said.id : "");
+
+      // Hiding the bar at rest is only safe if a failure still brings it back.
+      // Force the two things a startup failure sets and measure the result,
+      // then put the page back exactly as it was.
+      bar.hidden = false;
+      body.dataset.fatal = "true";
+      await sleep(60);
+      const fatalStyle = frame.contentWindow.getComputedStyle(bar);
+      const fatalBox = bar.getBoundingClientRect();
+      check("a failure brings the footer back and tints it",
+            fatalBox.height > 0 && fatalStyle.display !== "none"
+            && fatalStyle.backgroundColor !== restBg,
+            "height=" + Math.round(fatalBox.height) + " display=" + fatalStyle.display
+            + " bg=" + fatalStyle.backgroundColor + " rest=" + restBg);
+      bar.hidden = true;
+      delete body.dataset.fatal;
+      await sleep(60);
+      check("the footer goes away again once the failure is cleared",
+            bar.getBoundingClientRect().height === 0,
+            "height=" + Math.round(bar.getBoundingClientRect().height));
+    } else {
+      // Removing the element entirely is the trap: it is the only thing that
+      // makes a startup failure visible, and an app that cannot start otherwise
+      // looks like one whose every button is broken.
+      check("the footer still exists to carry a startup failure", false,
+            "no .statusbar in the shell");
+    }
 
     // --- the split: the two panes share the screen evenly ---
     // Equal rows in the source do not prove equal panes on screen; a min-height

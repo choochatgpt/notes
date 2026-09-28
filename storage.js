@@ -112,17 +112,16 @@ export function newId() {
   return crypto.randomUUID();
 }
 
+/**
+ * Ask the browser not to evict this origin's data under storage pressure. Its
+ * only caller used to be the status bar's usage line, which is gone, but the
+ * request itself stays: it is what stops a browser quietly discarding the
+ * notes, and it has nothing to do with whether we display a quota.
+ */
 export async function requestPersistentStorage() {
   if (!navigator.storage?.persist) {
     return { supported: false, persisted: false };
   }
   const persisted = await navigator.storage.persist();
   return { supported: true, persisted };
-}
-
-export async function storageEstimate() {
-  if (!navigator.storage?.estimate) {
-    return null;
-  }
-  return navigator.storage.estimate();
 }

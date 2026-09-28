@@ -606,6 +606,10 @@ body {
 
 /* ------------------------------------------------------------ status bar */
 
+/* Failures only, and nothing at all when things are working. The `[hidden]`
+   rule is load-bearing: an author `display: flex` beats the user-agent's
+   `[hidden] { display: none }`, so without it the bar would keep the strip of
+   vertical space the informational lines were removed to reclaim. */
 .statusbar {
   display: flex;
   gap: 14px;
@@ -619,7 +623,7 @@ body {
   border-top: 1px solid var(--border);
   transition: background .25s;
 }
-#reminder-status { margin-left: auto; }
+.statusbar[hidden] { display: none; }
 
 /* A startup failure has to be impossible to miss: the app looks usable but
    nothing responds, so a quiet line of small print reads as "the buttons are

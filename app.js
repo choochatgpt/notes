@@ -6,8 +6,7 @@ import {
   openDatabase,
   put,
   remove,
-  requestPersistentStorage,
-  storageEstimate
+  requestPersistentStorage
 } from "./storage.js";
 import { reminderWithNextDue } from "./reminder.js";
 import {
@@ -69,8 +68,8 @@ const els = {
   weekdayPicker: $("#weekday-picker"),
   newFolderForm: $("#new-folder-form"),
   newFolderName: $("#new-folder-name"),
-  storageStatus: $("#storage-status"),
-  reminderStatus: $("#reminder-status")
+  statusbar: $(".statusbar"),
+  appStatus: $("#app-status")
 };
 
 function nowIso() {
@@ -81,23 +80,6 @@ function nowIso() {
 function countLabel(count, noun) {
   if (!count) return "";
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-async function refreshStorageStatus() {
-  const estimate = await storageEstimate();
-  const persistent = navigator.storage?.persisted
-    ? await navigator.storage.persisted()
-    : false;
-
-  if (!estimate) {
-    els.storageStatus.textContent = "Local storage ready";
-    return;
-  }
-
-  const usedMb = ((estimate.usage || 0) / 1048576).toFixed(1);
-  const quotaMb = ((estimate.quota || 0) / 1048576).toFixed(0);
-  els.storageStatus.textContent =
-    `Local storage: ${usedMb} MB / ${quotaMb} MB${persistent ? " · persistent" : ""}`;
 }
 
 /**
@@ -118,21 +100,6 @@ async function refreshReminderSchedule() {
     }
   }
   return changed;
-}
-
-async function refreshReminderStatus(reminders) {
-  const list = reminders || await getAll("reminders");
-  const upcoming = sortReminders(list).filter(reminder => reminder.nextDueAt);
-
-  if (!upcoming.length) {
-    els.reminderStatus.textContent = list.length
-      ? "Reminders: none upcoming"
-      : "Reminder engine: idle";
-    return;
-  }
-  const next = upcoming[0];
-  els.reminderStatus.textContent =
-    `Next: ${relativeFromNow(next.nextDueAt)} — ${next.title?.trim() || "Untitled reminder"}`;
 }
 
 /* ------------------------------------------------------------------ folders */
@@ -457,7 +424,6 @@ async function renderAll() {
   await renderNoteList();
   await renderReminderManage();
   await renderAgenda();
-  await refreshReminderStatus();
   await syncUpper();
   if (state.mode === "edit") {
     // loadEditor fills the fields and computes the context chip, so the pane
@@ -538,7 +504,6 @@ async function deleteFolder(folderId) {
   }
 
   await renderAll();
-  await refreshStorageStatus();
 }
 
 async function createNote() {
@@ -616,7 +581,6 @@ async function deleteSelectedNote() {
   state.mode = "browse";
   state.selectedItemId = null;
   await renderAll();
-  await refreshStorageStatus();
 }
 
 function selectedWeekdays() {
@@ -662,7 +626,6 @@ async function deleteSelectedReminder() {
   state.mode = "browse";
   state.selectedItemId = null;
   await renderAll();
-  await refreshStorageStatus();
 }
 
 async function switchKind(kind) {
@@ -752,8 +715,16 @@ function wireControls() {
   });
 }
 
+/**
+ * The status bar is hidden at rest, so writing to it has to reveal it. Nothing
+ * else shows it: it exists for failures, and a failure that stayed hidden would
+ * be the dead-toolbar outage all over again -- the app looks fine and silently
+ * does nothing.
+ */
 function showError(message) {
-  if (els.storageStatus) els.storageStatus.textContent = message;
+  if (!els.appStatus) return;
+  els.appStatus.textContent = message;
+  if (els.statusbar) els.statusbar.hidden = false;
 }
 
 /** A failed action says so, instead of looking like a button that does nothing. */
@@ -792,8 +763,14 @@ async function init() {
     console.info(`Recomputed ${rescheduled} reminder due date(s).`);
   }
 
-  await refreshStorageStatus();
   await renderAll();
+
+  // An explicit readiness signal. The browser check used to infer that startup
+  // had finished from the status bar's storage text changing -- a proxy that
+  // vanished with the text, and a poor one anyway: it raced nothing and proved
+  // nothing. A failed startup sets data-fatal instead, so a probe can wait for
+  // either and never guess from a string the app happens to print.
+  document.body.dataset.ready = "true";
 
   if ("serviceWorker" in navigator) {
     // A device that is already running an older build is controlled by the old

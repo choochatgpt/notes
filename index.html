@@ -205,9 +205,18 @@
     </section>
   </main>
 
-  <footer class="statusbar">
-    <span id="storage-status">Local storage: checking…</span>
-    <span id="reminder-status">Reminder engine: idle</span>
+  <!-- The status bar carries failures only, and takes no space when there are
+       none. It used to hold two informational lines -- local storage usage, and
+       the next reminder -- and both were removed: the agenda directly above
+       already shows what is coming up, and the storage figure answered a
+       question nobody was asking.
+
+       The element itself stays, because a startup failure has to be impossible
+       to miss. The app looks fully usable when it cannot start, so without this
+       the symptom is "every button is broken" with nothing on screen to explain
+       it -- which is exactly the outage this project already had. -->
+  <footer class="statusbar" hidden>
+    <span id="app-status"></span>
   </footer>
 
   <script type="module" src="app.js"></script>

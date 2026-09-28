@@ -100,6 +100,16 @@ occurrence, so it sorts to the bottom and is labelled **Past** rather than jumpi
 to the top. The agenda shows only what is still upcoming, and says in a footer how
 many past reminders it is holding back.
 
+**The bottom of the screen is empty unless something has failed.** There used to be
+a status bar carrying two lines of small print — local storage usage, and the next
+reminder. Both are gone: the agenda directly above already says what is coming up,
+and the storage figure answered a question nobody was asking. The bar itself stays
+in the markup, hidden, because it is the only thing that makes a startup failure
+visible — an app that cannot start looks exactly like one whose every button is
+broken, which is an outage this project has already had. So it stays, taking no
+space, and any failure brings it back tinted red. Two checks hold both halves of
+that: it occupies nothing at rest, and forcing a failure brings it back.
+
 Recurrence covers once / every N days / weekly on chosen weekdays / every N
 months / every N years — which is every schedule originally asked for: Tue + Thu
 at 15:00, a yearly birthday, and every 5 years for passport renewal.
@@ -139,7 +149,13 @@ a control that exists but cannot be found is a control that does not work.
 
 ## Not built yet
 
-- Photo/video attachment bytes (the button is a stub).
+**Attachments do not exist.** The *Add photo/video* button is a stub: pressing it
+shows a placeholder message and stores nothing. PDFs are not accepted at all, and
+no file of any kind is saved today. Text is the only thing a note can hold — which
+does cover a label like "2025 medical reports" (that is just the note's title or
+body), but not the report itself.
+
+- Photo/video/PDF attachment bytes (the button is a stub).
 - Undo or a trash for a deleted folder.
 - Backup, export and restore.
 - Email backup transport.
@@ -180,7 +196,7 @@ Notes entered in one do not appear in the other.
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 90 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 30 checks in real Chrome
+python tools/browser_check.py                   # 34 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

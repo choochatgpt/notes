@@ -324,6 +324,36 @@ else:
     if "els.noteFolder" in save_note and written and "folderId" in written.group(1):
         print("move: the editor offers a folder picker and saveNote writes its value to the store")
 
+# --- 13. The status bar is for failures, and stays reachable ----------------
+# Its two informational lines were removed on request, so it must take no space
+# at rest. The element itself is the only thing that makes a startup failure
+# visible -- an app that cannot start otherwise looks like one whose every button
+# is broken, which is the outage this project already had. So it stays, hidden,
+# and every path that writes to it has to reveal it.
+if 'id="app-status"' not in html:
+    fails.append("index.html has no #app-status, so a failure would have nowhere to go")
+if 'class="statusbar" hidden' not in html:
+    fails.append("the status bar is not hidden at rest, so it still takes the space its "
+                 "informational lines were removed to reclaim")
+for gone in ("storage-status", "reminder-status"):
+    if gone in html or gone in app:
+        fails.append(f"#{gone} is back: those two lines were removed on request")
+bar_rule = re.search(r"\.statusbar\[hidden\]\s*\{\s*display:\s*none", css)
+if not bar_rule:
+    fails.append(".statusbar[hidden] does not set display:none, so the author display:flex "
+                 "wins over [hidden] and the bar keeps its strip of the screen")
+fatal_rule = re.search(r'body\[data-fatal="true"\]\s+\.statusbar\s*\{', css)
+if not fatal_rule:
+    fails.append("a startup failure no longer styles the status bar, so it would be invisible")
+show_error = body_of("showError")
+if not show_error:
+    fails.append("app.js has no showError")
+elif "hidden = false" not in show_error:
+    fails.append("showError does not reveal the status bar, so every failure would be silent "
+                 "now that the bar is hidden at rest")
+elif bar_rule and fatal_rule and show_error:
+    print("status bar: hidden at rest, revealed by showError, tinted on a fatal startup")
+
 print()
 if notes:
     print("NOTES:")

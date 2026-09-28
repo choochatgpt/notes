@@ -3,6 +3,7 @@
 
     python tools/browser_check.py
     python tools/browser_check.py --compare-stale 3db9b76
+    python tools/browser_check.py --url https://choochatgpt.github.io/notes/
 
 The static checker can prove an id exists in the markup and that a listener is
 attached in the source. It cannot prove a *click does anything*, and that is the
@@ -16,6 +17,10 @@ So this clicks the real buttons in a real browser and inspects the real DOM.
 --compare-stale rebuilds the broken pairing from a git revision and runs both, to
 confirm the harness still detects the fault it was written for. A check that can
 no longer fail is not a check.
+
+--url drives an app that is already served, which is the only way to test what a
+device actually downloads. Confirming the published bytes match the local copy
+proves the upload landed, not that the deployed app works.
 
 Two things this harness must not do, both of which produced misleading results in
 an earlier version and are easy to reintroduce:
@@ -199,24 +204,37 @@ def build_stage(name: str, app_js: Path) -> Path:
     return stage
 
 
-def run_probe(stage: Path, port: int, browser: Path) -> list[dict]:
-    HOLDER["data"] = None
+def serve(directory: Path, port: int) -> tuple[socketserver.TCPServer, threading.Thread]:
+    """Serve `directory` on loopback, in a daemon thread, and hand back the pair."""
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("127.0.0.1", port), functools.partial(Probe, directory=str(stage)))
+    httpd = socketserver.TCPServer(("127.0.0.1", port),
+                                   functools.partial(Probe, directory=str(directory)))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
+    return httpd, thread
 
-    profile = WORK / f"chrome-profile-{port}"
-    process = subprocess.Popen(
-        [
-            str(browser), "--headless=new", "--disable-gpu", "--no-first-run",
-            "--no-default-browser-check", "--disable-extensions",
-            f"--user-data-dir={profile}",
-            f"http://127.0.0.1:{port}/_probe.html",
-        ],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
 
+def drive(port: int, browser: Path, httpd, thread, label: str,
+          cross_origin: bool = False) -> list[dict]:
+    """Run Chrome at the probe page and wait for it to report back.
+
+    Chrome is terminated and the server shut down on every path out, including
+    the timeout, so a hung browser cannot leave a port held for the next run.
+    """
+    argv = [
+        str(browser), "--headless=new", "--disable-gpu", "--no-first-run",
+        "--no-default-browser-check", "--disable-extensions",
+        f"--user-data-dir={WORK / f'chrome-profile-{port}'}",
+    ]
+    if cross_origin:
+        # The probe reads and clicks inside a frame served from another origin.
+        # Without this its document is opaque and every check fails for a reason
+        # that has nothing to do with the app under test. It also needs a
+        # non-default profile, which the line above already supplies.
+        argv += ["--disable-web-security", "--disable-site-isolation-trials"]
+    argv.append(f"http://127.0.0.1:{port}/_probe.html")
+
+    process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + 90
     try:
         while time.time() < deadline and HOLDER["data"] is None:
@@ -232,8 +250,27 @@ def run_probe(stage: Path, port: int, browser: Path) -> list[dict]:
         thread.join(timeout=5)
 
     if HOLDER["data"] is None:
-        raise SystemExit(f"probe never reported back for {stage.name} (Chrome hung or the page errored)")
+        raise SystemExit(f"probe never reported back for {label} (browser hung or the page errored)")
     return json.loads(HOLDER["data"])
+
+
+def run_probe(stage: Path, port: int, browser: Path) -> list[dict]:
+    HOLDER["data"] = None
+    httpd, thread = serve(stage, port)
+    return drive(port, browser, httpd, thread, stage.name)
+
+
+def run_probe_url(url: str, port: int, browser: Path) -> list[dict]:
+    """Probe an app that is already served -- the live site, not a local stage."""
+    HOLDER["data"] = None
+    # The probe page itself only drives the clicks, so a throwaway directory is
+    # enough; the app under test comes from `url`.
+    scratch = WORK / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "_probe.html").write_text(
+        PROBE.replace('src="./index.html"', f'src="{url}"'), encoding="utf-8")
+    httpd, thread = serve(scratch, port)
+    return drive(port, browser, httpd, thread, url, cross_origin=True)
 
 
 def find_browser(explicit: str | None) -> Path:
@@ -262,11 +299,30 @@ def main() -> int:
     parser.add_argument("--compare-stale", metavar="COMMIT",
                         help="also run the app.js from this git revision against the current "
                              "markup, to confirm the harness still detects the fault")
+    parser.add_argument("--url", metavar="URL",
+                        help="drive an app that is already served -- the live deployment -- "
+                             "instead of building local stages")
     parser.add_argument("--browser", help="path to a Chrome or Edge binary")
     args = parser.parse_args()
 
+    if args.url and args.compare_stale:
+        parser.error("--url and --compare-stale are different questions; run them separately")
+
     browser = find_browser(args.browser)
     WORK.mkdir(parents=True, exist_ok=True)
+
+    if args.url:
+        results = run_probe_url(args.url, 8190, browser)
+        report(args.url, results)
+        broken = [r["name"] for r in results if not r["ok"]]
+        print("\n=== verdict ===")
+        if broken:
+            print(f"{len(broken)} control(s) do not respond on the deployed app:")
+            for name in broken:
+                print(f"   {name}")
+            return 1
+        print(f"the deployed app responds on all {len(results)} checks")
+        return 0
 
     stages: dict[str, Path] = {}
     stale: str | None = None

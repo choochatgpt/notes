@@ -155,7 +155,16 @@ python tools/browser_check.py --compare-stale <commit>
 ```
 
 rebuilds the broken pairing (current markup + that revision's `app.js`) and runs
-both, to confirm the harness still detects the fault it was written for.
+both, to confirm the harness still detects the fault it was written for. A check
+that can no longer fail is not a check.
+
+```sh
+python tools/browser_check.py --url https://choochatgpt.github.io/notes/
+```
+
+drives the deployment itself, which is the only way to test what a device
+actually downloads. Confirming the published bytes match the local copy proves
+the upload landed; it does not prove the deployed app works.
 
 ## Releasing
 

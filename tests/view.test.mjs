@@ -1,15 +1,20 @@
 /**
  * Tests for the pure view helpers.
  *
- *   node tests/view.test.mjs ../view.js
+ *   node tests/view.test.mjs [path-to-view.js]
+ *   Exit: 0 = all pass, 1 = one or more failures
  *
- * Covers the two behaviours the UI now depends on: reminders ordered soonest
- * first (with spent one-offs last, not first) and recurrence rules rendered as
- * something a human can read at a glance.
+ * The module path defaults to ../source/view.js (durable-mirror layout); pass
+ * ../view.js when running inside the flat published/active layout.
+ *
+ * Covers the behaviours the UI depends on: reminders ordered soonest first
+ * (with spent one-offs last, not first), recurrence rules rendered as something
+ * a human can read at a glance, relative-time buckets, folder paths, and the
+ * escaping that keeps a folder name out of the markup.
  */
 // Resolve against this file, not the caller's cwd, so the harness works from
 // either the flat workspace layout or the durable-mirror one.
-const resolved = new URL(process.argv[2] || "../view.js", import.meta.url);
+const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url);
 const {
   absoluteLabel,
   describeRule,

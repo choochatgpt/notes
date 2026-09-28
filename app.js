@@ -266,6 +266,15 @@ async function renderNoteList() {
   wireRows(els.noteList, "notes");
 }
 
+/**
+ * One line per reminder: clock, title, how often it repeats, when it is next due.
+ *
+ * Everything after the title is a direct child of the row so it lies along that
+ * one line; the title is the only flexible part and ellipsises rather than
+ * pushing the recurrence or the due time off the row. A spent one-off has no
+ * future occurrence and carries no due time at all -- the chip says "Past"
+ * rather than the row printing a date it does not have.
+ */
 function reminderRow(reminder) {
   const title = reminder.title?.trim() || "Untitled reminder";
   const due = reminder.nextDueAt;
@@ -276,17 +285,13 @@ function reminderRow(reminder) {
          <span class="when-rel">${esc(relativeFromNow(due))}</span>
          <span class="when-abs">${esc(absoluteLabel(due))}</span>
        </span>`
-    : `<span class="item-when"><span class="when-abs">no future date</span></span>`;
+    : "";
 
-  return `<button class="item-row ${due ? "" : "past"} ${state.mode === "edit" && state.selectedItemId === reminder.id ? "active" : ""}"
+  return `<button class="item-row reminder-row ${due ? "" : "past"} ${state.mode === "edit" && state.selectedItemId === reminder.id ? "active" : ""}"
                   type="button" data-item="${esc(reminder.id)}">
     <svg class="icon"><use href="#i-clock"></use></svg>
-    <span class="item-main">
-      <span class="item-title">${esc(title)}</span>
-      <span class="item-rule">
-        <span class="chip ${due ? "accent" : "past"}">${esc(due ? rule : "Past")}</span>
-      </span>
-    </span>
+    <span class="item-title">${esc(title)}</span>
+    <span class="chip ${due ? "accent" : "past"}">${esc(due ? rule : "Past")}</span>
     ${when}
   </button>`;
 }

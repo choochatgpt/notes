@@ -489,8 +489,36 @@ body {
 
 /* The agenda reads as a timeline, so its rows lead with the clock. */
 .pane-agenda .item-row { grid-template-columns: auto 1fr auto; }
-.pane-agenda .item-list { padding: 8px; }
-.agenda-foot { border-top: 1px dashed var(--border); margin-top: 6px; padding-top: 10px; }
+.pane-agenda .item-list { padding: 5px; }
+.agenda-foot { border-top: 1px dashed var(--border); margin-top: 5px; padding-top: 7px; }
+
+/* One line per reminder. The row is a flex line rather than a grid so the clock,
+   the title, the recurrence and the due time all sit along it; the title is the
+   only part that flexes, and it ellipsises rather than shoving the recurrence
+   off the row. A stacked title-over-chip row is what this replaces. */
+.item-row.reminder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.item-row.reminder-row .icon { align-self: center; margin-top: 0; }
+.item-row.reminder-row .item-title { flex: 1; min-width: 0; }
+
+/* The due block lies along the row too: relative time, then the absolute one
+   after a separator. Both stay whole -- they are short and measured. */
+.item-row.reminder-row .item-when {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0;
+  flex: none;
+}
+.item-row.reminder-row .when-abs::before {
+  content: "·";
+  margin: 0 6px;
+  color: var(--border);
+}
+/* A spent one-off has no due block at all, so nothing follows the chip. */
+.item-row.reminder-row .item-when:empty { display: none; }
 
 /* -------------------------------------------------------------- editors */
 
@@ -617,6 +645,13 @@ body[data-fatal="true"] .pane { opacity: .55; }
   .item-row { padding: 6px 7px; gap: 6px; }
   .folder-select { font-size: 12.5px; }
   .context-chip { max-width: 46%; }
+
+  /* Keep the row on one line by dropping the absolute date, not by wrapping.
+     "in 2 hours" is the part that decides whether you act now, and the exact
+     timestamp is still one tap away in the reminder's own editor. Wrapping would
+     give every row a second line, which is the thing being fixed. */
+  .item-row.reminder-row .when-abs { display: none; }
+  .item-row.reminder-row { gap: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

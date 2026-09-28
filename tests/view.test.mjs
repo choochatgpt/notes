@@ -94,14 +94,24 @@ equal("daily", describeRule({ kind: "daily", interval: 1 }), "Daily");
 equal("every 3 days", describeRule({ kind: "daily", interval: 3 }), "Every 3 days");
 equal("weekly with no weekdays", describeRule({ kind: "weekly", interval: 1, weekdays: [] }), "Weekly");
 equal(
-  "the user's Tue + Thu example",
+  "the user's Tue + Thu example names the period as well as the days",
   describeRule({ kind: "weekly", interval: 1, weekdays: [2, 4] }),
-  "Tue, Thu"
+  "Weekly · Tue, Thu"
 );
 equal(
-  "weekly on an interval names both",
+  "weekly on an interval states the frequency and the days",
   describeRule({ kind: "weekly", interval: 2, weekdays: [2] }),
-  "Tue · 2wk"
+  "Every 2 weeks · Tue"
+);
+equal(
+  "every 2 weeks with no weekdays",
+  describeRule({ kind: "weekly", interval: 2, weekdays: [] }),
+  "Every 2 weeks"
+);
+equal(
+  "an unknown weekday in the rule is dropped rather than printed as undefined",
+  describeRule({ kind: "weekly", interval: 1, weekdays: [2, 99] }),
+  "Weekly · Tue"
 );
 equal("monthly", describeRule({ kind: "monthly", interval: 1 }), "Monthly");
 equal("every 6 months", describeRule({ kind: "monthly", interval: 6 }), "Every 6 months");
@@ -113,6 +123,29 @@ equal(
   describeRule({ kind: "daily", interval: "banana" }),
   "Daily"
 );
+
+// The user asked the home page to state the period AND the frequency. The
+// failure this guards against is a label that states only one of them: "Tue,
+// Thu" says which days but leaves the reader to infer whether it repeats weekly
+// or fortnightly, which is the inference this label exists to remove.
+for (const [name, rule] of [
+  ["weekly with days, interval 1", { kind: "weekly", interval: 1, weekdays: [2, 4] }],
+  ["weekly with days, interval 3", { kind: "weekly", interval: 3, weekdays: [2] }],
+  ["weekly with no days", { kind: "weekly", interval: 1, weekdays: [] }],
+  ["daily", { kind: "daily", interval: 1 }],
+  ["daily, interval 4", { kind: "daily", interval: 4 }],
+  ["monthly", { kind: "monthly", interval: 1 }],
+  ["yearly", { kind: "yearly", interval: 1 }]
+]) {
+  const label = describeRule(rule);
+  const named = /Weekly|Daily|Monthly|Yearly|Every [0-9]+ (day|days|week|weeks|month|months|year|years)/.test(label);
+  check(`the label for ${name} names both the period and the frequency`, named, label);
+}
+
+// The days survive alongside the period rather than being replaced by it.
+const named = describeRule({ kind: "weekly", interval: 1, weekdays: [2, 4] });
+check("the period does not displace the weekdays",
+   named.includes("Tue") && named.includes("Thu"), named);
 
 console.log("\n=== 3. relativeFromNow -- sign and unit ===");
 {

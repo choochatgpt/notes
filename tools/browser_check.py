@@ -152,6 +152,24 @@ PROBE = """<!doctype html>
           body.dataset.mode === "edit" && body.dataset.kind === "reminders",
           "mode=" + body.dataset.mode + " kind=" + body.dataset.kind + " status=" + status());
 
+    // Fill it in and save, so the agenda below has a real reminder to lay out
+    // rather than its empty-state paragraph. A weekly Tue+Thu rule is the case
+    // the user described, and it is the one whose label used to omit the period.
+    q("#reminder-title").value = "Probe Standup";
+    q("#reminder-start").value = "2027-01-05T09:00";
+    const repeat = q("#reminder-repeat");
+    repeat.value = "weekly";
+    repeat.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+    await sleep(300);
+    for (const day of ["2", "4"]) {
+      const box = [...doc.querySelectorAll("#weekday-picker input")].find(b => b.value === day);
+      if (box) box.checked = true;
+    }
+    q("#reminder-editor").requestSubmit();
+    await sleep(900);
+    q("#editor-back").click();
+    await sleep(700);
+
     q("#backup-btn").click();
     await sleep(200);
     check("Backup button responds", alerts.length > 0, "alerts=" + alerts.length);
@@ -160,6 +178,44 @@ PROBE = """<!doctype html>
     const agenda = q("#agenda-list");
     check("agenda pane rendered", !!agenda && agenda.children.length > 0,
           "children=" + (agenda ? agenda.children.length : "n/a"));
+
+    // --- every agenda row is one line, and says how it repeats ---
+    // "One line" is a layout fact the source cannot state: the same markup
+    // stacks into three lines if the row is a grid or the due block wraps. So it
+    // is measured -- the row must be shorter than twice its own line box, which
+    // a stacked row exceeds.
+    const agendaRows = [...doc.querySelectorAll("#agenda-list .reminder-row")];
+    check("the agenda shows a reminder row", agendaRows.length === 1,
+          "rows=" + agendaRows.length);
+
+    if (agendaRows.length === 1) {
+      const row = agendaRows[0];
+      const chip = row.querySelector(".chip");
+      const label = chip ? chip.textContent.trim() : "";
+      check("the row states how often it repeats, period included",
+            /Weekly/.test(label) && /Tue/.test(label) && /Thu/.test(label),
+            "chip=" + JSON.stringify(label));
+
+      const title = row.querySelector(".item-title");
+      const style = frame.contentWindow.getComputedStyle(title);
+      const line = parseFloat(style.lineHeight) || 20;
+      const height = row.getBoundingClientRect().height;
+      check("the row is a single line tall", height <= line * 1.9,
+            "height=" + Math.round(height) + " line=" + Math.round(line));
+
+      // The pieces must be siblings on the row, not nested inside a stack.
+      const selectors = [".item-title", ".chip", ".item-when"];
+      const parts = selectors.map(sel => row.querySelector(sel));
+      check("the recurrence and the due time sit on the row beside the title",
+            parts.every(el => el && el.parentElement === row),
+            parts.map(el => el ? el.className : "missing").join(" | "));
+
+      const whenDir = parts[2]
+        ? frame.contentWindow.getComputedStyle(parts[2]).flexDirection
+        : "n/a";
+      check("the due block lies along the row rather than stacking",
+            whenDir === "row", "flex-direction=" + whenDir);
+    }
 
     // --- the notes half still swaps into the editor ---
     q("#notes-tab").click();

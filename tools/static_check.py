@@ -31,6 +31,14 @@ def read(name: str) -> str:
     return (REPO / name).read_text(encoding="utf-8")
 
 
+def body_of(name: str) -> str:
+    """The source of one function, from its declaration to the next one."""
+    chunk = app.split(f"function {name}(", 1)
+    if len(chunk) < 2:
+        return ""
+    return chunk[1].split("\nasync function ", 1)[0].split("\nfunction ", 1)[0]
+
+
 html = read("index.html")
 app = read("app.js")
 view = read("view.js")
@@ -138,6 +146,46 @@ else:
     else:
         print("agenda: upcoming only, soonest first")
 
+# --- 6b. Every reminder is one line, and it states how it repeats -----------
+# Two things make the home-page row a single line and neither is visible in the
+# markup: the row must be a flex line rather than a stacked grid, and the due
+# block must lie along it rather than stacking inside itself. A row that stacks
+# looks identical in the source -- it is one extra wrapping element.
+row_fn = body_of("reminderRow") if "reminderRow" in app else ""
+if not row_fn:
+    fails.append("app.js has no reminderRow, so the agenda cannot be rendered")
+else:
+    if "reminder-row" not in row_fn:
+        fails.append("reminderRow does not carry reminder-row, so the one-line layout never applies")
+    if "item-main" in row_fn:
+        fails.append("reminderRow still wraps the title in item-main, which stacks the "
+                     "title above the recurrence and gives the row a second line")
+    if "describeRule" not in row_fn:
+        fails.append("reminderRow does not state the recurrence, so the home page never "
+                     "shows the period or the frequency")
+    if "chip" not in row_fn:
+        fails.append("reminderRow emits no chip, so the recurrence has nowhere to appear")
+    else:
+        print("agenda rows: one line each, carrying the recurrence and the due time")
+
+row_rule = re.search(r"\.item-row\.reminder-row\s*\{([^}]*)\}", css)
+if not row_rule:
+    fails.append(".item-row.reminder-row has no CSS rule, so the one-line row is not laid out")
+else:
+    body = row_rule.group(1)
+    if "display: flex" not in body:
+        fails.append(".item-row.reminder-row is not a flex line, so it inherits the grid "
+                     "and the recurrence wraps onto a second line")
+    if "column" in body:
+        fails.append(".item-row.reminder-row stacks its children, so the row is not one line")
+
+when_rule = re.search(r"\.item-row\.reminder-row\s+\.item-when\s*\{([^}]*)\}", css)
+if not when_rule:
+    fails.append("the due block has no rule inside a reminder row, so it would stack its "
+                 "relative and absolute times and make the row two lines")
+elif "flex-direction: row" not in when_rule.group(1):
+    fails.append("the due block inside a reminder row does not lie along the row")
+
 # --- 7. Folders are scoped to notes, and the editor swaps in place -----------
 if 'document.body.dataset.kind' not in app:
     fails.append("app.js never sets body[data-kind]")
@@ -149,18 +197,13 @@ else:
     print("browse/edit swap in place: notes browser, editor and back arrow all toggled")
 
 # --- 8. Every destructive path is behind a confirmation ----------------------
-def body_of(name: str) -> str:
-    chunk = app.split(f"function {name}(", 1)
-    if len(chunk) < 2:
-        fails.append(f"app.js has no {name}, but the UI offers a delete for it")
-        return ""
-    return chunk[1].split("\nasync function ", 1)[0].split("\nfunction ", 1)[0]
-
 for fn in ("deleteFolder", "deleteSelectedNote", "deleteSelectedReminder"):
     chunk = body_of(fn)
-    if chunk and "confirm(" not in chunk:
+    if not chunk:
+        fails.append(f"app.js has no {fn}, but the UI offers a delete for it")
+    elif "confirm(" not in chunk:
         fails.append(f"{fn} deletes without confirming first")
-    if chunk and "remove(" not in chunk:
+    elif "remove(" not in chunk:
         fails.append(f"{fn} never calls remove(), so it cannot actually delete")
 
 if "describeDeletion(" not in body_of("deleteFolder"):

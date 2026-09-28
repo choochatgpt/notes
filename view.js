@@ -51,23 +51,34 @@ export function absoluteLabel(iso) {
   });
 }
 
-/** Short human label for a recurrence rule, e.g. "Mon, Thu" or "Every 5 years". */
+/**
+ * Short human label for a recurrence rule, stating both the period and how often
+ * it repeats: "Weekly · Tue, Thu", "Every 2 weeks · Tue, Thu", "Every 5 years".
+ *
+ * The period is always named, even when the weekdays already imply it. "Tue, Thu"
+ * on its own says which days but not that it is weekly rather than fortnightly,
+ * and a label that leaves the reader to infer the period is the one thing this
+ * function exists to avoid.
+ */
 export function describeRule(rule) {
   const kind = rule?.kind || "once";
   const interval = Math.max(1, Number.parseInt(rule?.interval ?? 1, 10) || 1);
 
+  // "Daily" rather than "Every 1 days"; anything above 1 states the frequency.
+  const every = (once, unit) => interval === 1 ? once : `Every ${interval} ${unit}s`;
+
   switch (kind) {
     case "daily":
-      return interval === 1 ? "Daily" : `Every ${interval} days`;
+      return every("Daily", "day");
     case "weekly": {
-      const days = (rule?.weekdays || []).map(day => DAY_NAMES[day]).join(", ");
-      if (!days) return interval === 1 ? "Weekly" : `Every ${interval} weeks`;
-      return interval === 1 ? days : `${days} · ${interval}wk`;
+      const days = (rule?.weekdays || []).map(day => DAY_NAMES[day]).filter(Boolean).join(", ");
+      const period = every("Weekly", "week");
+      return days ? `${period} · ${days}` : period;
     }
     case "monthly":
-      return interval === 1 ? "Monthly" : `Every ${interval} months`;
+      return every("Monthly", "month");
     case "yearly":
-      return interval === 1 ? "Yearly" : `Every ${interval} years`;
+      return every("Yearly", "year");
     default:
       return "Once";
   }

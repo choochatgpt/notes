@@ -24,14 +24,32 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 │ │  Home   4 │ Budget draft        1w ago   │ │
 │ └───────────┴──────────────────────────────┘ │
 ├──────────────────────────────────────────────┤
-│ Upcoming reminders           7 · soonest first  <- lower 1/3:
-│  🕐 Standup      in 2 hours   Mon 29 Sep 15:00  always visible
-│  🕐 Passport     in 3 years   Fri 2 Oct 2027 │
+│ Upcoming reminders         7 · soonest first  │  <- lower 1/3:
+│  🕐 Standup   [Weekly·Tue,Thu]  in 2h · Mon 29 Sep 15:00
+│  🕐 Passport  [Every 5 years]   in 3y · Fri 2 Oct 2027
 └──────────────────────────────────────────────┘
 ```
 
 **The split is two thirds notes, one third agenda.** The agenda is never
 scrolled off: a reminder coming due stays in view while you edit a note above it.
+
+**Every agenda row is exactly one line**, reading left to right as clock, title,
+how often it repeats, then when it is next due:
+
+```
+🕐  Standup   [Weekly · Tue, Thu]   in 2 hours · Mon 29 Sep 15:00
+```
+
+The title is the only part that flexes; it ellipsises rather than pushing the
+recurrence or the due time off the row. On a narrow screen the absolute time is
+dropped so the row stays one line — "in 2 hours" is the part that decides whether
+you act now, and the exact timestamp is a tap away in the reminder's editor.
+
+The recurrence label always names **both the period and the frequency**:
+`Weekly · Tue, Thu`, not just `Tue, Thu`. The weekday list alone says which days
+but leaves you to infer whether it repeats weekly or fortnightly, which is the
+inference the label exists to remove. A one-off reads `Once`; a spent one-off
+reads `Past` and carries no due time, because it does not have one.
 
 **Inside the notes third, the folders and the note list are half each.** The
 folder column carries the names and the delete control, so it gets an equal
@@ -73,11 +91,11 @@ filed at no folder live under **Unfiled**.
 
 **Reminders are a flat list.** They are deliberately not filed into folders. Both
 the agenda and the Reminders tab are ordered by the soonest upcoming reminder,
-and each row shows both a relative due ("in 3 days") and the absolute time. A
-one-off whose moment has passed has no future occurrence, so it sorts to the
-bottom and is labelled **Past** rather than jumping to the top. The agenda shows
-only what is still upcoming, and says in a footer how many past reminders it is
-holding back.
+and each row is one line: title, how it repeats, then a relative due ("in 3 days")
+and the absolute time. A one-off whose moment has passed has no future
+occurrence, so it sorts to the bottom and is labelled **Past** rather than jumping
+to the top. The agenda shows only what is still upcoming, and says in a footer how
+many past reminders it is holding back.
 
 Recurrence covers once / every N days / weekly on chosen weekdays / every N
 months / every N years — which is every schedule originally asked for: Tue + Thu
@@ -157,9 +175,9 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 80 tests
+node tests/view.test.mjs ../view.js             # 90 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 24 checks in real Chrome
+python tools/browser_check.py                   # 29 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -167,7 +185,7 @@ rule normalisation. `view.test.mjs` covers reminder ordering (including that a
 spent one-off sorts last rather than as an epoch date), recurrence labels, the
 relative-time buckets, folder paths, HTML escaping, subtree collection for a
 recursive folder delete (including that a parent cycle terminates), the wording
-of the delete confirmation, and the folder picker's contents — tree order,
+of the delete confirmation, that every recurrence label names its period as well as its frequency, and the folder picker's contents — tree order,
 indent depth, and that a folder whose parent is missing is still offered, since
 a folder the picker cannot name is one no note can be moved out of.
 

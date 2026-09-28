@@ -118,6 +118,48 @@ export function collectSubtree(folderId, folders) {
 }
 
 /**
+ * Every folder as one flat, ordered list for a folder picker: the tree walked
+ * depth-first, each entry carrying the depth it should be indented by, with
+ * "Unfiled" first as the null id.
+ *
+ * Siblings come out alphabetical, so the picker reads in the same order as the
+ * tree. A folder whose parent is missing -- which the UI cannot create, but a
+ * hand-edited database could hold -- is appended at depth 0 rather than dropped.
+ * A folder the picker cannot name is a folder no note can be moved out of.
+ */
+export function folderOptions(folders) {
+  const list = folders || [];
+  const byParent = new Map();
+  for (const folder of list) {
+    const parent = folder.parentId ?? null;
+    if (!byParent.has(parent)) byParent.set(parent, []);
+    byParent.get(parent).push(folder);
+  }
+  const byName = (a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""));
+  for (const children of byParent.values()) children.sort(byName);
+
+  const options = [{ id: null, name: "Unfiled", depth: 0 }];
+  const seen = new Set();
+
+  // `seen` ends a parent cycle, which the tree walk would otherwise follow
+  // forever. A cycle is unreachable from the root, so it lands in the pass below.
+  const walk = (parentId, depth) => {
+    for (const folder of byParent.get(parentId) || []) {
+      if (seen.has(folder.id)) continue;
+      seen.add(folder.id);
+      options.push({ id: folder.id, name: folder.name, depth });
+      walk(folder.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+
+  for (const folder of list.filter(candidate => !seen.has(candidate.id)).sort(byName)) {
+    options.push({ id: folder.id, name: folder.name, depth: 0 });
+  }
+  return options;
+}
+
+/**
  * The confirmation shown before a folder is destroyed, naming exactly what goes
  * with it. Counts are stated before the point of no return, never after.
  */

@@ -16,6 +16,7 @@ import {
   describeDeletion,
   describeRule,
   esc,
+  folderOptions,
   folderPath,
   localInputValue,
   relativeFromNow,
@@ -59,6 +60,7 @@ const els = {
   reminderEditor: $("#reminder-editor"),
   noteTitle: $("#note-title"),
   noteBody: $("#note-body"),
+  noteFolder: $("#note-folder"),
   reminderTitle: $("#reminder-title"),
   reminderBody: $("#reminder-body"),
   reminderStart: $("#reminder-start"),
@@ -382,6 +384,29 @@ function syncUpper() {
     : (notes ? state.folderChip : state.reminderChip);
 }
 
+/** A non-breaking space: <option> collapses leading ordinary whitespace. */
+const NBSP = String.fromCharCode(0xa0);
+const INDENT = NBSP + NBSP;
+
+/**
+ * Fill the note editor's folder picker from the tree, marking where the note
+ * currently lives. Depth becomes non-breaking-space indent, because an <option>
+ * cannot be styled and leading ordinary spaces are collapsed away.
+ */
+function renderFolderPicker(selectedId) {
+  if (!els.noteFolder) return;
+
+  const current = selectedId ?? null;
+  els.noteFolder.replaceChildren();
+  for (const entry of folderOptions(state.folders)) {
+    const option = document.createElement("option");
+    option.value = entry.id ?? "";
+    option.textContent = INDENT.repeat(entry.depth) + String(entry.name ?? "");
+    option.selected = (entry.id ?? null) === current;
+    els.noteFolder.append(option);
+  }
+}
+
 async function loadEditor() {
   const store = state.activeKind === "notes" ? "notes" : "reminders";
   const item = await get(store, state.selectedItemId);
@@ -396,9 +421,14 @@ async function loadEditor() {
   if (state.activeKind === "notes") {
     els.noteTitle.value = item.title || "";
     els.noteBody.value = item.body || "";
-    state.editChip = item.folderId
-      ? folderPath(item.folderId, state.folders)
-      : "Unfiled";
+    // A note pointing at a folder that no longer exists falls back to Unfiled,
+    // so the picker and the chip cannot disagree with each other and saving the
+    // note can never write the dangling id back.
+    const folderId = state.folders.some(folder => folder.id === item.folderId)
+      ? item.folderId
+      : null;
+    renderFolderPicker(folderId);
+    state.editChip = folderId ? folderPath(folderId, state.folders) : "Unfiled";
     return;
   }
 
@@ -555,8 +585,14 @@ async function saveNote(event) {
   const note = await get("notes", state.selectedItemId);
   if (!note) return;
 
+  // The picker's "Unfiled" option carries the empty string, which is normalised
+  // back to null here: notes are indexed by folderId, and the Unfiled list is
+  // read off that same index, so the two have to agree.
+  const folderId = els.noteFolder?.value || null;
+
   await put("notes", {
     ...note,
+    folderId,
     title: els.noteTitle.value,
     body: els.noteBody.value,
     updatedAt: nowIso()

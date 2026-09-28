@@ -163,6 +163,60 @@ PROBE = """<!doctype html>
     } else {
       check("a note row exists to tap", false, "note-list is empty");
     }
+
+    // --- moving a note into a folder ---
+    // The note created above sits in Unfiled because that is what was being
+    // browsed. Make a folder, move the note into it, then check BOTH lists:
+    // it must be gone from where it was, not merely present where it went.
+    // Read-only counts come from a fresh profile, so they mean something.
+    q("#new-folder-btn").click();
+    await sleep(400);
+    q("#new-folder-name").value = "Probe Folder";
+    q("#new-folder-form").requestSubmit();
+    await sleep(800);
+
+    const folderRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+      .find(row => row.dataset.folder);
+    check("the new folder appears in the tree", !!folderRow,
+          "folders=" + doc.querySelectorAll("#folder-tree .folder-row").length);
+    const targetId = folderRow ? folderRow.dataset.folder : "";
+
+    const unfiledRows = doc.querySelectorAll("#note-list .item-row");
+    check("the note starts out in Unfiled", unfiledRows.length === 1,
+          "unfiled rows=" + unfiledRows.length);
+    if (unfiledRows.length) {
+      unfiledRows[0].click();
+      await sleep(700);
+
+      const picker = q("#note-folder");
+      check("the note editor offers a folder picker", !!picker);
+      const listed = picker ? [...picker.options].some(o => o.value === targetId) : false;
+      check("the picker lists the folder as a destination", listed,
+            "options=" + (picker ? picker.options.length : "n/a"));
+
+      if (listed) {
+        picker.value = targetId;
+        q("#note-editor").requestSubmit();
+        await sleep(900);
+
+        q("#editor-back").click();
+        await sleep(700);
+        const left = doc.querySelectorAll("#note-list .item-row").length;
+        check("the note has left Unfiled", left === 0, "unfiled rows=" + left);
+
+        const dest = doc.querySelector(
+          '#folder-tree .folder-row[data-folder="' + targetId + '"] .folder-select');
+        if (dest) {
+          dest.click();
+          await sleep(700);
+          const arrived = doc.querySelectorAll("#note-list .item-row").length;
+          check("the note is now in the folder it moved to", arrived === 1,
+                "destination rows=" + arrived);
+        } else {
+          check("the destination folder can be opened", false, "row not found");
+        }
+      }
+    }
   } catch (error) {
     check("probe ran to completion", false, String(error && error.message || error));
   }
@@ -221,10 +275,17 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
     Chrome is terminated and the server shut down on every path out, including
     the timeout, so a hung browser cannot leave a port held for the next run.
     """
+    # A fresh profile every run. IndexedDB lives in the profile, so a leftover
+    # one would carry notes and folders into the next run and make any count
+    # this probe asserts depend on history rather than on what it just did.
+    profile = WORK / f"chrome-profile-{port}"
+    if profile.exists():
+        shutil.rmtree(profile, ignore_errors=True)
+
     argv = [
         str(browser), "--headless=new", "--disable-gpu", "--no-first-run",
         "--no-default-browser-check", "--disable-extensions",
-        f"--user-data-dir={WORK / f'chrome-profile-{port}'}",
+        f"--user-data-dir={profile}",
     ]
     if cross_origin:
         # The probe reads and clicks inside a frame served from another origin.

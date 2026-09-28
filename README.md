@@ -75,6 +75,17 @@ Recurrence covers once / every N days / weekly on chosen weekdays / every N
 months / every N years — which is every schedule originally asked for: Tue + Thu
 at 15:00, a yearly birthday, and every 5 years for passport renewal.
 
+## Moving a note
+
+Open a note and change its **Folder** field, then save. The picker lists every
+folder, indented to show nesting, with *Unfiled* at the top for no folder at all.
+A note is created in whichever folder you were browsing, and this is the only way
+it changes folder afterwards.
+
+The context chip above the editor shows where the note lives, so it updates the
+moment a move is saved. If you move a note out of the folder you are browsing,
+it leaves that list — which is what the chip is telling you.
+
 ## Deleting
 
 Deleting a note or a reminder asks for confirmation naming the item.
@@ -131,24 +142,35 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 64 tests
-python tools/browser_check.py                   # 11 checks in real Chrome
+node tests/view.test.mjs ../view.js             # 80 tests
+python tools/static_check.py                    # wiring and structural invariants
+python tools/browser_check.py                   # 17 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
 rule normalisation. `view.test.mjs` covers reminder ordering (including that a
 spent one-off sorts last rather than as an epoch date), recurrence labels, the
 relative-time buckets, folder paths, HTML escaping, subtree collection for a
-recursive folder delete (including that a parent cycle terminates), and the
-wording of the delete confirmation.
+recursive folder delete (including that a parent cycle terminates), the wording
+of the delete confirmation, and the folder picker's contents — tree order,
+indent depth, and that a folder whose parent is missing is still offered, since
+a folder the picker cannot name is one no note can be moved out of.
 
 Both take the module path as an argument and default to the `../source/` layout.
 
+`tools/static_check.py` proves names line up: every icon reference resolves,
+every `$("#id")` has an element, no emitted class is unstyled, the service worker
+caches every imported module. It also asserts the structural rules this project
+has already broken once — controls wired before the first `await`, a guarded
+`on()` rather than raw `addEventListener`, and code served network-first.
+
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
-resulting DOM. Static checks can prove an id exists and a listener is attached in
-the source; they cannot prove a click *does anything*, which is the failure this
-project actually hit — see "Releasing" below.
+resulting DOM — including moving a note and confirming it left the folder it was
+in, not just that it arrived in the new one. Static checks can prove an id exists
+and a listener is attached in the source; they cannot prove a click *does
+anything*, which is the failure this project actually hit — see "Releasing"
+below.
 
 ```sh
 python tools/browser_check.py --compare-stale <commit>
@@ -192,6 +214,10 @@ Three things now hold that shut, and they are worth keeping:
 
 **Before pushing, run the browser check.** A green static check does not mean the
 buttons work.
+
+**And drive the deployment, not just the upload.** Byte-identity between the live
+site and the working copy proves the publish landed; it does not prove the app
+runs. `--url` checks the real thing.
 
 Icons are generated, not hand-drawn:
 

@@ -127,6 +127,14 @@
         <div id="editor-host" class="editor-host hidden">
           <form id="note-editor" class="editor hidden">
             <input id="note-title" class="title-input" type="text" placeholder="Title" autocomplete="off">
+            <!-- Where the note lives. Changing this and saving moves the note,
+                 which is the only way a note changes folder. -->
+            <div class="form-grid">
+              <label>
+                Folder
+                <select id="note-folder"></select>
+              </label>
+            </div>
             <textarea id="note-body" class="body-input" placeholder="Write a note..."></textarea>
             <div class="editor-actions">
               <button id="delete-note-btn" class="btn danger" type="button">

@@ -21,6 +21,7 @@ const {
   describeDeletion,
   describeRule,
   esc,
+  folderOptions,
   folderPath,
   localInputValue,
   relativeFromNow,
@@ -253,6 +254,97 @@ equal(
   describeDeletion("<b>Bold</b>", { notes: 1 }),
   'Delete "<b>Bold</b>"? This also deletes 1 note. This cannot be undone.'
 );
+
+console.log("\n=== 10. folderOptions -- the folder picker's contents and order ===");
+{
+  // Unfiled first, then the tree depth-first with siblings alphabetical.
+  const tree = [
+    { id: "home", parentId: null, name: "Home" },
+    { id: "work", parentId: null, name: "Work" },
+    { id: "apollo", parentId: "work", name: "Apollo" },
+    { id: "hr", parentId: "work", name: "HR" },
+    { id: "q3", parentId: "apollo", name: "Q3" }
+  ];
+  const options = folderOptions(tree);
+
+  equal("Unfiled is offered first, as the null id", options[0].id, null);
+  equal("Unfiled is labelled", options[0].name, "Unfiled");
+  equal("Unfiled sits at depth 0", options[0].depth, 0);
+
+  equal(
+    "the tree is walked depth-first, siblings alphabetical",
+    options.slice(1).map(o => o.name).join(","),
+    "Home,Work,Apollo,Q3,HR"
+  );
+  equal(
+    "a child is one level deeper than its parent",
+    options.find(o => o.id === "apollo").depth,
+    1
+  );
+  equal(
+    "a grandchild is two levels deeper",
+    options.find(o => o.id === "q3").depth,
+    2
+  );
+  equal(
+    "ids survive, so the picker can name its destination",
+    options.map(o => o.id).join(","),
+    ",home,work,apollo,q3,hr"
+  );
+}
+{
+  // A note can never be moved out of a folder the picker cannot name.
+  const orphan = [
+    { id: "lost", parentId: "gone", name: "Lost" },
+    { id: "found", parentId: null, name: "Found" }
+  ];
+  const options = folderOptions(orphan);
+  check(
+    "a folder whose parent is missing is still offered",
+    options.some(o => o.id === "lost")
+  );
+  equal(
+    "an orphan is flattened to depth 0 rather than indented under nothing",
+    options.find(o => o.id === "lost").depth,
+    0
+  );
+  equal(
+    "reachable folders still come first",
+    options.map(o => o.id).join(","),
+    ",found,lost"
+  );
+}
+{
+  const cyc = [
+    { id: "x", parentId: "y", name: "X" },
+    { id: "y", parentId: "x", name: "Y" }
+  ];
+  const options = folderOptions(cyc);
+  equal("a parent cycle terminates and lists each folder once", options.length, 3);
+}
+{
+  // A cycle that hangs off the root must also terminate, not revisit the parent.
+  const loop = [
+    { id: "a", parentId: null, name: "A" },
+    { id: "b", parentId: "a", name: "B" }
+  ];
+  loop[0].parentId = "b";
+  const options = folderOptions(loop);
+  equal("a cycle among reachable folders still lists each once", options.length, 3);
+}
+{
+  equal("no folders still offers somewhere to file", folderOptions([]).length, 1);
+  equal("...and that is Unfiled", folderOptions([])[0].id, null);
+  equal("undefined folders is handled too", folderOptions(undefined).length, 1);
+}
+{
+  const missingName = [{ id: "a", parentId: null, name: undefined }];
+  equal(
+    "a nameless folder sorts without throwing",
+    folderOptions(missingName).length,
+    2
+  );
+}
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);
 process.exit(failed ? 1 : 0);

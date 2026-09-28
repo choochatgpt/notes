@@ -10,47 +10,113 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="app.css">
 </head>
-<body>
+<body data-kind="notes">
+
+  <!-- Single definition for every glyph in the app. Stroke and fill are inherited
+       from the .icon class so the symbols below carry no paint attributes. -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-note" viewBox="0 0 24 24">
+      <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+      <path d="M14 3v5h5"/><path d="M9.5 13h5M9.5 16.5h3"/>
+    </symbol>
+    <symbol id="i-note-plus" viewBox="0 0 24 24">
+      <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+      <path d="M14 3v5h5"/><path d="M12 12.5v5M9.5 15h5"/>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z"/>
+    </symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24">
+      <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z"/>
+      <path d="M11 12.5v5M8.5 15h5"/>
+    </symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24">
+      <path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/>
+      <path d="M10 21a2 2 0 0 0 4 0"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 4v11"/><path d="M8 11.5l4 4 4-4"/><path d="M5 20h14"/>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>
+    </symbol>
+  </svg>
+
   <header class="topbar">
-    <h1>Notes</h1>
-    <div class="topbar-actions">
-      <button id="new-folder-btn" type="button">New folder</button>
-      <button id="new-note-btn" type="button">New note</button>
-      <button id="new-reminder-btn" type="button">New reminder</button>
-      <button id="backup-btn" type="button">Backup</button>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg class="icon"><use href="#i-note"></use></svg>
+      </span>
+      <h1>Notes</h1>
+    </div>
+
+    <!-- One row, never wraps. Below 760px the labels collapse and the icons carry
+         the meaning, with title/aria-label kept for pointer and screen readers. -->
+    <div class="topbar-actions" role="group" aria-label="Actions">
+      <button id="new-folder-btn" class="btn" type="button" title="New folder" aria-label="New folder">
+        <svg class="icon"><use href="#i-folder-plus"></use></svg><span>New folder</span>
+      </button>
+      <button id="new-note-btn" class="btn primary" type="button" title="New note" aria-label="New note">
+        <svg class="icon"><use href="#i-note-plus"></use></svg><span>New note</span>
+      </button>
+      <button id="new-reminder-btn" class="btn" type="button" title="New reminder" aria-label="New reminder">
+        <svg class="icon"><use href="#i-bell"></use></svg><span>New reminder</span>
+      </button>
+      <button id="backup-btn" class="btn ghost" type="button" title="Backup" aria-label="Backup">
+        <svg class="icon"><use href="#i-download"></use></svg><span>Backup</span>
+      </button>
     </div>
   </header>
 
   <main class="app-shell">
-    <aside class="panel folders-panel" aria-label="Folders">
-      <div class="panel-title">Folders</div>
-      <div id="folder-tree" class="folder-tree">
-        <p class="muted">No folders yet.</p>
+    <!-- Folders belong to notes only. Hidden entirely while the Reminders tab is
+         active, which also collapses the grid to two columns. -->
+    <aside class="panel folders-panel" aria-label="Note folders">
+      <div class="panel-head">
+        <span class="panel-title">Folders</span>
+        <button id="add-folder-inline" class="icon-btn" type="button" title="New folder" aria-label="New folder">
+          <svg class="icon"><use href="#i-folder-plus"></use></svg>
+        </button>
       </div>
+
+      <form id="new-folder-form" class="inline-form hidden" autocomplete="off">
+        <input id="new-folder-name" type="text" placeholder="Folder name" aria-label="Folder name">
+        <button class="btn small primary" type="submit">Add</button>
+      </form>
+
+      <div id="folder-tree" class="folder-tree"></div>
     </aside>
 
     <section class="panel items-panel" aria-label="Items">
-      <div class="tabbar" role="tablist">
-        <button id="notes-tab" class="tab active" type="button" role="tab">Notes</button>
-        <button id="reminders-tab" class="tab" type="button" role="tab">Reminders</button>
+      <div class="panel-head">
+        <div class="tabbar" role="tablist">
+          <button id="notes-tab" class="tab active" type="button" role="tab" aria-selected="true">Notes</button>
+          <button id="reminders-tab" class="tab" type="button" role="tab" aria-selected="false">Reminders</button>
+        </div>
+        <span id="list-context" class="context-chip"></span>
       </div>
-      <div id="item-list" class="item-list">
-        <p class="muted">Create your first note or reminder.</p>
-      </div>
+
+      <div id="item-list" class="item-list"></div>
     </section>
 
     <section class="panel editor-panel" aria-label="Editor">
       <div id="empty-editor" class="empty-editor">
-        <h2>Local-first notes</h2>
-        <p>Select an item to edit it.</p>
+        <span class="empty-glyph" aria-hidden="true">
+          <svg class="icon"><use href="#i-note"></use></svg>
+        </span>
+        <h2>Your notes, on this device</h2>
+        <p>Pick something on the left, or start a new note.</p>
       </div>
 
       <form id="note-editor" class="editor hidden">
         <input id="note-title" class="title-input" type="text" placeholder="Title" autocomplete="off">
         <textarea id="note-body" class="body-input" placeholder="Write a note..."></textarea>
         <div class="editor-actions">
-          <button id="add-media-btn" type="button">Add photo/video</button>
-          <button id="save-note-btn" type="submit">Save</button>
+          <button id="add-media-btn" class="btn" type="button">
+            <svg class="icon"><use href="#i-folder"></use></svg><span>Add photo/video</span>
+          </button>
+          <button id="save-note-btn" class="btn primary" type="submit">Save</button>
         </div>
         <input id="media-input" type="file" accept="image/*,video/*" multiple hidden>
       </form>
@@ -89,7 +155,7 @@
           </fieldset>
         </div>
         <div class="editor-actions">
-          <button id="save-reminder-btn" type="submit">Save reminder</button>
+          <button id="save-reminder-btn" class="btn primary" type="submit">Save reminder</button>
         </div>
       </form>
     </section>

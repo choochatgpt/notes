@@ -177,16 +177,19 @@ PROBE = """<!doctype html>
             "no .statusbar in the shell");
     }
 
-    // --- the split: the two panes share the screen evenly ---
+    // --- the split: the two panes share the screen evenly, at the default ---
     // Equal rows in the source do not prove equal panes on screen; a min-height
     // or a max-height on either one breaks the split without touching the rule.
+    // This runs before any Settings click, so what is measured is the CSS
+    // fallback (1fr/1fr) a fresh profile starts from -- the ratio button is
+    // exercised further down, and it must move this from where it starts.
     const upperPane = q(".app-shell > .pane:not(.pane-agenda)");
     const lowerPane = q(".pane-agenda");
     if (upperPane && lowerPane) {
       const notesH = upperPane.getBoundingClientRect().height;
       const agendaH = lowerPane.getBoundingClientRect().height;
       const gap = Math.abs(notesH - agendaH);
-      check("the notes pane and the agenda pane are the same height",
+      check("the notes pane and the agenda pane are the same height (the default 1:1)",
             gap <= Math.max(2, notesH * 0.02),
             "notes=" + Math.round(notesH) + " agenda=" + Math.round(agendaH)
             + " gap=" + Math.round(gap));
@@ -239,9 +242,130 @@ PROBE = """<!doctype html>
     q("#editor-back").click();
     await sleep(700);
 
-    q("#backup-btn").click();
-    await sleep(200);
-    check("Backup button responds", alerts.length > 0, "alerts=" + alerts.length);
+    // --- settings: the dialog, the ratio cycle, the export handoff ---
+    // The dialog is modal, so everything driven inside it happens here and it
+    // is closed again before the page-level checks below resume.
+    const settingsBtn = q("#settings-btn");
+    check("the top bar offers Settings", !!settingsBtn,
+          settingsBtn ? "" : "no #settings-btn");
+    if (settingsBtn) {
+      settingsBtn.click();
+      await sleep(300);
+      const settingsDialog = q("#settings-dialog");
+      check("Settings opens the dialog", !!(settingsDialog && settingsDialog.open),
+            "open=" + (settingsDialog ? settingsDialog.open : "no dialog"));
+
+      // The three controls, by the exact labels the user asked for.
+      const dialogText = settingsDialog ? settingsDialog.textContent : "";
+      for (const label of ["Notes/Reminders panel display ratio",
+                           "Export notes/reminders to email",
+                           "Import notes/reminders"]) {
+        check("the dialog offers " + JSON.stringify(label),
+              dialogText.indexOf(label) !== -1);
+      }
+
+      // The cycle: chip text AND the real pane heights. A chip that updates
+      // while the grid does not would pass a text-only check, and that is the
+      // regression this exists for. The 6px gap between the panes cancels out
+      // of top/(top+bottom), so the measured share should equal the ratio's
+      // left-hand side wherever the cycle happens to be.
+      const chipText = () => {
+        const el = q("#ratio-value");
+        return el ? el.textContent.trim() : "";
+      };
+      const paneShare = () => {
+        const top = q(".app-shell > .pane:not(.pane-agenda)");
+        const bot = q(".pane-agenda");
+        if (!top || !bot) return -1;
+        const t = top.getBoundingClientRect().height;
+        const b = bot.getBoundingClientRect().height;
+        return t + b > 0 ? t / (t + b) : -1;
+      };
+      // The five requested ratios in order, then 1:1 so the default stays
+      // reachable, then one more click to prove the wrap -- which also leaves a
+      // non-default ratio behind for the persistence check at the very end.
+      const cycle = [["1:4", 1 / 5], ["1:3", 1 / 4], ["1:2", 1 / 3],
+                     ["2:3", 2 / 5], ["3:4", 3 / 7], ["1:1", 1 / 2],
+                     ["1:4", 1 / 5]];
+      for (const [label, share] of cycle) {
+        q("#ratio-btn").click();
+        await waitFor(() => chipText() === label, 3000);
+        await sleep(150);  // let layout settle after the style write
+        const got = paneShare();
+        check("a ratio click lands on " + label + " and re-balances the panes",
+              chipText() === label && Math.abs(got - share) <= 0.04,
+              "chip=" + chipText() + " topShare=" + got.toFixed(3)
+              + " expected=" + share.toFixed(3));
+      }
+
+      // Export: the CSV itself, the mailto handoff (the attribute is read, never
+      // clicked -- a real mailto hangs headless Chrome), the download, and the
+      // copy confirmation.
+      q("#export-btn").click();
+      await waitFor(() => {
+        const box = q("#export-csv");
+        return box && box.value.length > 0;
+      }, 5000);
+      const exportPanel = q("#export-panel");
+      check("the export panel opens",
+            !!exportPanel && !exportPanel.classList.contains("hidden"));
+      const csvBox = q("#export-csv");
+      const exportedCsv = csvBox ? csvBox.value : "";
+      check("the CSV holds the current backup under the versioned header",
+            exportedCsv.indexOf("# notes-backup v1") === 0
+            && exportedCsv.indexOf("Probe Standup") !== -1,
+            exportedCsv.slice(0, 70));
+      check("the CSV carries all three sections",
+            ["## folders", "## notes", "## reminders"]
+              .every(section => exportedCsv.indexOf(section) !== -1));
+
+      const emailInput = q("#backup-email");
+      emailInput.value = "probe@example.com";
+      emailInput.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      await sleep(400);
+
+      const mailLink = q("#open-email-btn");
+      const href = mailLink ? (mailLink.getAttribute("href") || "") : "";
+      check("the mail link addresses the entered email",
+            href.indexOf("mailto:probe@example.com?") === 0, href.slice(0, 60));
+      const decoded = decodeURIComponent(href);
+      check("...and carries the backup in the body",
+            decoded.indexOf("# notes-backup v1") !== -1
+            && decoded.indexOf("Probe Standup") !== -1,
+            "decoded=" + decoded.length + " chars");
+      check("the mail link is offered, since this backup fits the safe limit",
+            !!mailLink && !mailLink.classList.contains("hidden")
+            && mailLink.getAttribute("aria-disabled") !== "true",
+            "hidden=" + (mailLink ? mailLink.classList.contains("hidden") : "n/a"));
+
+      const download = q("#download-csv-btn");
+      const downloadName = download ? (download.getAttribute("download") || "") : "";
+      check("a downloadable CSV is offered",
+            !!download && (download.getAttribute("href") || "").indexOf("blob:") === 0
+            && downloadName.indexOf("notes-backup-") === 0
+            && downloadName.slice(-4) === ".csv",
+            "download=" + downloadName);
+
+      q("#copy-csv-btn").click();
+      await sleep(400);
+      const sizeNote = q("#export-size-note");
+      check("Copy CSV confirms or explains itself",
+            /Copied to the clipboard|Copying was blocked/.test(
+              sizeNote ? sizeNote.textContent : ""),
+            "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
+
+      q("#settings-close").click();
+      await sleep(250);
+      check("the dialog closes", !(q("#settings-dialog") || {}).open);
+      settingsBtn.click();
+      await sleep(250);
+      const emailAgain = q("#backup-email");
+      check("reopening the dialog keeps the entered email",
+            !!emailAgain && emailAgain.value === "probe@example.com",
+            "value=" + (emailAgain ? emailAgain.value : "n/a"));
+      q("#settings-close").click();
+      await sleep(250);
+    }
 
     // --- the lower pane ---
     const agenda = q("#agenda-list");
@@ -407,6 +531,259 @@ PROBE = """<!doctype html>
               "rows=" + doc.querySelectorAll("#note-list .item-row").length);
       }
     }
+
+    // --- import: paste the backup back, preview it, replace everything ---
+    // Export first, while a keeper note and a nested folder pair exist but the
+    // doomed note does not -- so the doomed note is provably absent from the
+    // backup and only an over-everything restore can remove it. The pane ratio
+    // chosen above must come out untouched, because a restore is not allowed
+    // to reach the settings store at all.
+    if (settingsBtn) {
+      let freshCsv = "";
+
+      q("#new-note-btn").click();
+      await sleep(800);
+      q("#note-title").value = "Keeper Note";
+      q("#note-editor").requestSubmit();
+      await sleep(800);
+      q("#editor-back").click();
+      await sleep(600);
+
+      q("#new-folder-btn").click();
+      await sleep(400);
+      q("#new-folder-name").value = "Probe Root";
+      q("#new-folder-form").requestSubmit();
+      await sleep(800);
+
+      const rootRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+        .find(row => row.dataset.folder);
+      check("the export's root folder is created", !!rootRow,
+            "rows=" + doc.querySelectorAll("#folder-tree .folder-row").length);
+      if (rootRow) {
+        // Selecting the root is what makes the next folder its child:
+        // submitNewFolder parents new folders under whatever is selected.
+        rootRow.querySelector(".folder-select").click();
+        await sleep(500);
+        q("#new-folder-btn").click();
+        await sleep(400);
+        q("#new-folder-name").value = "Probe Sub";
+        q("#new-folder-form").requestSubmit();
+        await sleep(800);
+        // Back to Unfiled so the doomed note below starts out beside its keeper.
+        const unfiledRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+          .find(row => !row.dataset.folder);
+        if (unfiledRow) {
+          unfiledRow.querySelector(".folder-select").click();
+          await sleep(500);
+        }
+      }
+
+      // Export while the doomed note does not exist yet.
+      settingsBtn.click();
+      await sleep(300);
+      q("#export-btn").click();
+      await waitFor(() => {
+        const box = q("#export-csv");
+        return box && box.value.indexOf("Probe Root") !== -1;
+      }, 5000);
+      freshCsv = q("#export-csv").value;
+      check("the export picks up the folders and the keeper note",
+            freshCsv.indexOf("Probe Sub") !== -1
+            && freshCsv.indexOf("Keeper Note") !== -1
+            && freshCsv.indexOf("Doomed Note") === -1,
+            "len=" + freshCsv.length);
+      q("#settings-close").click();
+      await sleep(250);
+
+      // The doomed note: in the database, never in the backup.
+      q("#new-note-btn").click();
+      await sleep(800);
+      q("#note-title").value = "Doomed Note";
+      q("#note-editor").requestSubmit();
+      await sleep(800);
+      q("#editor-back").click();
+      await sleep(600);
+
+      settingsBtn.click();
+      await sleep(300);
+      q("#import-btn").click();
+      await sleep(250);
+      const importPanel = q("#import-panel");
+      check("the import panel opens",
+            !!importPanel && !importPanel.classList.contains("hidden"));
+
+      // Garbage is refused, and refused without arming the restore button.
+      const pasteBox = q("#restore-input");
+      pasteBox.value = "this is not a backup, just some text";
+      q("#preview-btn").click();
+      await sleep(400);
+      const previewOut = q("#preview-out");
+      check("a non-backup is refused with an explanation",
+            /not a notes backup/.test(previewOut ? previewOut.textContent : ""),
+            "said=" + (previewOut ? previewOut.textContent.slice(0, 80) : "n/a"));
+      check("...and the restore button stays disabled",
+            q("#restore-btn").disabled === true);
+
+      // The real backup: both count lines must state what was exported above
+      // against what is on the device now.
+      pasteBox.value = freshCsv;
+      q("#preview-btn").click();
+      await sleep(500);
+      const previewText = previewOut ? previewOut.textContent : "";
+      check("the preview counts what the backup holds",
+            previewText.indexOf("Backup holds") !== -1
+            && previewText.indexOf("2 folders, 1 note, 1 reminder") !== -1,
+            previewText.slice(0, 140));
+      check("...and what the device currently holds",
+            previewText.indexOf("This device currently holds") !== -1
+            && previewText.indexOf("2 folders, 2 notes, 1 reminder") !== -1,
+            previewText.slice(0, 260));
+      check("a previewed backup arms the restore button",
+            q("#restore-btn").disabled === false);
+
+      // Editing after the preview must revoke the authorisation -- otherwise a
+      // preview would be able to authorise bytes that are no longer in the box.
+      const confirmsBeforeStale = confirms.length;
+      pasteBox.value = freshCsv + "\\n";
+      q("#restore-btn").click();
+      await sleep(400);
+      check("editing after the preview revokes it",
+            /changed after it was previewed/.test(
+              q("#preview-out") ? q("#preview-out").textContent : ""),
+            "said=" + (q("#preview-out")
+              ? q("#preview-out").textContent.slice(0, 90) : "n/a"));
+      check("...without ever asking for confirmation",
+            confirms.length === confirmsBeforeStale,
+            "confirms=" + confirms.length);
+
+      // Preview again, then cancel: nothing at all may change.
+      pasteBox.value = freshCsv;
+      q("#preview-btn").click();
+      await sleep(500);
+      confirmAnswer = false;
+      const confirmsBeforeCancel = confirms.length;
+      q("#restore-btn").click();
+      await waitFor(() => confirms.length > confirmsBeforeCancel, 3000);
+      await sleep(400);
+      const cancelWords = confirms[confirms.length - 1] || "";
+      check("cancelling the restore keeps every note",
+            doc.querySelectorAll("#note-list .item-row").length === 2,
+            "rows=" + doc.querySelectorAll("#note-list .item-row").length);
+      check("the confirmation states the counts and what is kept",
+            cancelWords.indexOf("Replace everything?") !== -1
+            && cancelWords.indexOf("2 folders, 2 notes, 1 reminder") !== -1
+            && /settings are kept/i.test(cancelWords),
+            "said=" + cancelWords);
+
+      // Confirming replaces everything -- and still spares the settings.
+      confirmAnswer = true;
+      q("#restore-btn").click();
+      await waitFor(() => /Restored/.test(
+        q("#preview-out") ? q("#preview-out").textContent : ""), 5000);
+      check("confirming restores the backup",
+            /Restored 2 folders, 1 note, 1 reminder/.test(
+              q("#preview-out") ? q("#preview-out").textContent : ""),
+            "said=" + (q("#preview-out") ? q("#preview-out").textContent : "n/a"));
+      q("#settings-close").click();
+      await sleep(300);
+    }
+
+    // The restored world: folders back and still nested, keeper present, doomed
+    // gone, agenda rebuilt, ratio untouched by the whole exercise.
+    const treeRows = [...doc.querySelectorAll("#folder-tree .folder-row")]
+      .filter(row => row.dataset.folder);
+    check("the folders came back", treeRows.length === 2,
+          "rows=" + treeRows.map(r => r.textContent.trim().slice(0, 40)).join(" | "));
+    const restoredRoot = treeRows.find(r => /Probe Root/.test(r.textContent));
+    const restoredSub = treeRows.find(r => /Probe Sub/.test(r.textContent));
+    // Depth renders as inline padding-left (9px + 14px per level), so a child
+    // that lost its parentId would come back at the root's indent.
+    check("the subfolder is still nested under the root",
+          !!restoredRoot && !!restoredSub
+          && parseInt(restoredSub.style.paddingLeft, 10)
+             > parseInt(restoredRoot.style.paddingLeft, 10),
+          "root=" + (restoredRoot ? restoredRoot.style.paddingLeft : "missing")
+          + " sub=" + (restoredSub ? restoredSub.style.paddingLeft : "missing"));
+
+    const keeperRows = [...doc.querySelectorAll("#note-list .item-row")];
+    check("the keeper note survived and the doomed note did not",
+          keeperRows.length === 1 && /Keeper Note/.test(keeperRows[0].textContent)
+          && !keeperRows.some(r => /Doomed Note/.test(r.textContent)),
+          "rows=" + keeperRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
+
+    if (restoredRoot) {
+      restoredRoot.querySelector(".folder-select").click();
+      await sleep(600);
+      const inRoot = doc.querySelectorAll("#note-list .item-row").length;
+      check("the restored root folder is empty, as the backup recorded",
+            inRoot === 0, "rows=" + inRoot);
+    }
+
+    const agendaAfter = q("#agenda-list");
+    check("the reminder came back to the agenda",
+          !!agendaAfter && /Probe Standup/.test(agendaAfter.textContent),
+          "agenda=" + (agendaAfter
+            ? agendaAfter.textContent.trim().slice(0, 60) : "n/a"));
+
+    const chipAfter = q("#ratio-value");
+    const shareAfter = (() => {
+      const top = q(".app-shell > .pane:not(.pane-agenda)");
+      const bot = q(".pane-agenda");
+      if (!top || !bot) return -1;
+      const t = top.getBoundingClientRect().height;
+      const b = bot.getBoundingClientRect().height;
+      return t + b > 0 ? t / (t + b) : -1;
+    })();
+    check("the restore did not touch the pane ratio (settings survive)",
+          !!chipAfter && chipAfter.textContent.trim() === "1:4"
+          && Math.abs(shareAfter - 1 / 5) <= 0.04,
+          "chip=" + (chipAfter ? chipAfter.textContent : "n/a")
+          + " topShare=" + shareAfter.toFixed(3));
+
+    // --- the choices survive a restart ---
+    // A fresh document proves both settings were written to the store rather
+    // than merely held in variables: the ratio and the email come back on
+    // their own, and the restored data is still there. The document identity
+    // check matters -- until navigation actually starts, contentDocument still
+    // hands back the old, already-ready document.
+    const oldDoc = frame.contentDocument;
+    frame.contentWindow.location.reload();
+    const restarted = await waitFor(() => {
+      const d = frame.contentDocument;
+      if (!d || d === oldDoc || !d.body) return false;
+      return d.body.dataset.ready === "true" || d.body.dataset.fatal === "true";
+    }, 20000);
+    const freshBody = frame.contentDocument ? frame.contentDocument.body : null;
+    check("the app restarts after a reload",
+          restarted && freshBody && freshBody.dataset.ready === "true",
+          "ready=" + (freshBody ? freshBody.dataset.ready : "n/a")
+          + " fatal=" + (freshBody ? freshBody.dataset.fatal : "n/a"));
+    if (restarted && freshBody && freshBody.dataset.ready === "true") {
+      const fresh = frame.contentDocument;
+      const chip = fresh.querySelector("#ratio-value");
+      check("the pane ratio comes back on restart",
+            !!chip && chip.textContent.trim() === "1:4",
+            "chip=" + (chip ? chip.textContent : "missing"));
+      const top = fresh.querySelector(".app-shell > .pane:not(.pane-agenda)");
+      const bot = fresh.querySelector(".pane-agenda");
+      let share = -1;
+      if (top && bot) {
+        const t = top.getBoundingClientRect().height;
+        const b = bot.getBoundingClientRect().height;
+        share = t + b > 0 ? t / (t + b) : -1;
+      }
+      check("...and is applied to the layout",
+            Math.abs(share - 1 / 5) <= 0.04, "topShare=" + share.toFixed(3));
+      const email = fresh.querySelector("#backup-email");
+      check("the saved email address comes back",
+            !!email && email.value === "probe@example.com",
+            "value=" + (email ? email.value : "missing"));
+      const rowsAfter = [...fresh.querySelectorAll("#folder-tree .folder-row")]
+        .filter(row => row.dataset.folder);
+      check("the restored data is still there after the restart",
+            rowsAfter.length === 2,
+            "rows=" + rowsAfter.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
+    }
   } catch (error) {
     check("probe ran to completion", false, String(error && error.message || error));
   }
@@ -441,7 +818,7 @@ def build_stage(name: str, app_js: Path) -> Path:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     for asset in ("index.html", "app.css", "view.js", "storage.js", "reminder.js",
-                  "manifest.webmanifest"):
+                  "backup.js", "manifest.webmanifest"):
         shutil.copyfile(REPO / asset, stage / asset)
     shutil.copyfile(app_js, stage / "app.js")
     (stage / "_probe.html").write_text(PROBE, encoding="utf-8")

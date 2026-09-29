@@ -24,6 +24,9 @@ const {
   folderOptions,
   folderPath,
   localInputValue,
+  nextRatio,
+  RATIOS,
+  ratioToTracks,
   relativeFromNow,
   sortReminders
 } = await import(resolved.href);
@@ -377,6 +380,53 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
     folderOptions(missingName).length,
     2
   );
+}
+
+console.log("\n=== 11. pane ratio cycle -- the Settings button's five, then home ===");
+{
+  // The user's requested order, with the default 1:1 appended so the even
+  // split stays reachable after you cycle off it. If either half of that
+  // reasoning changes, this list is where it shows up first.
+  equal("the offered ratios, in cycle order",
+        RATIOS.join(","), "1:4,1:3,1:2,2:3,3:4,1:1");
+
+  equal("the first click from the default lands on 1:4", nextRatio("1:1"), "1:4");
+  equal("...then down the requested list", nextRatio("1:4"), "1:3");
+  equal("mid-cycle advances", nextRatio("1:2"), "2:3");
+  equal("the last requested ratio is followed by the default",
+        nextRatio("3:4"), "1:1");
+
+  const visited = [];
+  let cursor = "1:1";
+  for (let i = 0; i < RATIOS.length; i += 1) {
+    cursor = nextRatio(cursor);
+    visited.push(cursor);
+  }
+  equal("six clicks return to where you started", cursor, "1:1");
+  equal("...having visited every offered ratio exactly once",
+        visited.join(","), "1:4,1:3,1:2,2:3,3:4,1:1");
+
+  equal("an unknown stored value restarts at the first ratio",
+        nextRatio("banana"), "1:4");
+  equal("a missing value is treated the same way", nextRatio(null), "1:4");
+  equal("an empty value too", nextRatio(""), "1:4");
+}
+
+console.log("\n=== 12. ratioToTracks -- ratio to grid tracks ===");
+{
+  const tracks = ratioToTracks("3:4");
+  equal("top track", tracks.top, "3fr");
+  equal("bottom track", tracks.bottom, "4fr");
+  equal("the default splits evenly", ratioToTracks("1:1").top, "1fr");
+  equal("...on both rows", ratioToTracks("1:1").bottom, "1fr");
+  equal("an unparseable ratio falls back to the even split",
+        ratioToTracks("banana").top + "/" + ratioToTracks("banana").bottom,
+        "1fr/1fr");
+  equal("undefined falls back too",
+        ratioToTracks(undefined).top + "/" + ratioToTracks(undefined).bottom,
+        "1fr/1fr");
+  check("the fallback is a real fraction pair, so the grid never gets junk",
+        /^(1fr)$/.test(ratioToTracks("junk!").top));
 }
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);

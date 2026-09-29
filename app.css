@@ -205,16 +205,18 @@ body {
 
 /* ------------------------------------------------------------ app shell */
 
-/* The stacked split: notes and agenda take half the screen each. Equal tracks,
-   not a ratio -- the agenda is where a reminder actually gets read, and a third
-   of the screen was cutting the list short while the note region had room to
-   spare. Both the gap and the padding are kept small -- the chrome is not the
-   content, and every pixel spent on margin is a folder name that gets cut off. */
+/* The stacked split: notes above, agenda below. The two tracks read custom
+   properties so Settings can re-balance them (1:4 through 3:4), and both fall
+   back to 1fr so an app with no stored preference still splits the screen
+   evenly -- the default lives here, not in JavaScript, which keeps a failed
+   settings read from changing the layout at all. Both the gap and the padding
+   are kept small -- the chrome is not the content, and every pixel spent on
+   margin is a folder name that gets cut off. */
 .app-shell {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--pane-top, 1fr)) minmax(0, var(--pane-bottom, 1fr));
   gap: 6px;
   padding: 6px 8px 0;
 }
@@ -541,7 +543,8 @@ body {
 .body-input,
 .inline-form input,
 .form-grid input,
-.form-grid select {
+.form-grid select,
+.dialog-panel input {
   width: 100%;
   padding: 6px 9px;
   border: 1px solid var(--border);
@@ -559,7 +562,8 @@ body {
 .body-input:focus,
 .inline-form input:focus,
 .form-grid input:focus,
-.form-grid select:focus {
+.form-grid select:focus,
+.dialog-panel input:focus {
   outline: none;
   background: var(--surface);
   border-color: var(--accent-2);
@@ -603,6 +607,109 @@ body {
   padding-top: 2px;
 }
 .editor-actions .btn.primary { margin-left: auto; }
+
+/* ------------------------------------------------------------- settings */
+
+/* One native dialog holds the ratio button and the backup pair. Native gets us
+   Escape-to-close, focus handling and a backdrop without a line of JavaScript;
+   the width is capped so the CSV box reads as a panel rather than a wall. */
+.dialog {
+  width: min(560px, calc(100vw - 28px));
+  max-height: calc(100dvh - 40px);
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  overflow: auto;
+}
+.dialog::backdrop { background: rgba(10, 15, 25, .45); }
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.dialog-title {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.dialog-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.dialog-row .btn { flex: 1; justify-content: space-between; }
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.dialog-actions:first-child { margin-top: 0; }
+
+.dialog-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* Monospace so columns line up and a stray quote is visible as a character
+   rather than as reflowed prose. Read-only on the export side: the user gets
+   the bytes that will be backed up, not an editable version of them. */
+.csv-box {
+  width: 100%;
+  min-height: 130px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+.csv-box:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 22%, transparent);
+}
+
+.preview-out:empty { display: none; }
+.preview-out {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.preview-out p { margin: 0 0 4px; }
+.preview-out p:last-child { margin-bottom: 0; }
+.preview-out .bad { color: var(--danger); font-weight: 600; }
+.preview-out .warn { color: var(--text-dim); }
+
+/* A disabled control must look disabled and must not react to hover, or
+   "Restore" reads as ready to press while it is actually inert. */
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: .5;
+  cursor: not-allowed;
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: none;
+}
 
 /* ------------------------------------------------------------ status bar */
 

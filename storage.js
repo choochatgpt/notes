@@ -125,3 +125,38 @@ export async function requestPersistentStorage() {
   const persisted = await navigator.storage.persist();
   return { supported: true, persisted };
 }
+
+/**
+ * Replace the folder, note and reminder stores in ONE transaction: either the
+ * whole backup lands or nothing does. A half-applied restore -- new notes with
+ * the old folders still present, or the reverse -- would leave dangling
+ * folderId references that the UI papers over silently.
+ *
+ * `settings` and `media` are deliberately absent from the store list. Settings
+ * (the pane ratio, the last-used export address) are the user's device
+ * preferences, not note data, and a restore must never touch them; media bytes
+ * are not part of the text backup at all.
+ */
+export async function replaceAll({ folders = [], notes = [], reminders = [] }) {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["folders", "notes", "reminders"], "readwrite");
+    try {
+      // Clear first, then put: requests run in the order they are issued, so
+      // each store's clear always precedes its writes within this transaction.
+      for (const name of ["folders", "notes", "reminders"]) {
+        tx.objectStore(name).clear();
+      }
+      for (const row of folders) tx.objectStore("folders").put(row);
+      for (const row of notes) tx.objectStore("notes").put(row);
+      for (const row of reminders) tx.objectStore("reminders").put(row);
+    } catch (error) {
+      tx.abort();
+      reject(error);
+      return;
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted."));
+  });
+}

@@ -2,11 +2,14 @@ import {
   get,
   getAll,
   getAllByIndex,
+  getSetting,
   newId,
   openDatabase,
   put,
   remove,
-  requestPersistentStorage
+  replaceAll,
+  requestPersistentStorage,
+  setSetting
 } from "./storage.js";
 import { reminderWithNextDue } from "./reminder.js";
 import {
@@ -18,9 +21,18 @@ import {
   folderOptions,
   folderPath,
   localInputValue,
+  nextRatio,
+  RATIOS,
+  ratioToTracks,
   relativeFromNow,
   sortReminders
 } from "./view.js";
+import {
+  buildBackupCsv,
+  buildMailtoHref,
+  describeRestore,
+  parseBackupCsv
+} from "./backup.js";
 
 /**
  * The upper pane is either browsing (folders + list, or the reminder manager) or
@@ -641,8 +653,290 @@ function syncWeekdayVisibility() {
   els.weekdayPicker.classList.toggle("hidden", els.reminderRepeat.value !== "weekly");
 }
 
-function backupPlaceholder() {
-  alert("Backup/restore transport is intentionally not wired yet. The next phase will create a versioned local text backup first, then add email/share transport.");
+/* ------------------------------------------------------- settings & backup */
+
+let exportBlobUrl = null;
+// The exact text the last successful preview saw. A restore is only allowed to
+// act on that text: if the textarea changed afterwards, the preview describes a
+// file that is no longer there and the button goes inert again.
+let previewedText = null;
+// Held separately so a copy confirmation can be shown without erasing the
+// oversize warning that explains why "Open email" is missing.
+let oversizeNote = "";
+
+function countText(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Put a ratio on the split. The default 1:1 is the CSS fallback, so resetting
+ * the properties would also be correct -- but setting them explicitly keeps the
+ * chip and the tracks reading from the same value.
+ */
+function applyPaneRatio(ratio) {
+  const shell = $(".app-shell");
+  const tracks = ratioToTracks(ratio);
+  if (shell) {
+    shell.style.setProperty("--pane-top", tracks.top);
+    shell.style.setProperty("--pane-bottom", tracks.bottom);
+  }
+  const chip = $("#ratio-value");
+  if (chip) chip.textContent = RATIOS.includes(ratio) ? ratio : "1:1";
+}
+
+async function cyclePaneRatio() {
+  const next = nextRatio(await getSetting("paneRatio", "1:1"));
+  await setSetting("paneRatio", next);
+  applyPaneRatio(next);
+}
+
+function openSettings() {
+  const dialog = $("#settings-dialog");
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function closeSettings() {
+  const dialog = $("#settings-dialog");
+  if (!dialog) return;
+  if (dialog.open && typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function showPanel(which) {
+  $("#export-panel")?.classList.toggle("hidden", which !== "export");
+  $("#import-panel")?.classList.toggle("hidden", which !== "import");
+}
+
+function updateExportNote(copyMessage = "") {
+  const note = $("#export-size-note");
+  if (!note) return;
+  note.textContent = oversizeNote && copyMessage
+    ? `${oversizeNote} ${copyMessage}`
+    : (oversizeNote || copyMessage);
+}
+
+function syncMailtoLink(csv) {
+  const link = $("#open-email-btn");
+  if (!link) return;
+
+  const built = buildMailtoHref({
+    to: $("#backup-email")?.value || "",
+    subject: "Notes backup",
+    body: csv
+  });
+
+  if (built.ok) {
+    oversizeNote = "";
+    link.href = built.href;
+    link.removeAttribute("aria-disabled");
+    link.classList.remove("hidden");
+  } else {
+    // Refuse rather than truncate: a backup that silently loses its tail is
+    // worse than one that will not open. Copy and Download still have it all.
+    oversizeNote = `Too large for an email app (${built.encodedLength} characters, limit ${built.limit}).`;
+    link.href = "#";
+    link.setAttribute("aria-disabled", "true");
+    link.classList.add("hidden");
+  }
+  updateExportNote();
+}
+
+/**
+ * Rebuild the export view from live data: the CSV itself, the download blob,
+ * and the mailto handoff. Called every time the panel opens so the preview the
+ * user sees is never staler than the database behind it.
+ */
+async function refreshExportCsv() {
+  const [folders, notes, reminders] = await Promise.all([
+    getAll("folders"), getAll("notes"), getAll("reminders")
+  ]);
+  const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
+
+  const box = $("#export-csv");
+  if (box) box.value = csv;
+
+  const download = $("#download-csv-btn");
+  if (download) {
+    if (exportBlobUrl) URL.revokeObjectURL(exportBlobUrl);
+    exportBlobUrl = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" })
+    );
+    download.href = exportBlobUrl;
+    download.download = `notes-backup-${nowIso().slice(0, 10)}.csv`;
+  }
+
+  syncMailtoLink(csv);
+}
+
+async function showExportPanel() {
+  showPanel("export");
+  await refreshExportCsv();
+}
+
+function showImportPanel() {
+  showPanel("import");
+  // Anything previewed belongs to whatever was in the box then.
+  previewedText = null;
+  const button = $("#restore-btn");
+  if (button) button.disabled = true;
+}
+
+async function saveBackupEmail() {
+  const address = $("#backup-email")?.value.trim() || "";
+  await setSetting("backupEmail", address);
+  const box = $("#export-csv");
+  if (box) syncMailtoLink(box.value);
+}
+
+async function copyExportCsv() {
+  const box = $("#export-csv");
+  const text = box?.value || "";
+  if (!text) return;
+
+  let message;
+  try {
+    await navigator.clipboard.writeText(text);
+    message = "Copied to the clipboard.";
+  } catch (error) {
+    // The clipboard API needs permission and a secure context; selecting the
+    // box and falling back keeps the button useful either way.
+    box.focus();
+    box.select();
+    let copied = false;
+    try {
+      copied = typeof document.execCommand === "function" && document.execCommand("copy");
+    } catch (fallbackError) {
+      copied = false;
+    }
+    message = copied
+      ? "Copied to the clipboard."
+      : "Copying was blocked — the text is selected, copy it with Ctrl+C.";
+  }
+  updateExportNote(message);
+}
+
+function renderPreviewError(message) {
+  const out = $("#preview-out");
+  if (out) out.innerHTML = `<p class="bad">${esc(message)}</p>`;
+}
+
+/**
+ * Parse the pasted text and show exactly what a restore would do: incoming
+ * counts against current counts, plus every repair the parser had to make. The
+ * restore button is enabled only for text that parses and only for the text
+ * that was just previewed.
+ */
+async function previewRestore() {
+  const text = $("#restore-input")?.value || "";
+  const parsed = parseBackupCsv(text);
+  const button = $("#restore-btn");
+  const out = $("#preview-out");
+
+  previewedText = parsed.ok ? text : null;
+  if (button) button.disabled = !parsed.ok;
+  if (!out) return;
+
+  if (!parsed.ok) {
+    out.innerHTML = parsed.errors.map(line => `<p class="bad">${esc(line)}</p>`).join("");
+    return;
+  }
+
+  const [folders, notes, reminders] = await Promise.all([
+    getAll("folders"), getAll("notes"), getAll("reminders")
+  ]);
+  const incoming = [
+    countText(parsed.folders.length, "folder"),
+    countText(parsed.notes.length, "note"),
+    countText(parsed.reminders.length, "reminder")
+  ].join(", ");
+  const current = [
+    countText(folders.length, "folder"),
+    countText(notes.length, "note"),
+    countText(reminders.length, "reminder")
+  ].join(", ");
+
+  out.innerHTML = [
+    `<p>Backup holds <strong>${esc(incoming)}</strong>${parsed.exportedAt ? ` (exported ${esc(parsed.exportedAt)})` : ""}.</p>`,
+    `<p>This device currently holds <strong>${esc(current)}</strong>.</p>`,
+    ...parsed.warnings.map(warning => `<p class="warn">${esc(warning)}</p>`),
+    '<p class="muted">Restoring deletes everything on this device first. Your settings are kept.</p>'
+  ].join("");
+}
+
+/**
+ * Replace every folder, note and reminder with the previewed backup.
+ *
+ * The whole document is re-parsed here rather than trusted from the preview:
+ * the confirmation, the commit and the preview must all describe the same
+ * bytes, or a stale preview could authorise a different paste.
+ */
+async function restoreBackup() {
+  const text = $("#restore-input")?.value || "";
+  if (previewedText !== text) {
+    previewedText = null;
+    const button = $("#restore-btn");
+    if (button) button.disabled = true;
+    renderPreviewError("The pasted text changed after it was previewed — press Preview import again.");
+    return;
+  }
+
+  const parsed = parseBackupCsv(text);
+  if (!parsed.ok) {
+    previewedText = null;
+    const button = $("#restore-btn");
+    if (button) button.disabled = true;
+    renderPreviewError(parsed.errors.join(" "));
+    return;
+  }
+
+  const [currentFolders, currentNotes, currentReminders] = await Promise.all([
+    getAll("folders"), getAll("notes"), getAll("reminders")
+  ]);
+
+  const confirmed = confirm(describeRestore({
+    current: {
+      folders: currentFolders.length,
+      notes: currentNotes.length,
+      reminders: currentReminders.length
+    },
+    incoming: {
+      folders: parsed.folders.length,
+      notes: parsed.notes.length,
+      reminders: parsed.reminders.length
+    },
+    exportedAt: parsed.exportedAt
+  }));
+  if (!confirmed) return;
+
+  await replaceAll({
+    folders: parsed.folders,
+    notes: parsed.notes,
+    reminders: parsed.reminders
+  });
+
+  // Every selection pointed at rows that no longer exist.
+  state.selectedFolderId = null;
+  state.selectedItemId = null;
+  state.mode = "browse";
+  state.collapsed.clear();
+
+  // The backup never carries nextDueAt; it is rebuilt from startAt + rule.
+  await refreshReminderSchedule();
+  await renderAll();
+
+  previewedText = null;
+  const button = $("#restore-btn");
+  if (button) button.disabled = true;
+  const out = $("#preview-out");
+  if (out) {
+    out.innerHTML = `<p class="muted">Restored ${esc([
+      countText(parsed.folders.length, "folder"),
+      countText(parsed.notes.length, "note"),
+      countText(parsed.reminders.length, "reminder")
+    ].join(", "))}.</p>`;
+  }
 }
 
 /** Keep the phone's status-bar tint in step with the automatic dark theme. */
@@ -693,7 +987,15 @@ function wireControls() {
   on("#add-folder-inline", "click", startNewFolder);
   on("#new-note-btn", "click", createNote);
   on("#new-reminder-btn", "click", createReminder);
-  on("#backup-btn", "click", backupPlaceholder);
+  on("#settings-btn", "click", openSettings);
+  on("#settings-close", "click", closeSettings);
+  on("#ratio-btn", "click", cyclePaneRatio);
+  on("#export-btn", "click", showExportPanel);
+  on("#import-btn", "click", showImportPanel);
+  on("#copy-csv-btn", "click", copyExportCsv);
+  on("#backup-email", "change", saveBackupEmail);
+  on("#preview-btn", "click", previewRestore);
+  on("#restore-btn", "click", restoreBackup);
   on("#delete-note-btn", "click", deleteSelectedNote);
   on("#delete-reminder-btn", "click", deleteSelectedReminder);
   on("#editor-back", "click", backToBrowse);
@@ -750,6 +1052,15 @@ async function init() {
   wireControls();
 
   await openDatabase();
+
+  // Device preferences must be in place before the first paint: the pane split
+  // and the last address the backup was exported to.
+  applyPaneRatio(await getSetting("paneRatio", "1:1"));
+  const savedEmail = await getSetting("backupEmail", "");
+  if (savedEmail) {
+    const input = $("#backup-email");
+    if (input) input.value = savedEmail;
+  }
 
   try {
     await requestPersistentStorage();

@@ -185,6 +185,31 @@ export function describeDeletion(name, { subfolders = 0, notes = 0 } = {}) {
   return `Delete "${name ?? "Untitled"}"?${tail} This cannot be undone.`;
 }
 
+/**
+ * The pane splits offered in Settings, in cycle order.
+ *
+ * The user's five requested ratios come first so the first click lands on 1:4,
+ * and the current default 1:1 is appended as the last step -- without it the
+ * even split would become unreachable once you cycle off it.
+ */
+export const RATIOS = ["1:4", "1:3", "1:2", "2:3", "3:4", "1:1"];
+
+/** The next ratio in the cycle. An unknown value restarts at the first. */
+export function nextRatio(current) {
+  const index = RATIOS.indexOf(current);
+  return RATIOS[(index + 1) % RATIOS.length];
+}
+
+/**
+ * CSS grid tracks for a ratio: "3:4" -> 3fr top, 4fr bottom.
+ * Anything unparseable falls back to the default even split.
+ */
+export function ratioToTracks(ratio) {
+  const match = /^(\d+):(\d+)$/.exec(String(ratio ?? ""));
+  if (!match) return { top: "1fr", bottom: "1fr" };
+  return { top: `${match[1]}fr`, bottom: `${match[2]}fr` };
+}
+
 /** "Work / Projects / Apollo", built by walking parents up to the root. */
 export function folderPath(folderId, folders) {
   const byId = new Map((folders || []).map(folder => [folder.id, folder]));

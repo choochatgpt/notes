@@ -15,7 +15,7 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 
 ```
 ┌──────────────────────────────────────────────┐
-│ Notes  [New folder] [New note] [New reminder] [Backup]
+│ Notes  [New folder] [New note] [New reminder] [Settings]
 ├──────────────────────────────────────────────┤
 │ (Notes) (Reminders)          Work / Projects │  <- upper half:
 │ ┌───────────┬──────────────────────────────┐ │     browse or edit
@@ -30,11 +30,15 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 └──────────────────────────────────────────────┘
 ```
 
-**The split is half and half — the notes region above, the agenda below.** The
-agenda is never scrolled off: a reminder coming due stays in view while you edit
-a note above it. It is an even split rather than a ratio because the agenda is
-where a reminder actually gets read, and a third of the screen cut the list short
-while the notes region had room to spare.
+**The split is half and half by default — the notes region above, the agenda
+below.** The agenda is never scrolled off: a reminder coming due stays in view
+while you edit a note above it. The even split is the default because the agenda
+is where a reminder actually gets read, and a third of the screen cut the list
+short while the notes region had room to spare. It is a default rather than a
+rule: Settings → *Notes/Reminders panel display ratio* cycles the two panes
+through 1:4, 1:3, 1:2, 2:3, 3:4 and back to 1:1, and remembers the choice on the
+device. If the stored choice cannot be read, the app falls back to the even
+split — never to a broken layout.
 
 **Every agenda row is exactly one line**, reading left to right as clock, title,
 how often it repeats, then when it is next due:
@@ -147,6 +151,62 @@ desktop and impossible to reach at all on a touch screen, where there is no
 hover. Two checks now hold that open, one static and one in the browser, because
 a control that exists but cannot be found is a control that does not work.
 
+## Settings: the ratio, export, import
+
+The **Settings** button in the top bar opens one dialog with three controls.
+
+**Notes/Reminders panel display ratio.** Each click moves the split between the
+notes region and the agenda to the next ratio — `1:4 → 1:3 → 1:2 → 2:3 → 3:4 →
+1:1` and back around. The choice is stored on the device and applied again on
+the next launch (the browser check proves this by reloading the app and
+re-measuring the panes). The default `1:1` is part of the cycle so the even
+split is always one click away rather than lost once you move off it.
+
+**Export notes/reminders to email.** Enter your own address, and the app builds
+the whole database — nested folders with their parenting, notes, and reminders —
+as one text CSV under a versioned `# notes-backup v1` header, then offers it
+three ways:
+
+- **Open email** opens your mail app with the CSV in the message body, addressed
+  to the address you entered. `mailto:` cannot attach files, and long bodies are
+  silently truncated by some mail clients, so a backup that would exceed a
+  conservative 1800-character limit is refused outright rather than cut short —
+  Copy or Download it and attach it yourself instead. The app never sends
+  anything itself; you press Send.
+- **Copy CSV** puts the exact text on the clipboard (with the selected text as a
+  fallback when the browser blocks programmatic copying).
+- **Download .csv** saves it as a dated file.
+
+The address is remembered in the same local database as your notes — it never
+leaves the device either. The backup is **text only**: photos would not be in it
+(there are none yet). Reminder due dates are deliberately left out — they are
+recomputed from the start date and the rule on restore, so a due date can never
+be imported stale from another machine.
+
+**Import notes/reminders.** Paste the CSV from your email backup into the box and
+press **Preview import**. The preview states what the backup holds against what
+this device currently holds, plus every repair the parser had to make — a note
+pointing at a folder the file does not contain is filed to Unfiled and *listed*,
+never silently dropped. Garbage, truncated files, wrong versions and malformed
+rows are refused before anything is touched, and leave Restore disabled.
+
+**Restore (overwrite all)** is enabled only for the exact text that was
+previewed — editing the box after previewing revokes it — and then asks once
+more with the counts stated before anything runs:
+
+```
+Replace everything? This permanently deletes all 2 folders, 2 notes, 1 reminder
+on this device and restores 2 folders, 1 note, 1 reminder from the backup
+(exported 2026-09-29T03:09:36.905Z). Your settings are kept. This cannot be undone.
+```
+
+The replace is a single database transaction: it lands completely or not at all —
+a cancelled confirmation, a re-parse failure or a mid-write error leaves the data
+exactly as it was. **"Your settings are kept" is structural, not a promise**: the
+restore writes only folders, notes and reminders, so neither the pane ratio nor
+the saved email address can be changed by an import — and any photos that exist
+later would sit in a store the restore does not touch.
+
 ## Not built yet
 
 **Attachments do not exist.** The *Add photo/video* button is a stub: pressing it
@@ -157,8 +217,6 @@ body), but not the report itself.
 
 - Photo/video/PDF attachment bytes (the button is a stub).
 - Undo or a trash for a deleted folder.
-- Backup, export and restore.
-- Email backup transport.
 - Notification delivery, and marking a reminder as done.
 
 A static PWA cannot guarantee an alarm that fires while the app is closed, and it
@@ -185,7 +243,8 @@ Notes entered in one do not appear in the other.
 | `index.html` | Markup, plus the SVG sprite every icon comes from |
 | `app.css` | All styling. One palette defined twice: light and dark |
 | `app.js` | State, rendering, and event wiring |
-| `view.js` | Pure formatting and ordering helpers — no DOM, so Node can test it |
+| `view.js` | Pure formatting, ordering and pane-ratio helpers — no DOM, so Node can test it |
+| `backup.js` | Pure CSV backup serializer/parser and confirmation wording — no DOM, so Node can test it |
 | `storage.js` | IndexedDB wrapper (`notes-local`, v1) |
 | `reminder.js` | Recurrence engine and `nextDueAt` calculation |
 | `sw.js` | Offline cache |
@@ -194,9 +253,10 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 90 tests
+node tests/view.test.mjs ../view.js             # 107 tests
+node tests/backup.test.mjs ../backup.js         # 64 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 34 checks in real Chrome
+python tools/browser_check.py                   # 79 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -204,17 +264,31 @@ rule normalisation. `view.test.mjs` covers reminder ordering (including that a
 spent one-off sorts last rather than as an epoch date), recurrence labels, the
 relative-time buckets, folder paths, HTML escaping, subtree collection for a
 recursive folder delete (including that a parent cycle terminates), the wording
-of the delete confirmation, that every recurrence label names its period as well as its frequency, and the folder picker's contents — tree order,
+of the delete confirmation, that every recurrence label names its period as well as its frequency, the folder picker's contents — tree order,
 indent depth, and that a folder whose parent is missing is still offered, since
-a folder the picker cannot name is one no note can be moved out of.
+a folder the picker cannot name is one no note can be moved out of — and the
+pane-ratio cycle: the exact ratio list, that six clicks return to where they
+started, and that an unparseable stored ratio falls back to the even split.
 
-Both take the module path as an argument and default to the `../source/` layout.
+`backup.test.mjs` covers the CSV both directions: build → parse round-trips
+(nesting, commas/quotes/newlines in note bodies, weekday rules), CRLF and LF
+input, a leading BOM, malformed rows / missing sections / duplicate ids refused
+with line numbers, dangling folder references repaired *and reported*, the
+confirmation wording's counts, and the mailto ceiling refusing rather than
+truncating.
+
+All three take the module path as an argument and default to the `../source/` layout.
 
 `tools/static_check.py` proves names line up: every icon reference resolves,
 every `$("#id")` has an element, no emitted class is unstyled, the service worker
 caches every imported module. It also asserts the structural rules this project
 has already broken once — controls wired before the first `await`, a guarded
-`on()` rather than raw `addEventListener`, and code served network-first.
+`on()` rather than raw `addEventListener`, and code served network-first — plus
+the Settings invariants that are easy to regress silently: the exact ratio list
+in cycle order, the `1fr` fallbacks on the grid, the confirmation on the restore
+path, and that `replaceAll`'s transaction names folders, notes and reminders and
+*not* settings or media. That last one is what makes "your settings are kept"
+a fact rather than a promise.
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
@@ -228,6 +302,16 @@ a `min-height` on either one breaks the split without touching the rule. Static
 checks can prove an id exists and a listener is attached in the source; they
 cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
+
+For Settings it walks the whole story: every ratio click measured against the
+fraction of the screen it should claim, the export CSV built and read back (the
+mail link's attribute only — a clicked `mailto:` hangs headless Chrome forever),
+a garbage paste refused, a previewed backup armed, an edit after the preview
+revoked, the confirmation cancelled and then accepted with its exact wording
+inspected, folder nesting restored by indentation, the note that existed only on
+the device gone afterwards, and — after a full page reload — the ratio, the email
+address and the restored data all still there. That last sequence is the proof
+that an import replaces your notes and nothing else.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

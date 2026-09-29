@@ -114,6 +114,11 @@ else:
         print("top bar pinned to one row: .topbar and .topbar-actions both nowrap")
 
 # --- 6. The stacked split: notes above, agenda below -------------------------
+# The two rows read custom properties so the Settings ratio button can
+# re-balance them (1:4 through 3:4). What must never drift: exactly two tracks,
+# both driven by the ratio variables, and both falling back to 1fr -- the
+# default even split lives in the CSS, so a failed settings read cannot change
+# the layout at all.
 shell = re.search(r"\.app-shell\s*\{([^}]*)\}", css)
 if not shell:
     fails.append("no .app-shell rule found")
@@ -122,27 +127,57 @@ else:
     if not rows:
         fails.append(".app-shell has no grid-template-rows, so the split is not stacked")
     else:
-        # Count top-level tracks: minmax(a, b) is one track, not two.
-        tracks = re.findall(r"minmax\([^()]*\)|\S+", rows.group(1))
-        if len(tracks) != 2:
-            fails.append(f".app-shell must be a two-row split, found {len(tracks)} tracks")
+        tracks = rows.group(1)
+        if tracks.count("minmax(") != 2 or tracks.count("var(") != 2:
+            fails.append(f".app-shell must be exactly two ratio-driven tracks, found {tracks!r}")
+        elif "var(--pane-top" not in tracks or "var(--pane-bottom" not in tracks:
+            fails.append(".app-shell rows must read --pane-top/--pane-bottom, "
+                         "so the Settings ratio can vary the split")
+        elif (not re.search(r"var\(--pane-top,\s*1fr\)", tracks)
+              or not re.search(r"var\(--pane-bottom,\s*1fr\)", tracks)):
+            fails.append(".app-shell ratio variables must fall back to 1fr, "
+                         "so a missing setting still splits the screen evenly")
         else:
-            # The two rows share the screen evenly. A ratio such as 2fr 1fr is a
-            # different layout and nothing else here would notice it come back,
-            # because it is still a two-row split with the notes row on top.
-            shares = [re.search(r"([\d.]+)fr\b", track) for track in tracks]
-            if not all(shares):
-                fails.append(f".app-shell rows must both be fractional tracks, "
-                             f"found {' '.join(tracks)}")
-            elif shares[0].group(1) != shares[1].group(1):
-                fails.append(f".app-shell must split the screen evenly, "
-                             f"found {' '.join(tracks)}")
-            else:
-                print(f"stacked split: app-shell rows = {' '.join(tracks)} (even)")
+            print(f"stacked split: app-shell rows = {tracks.strip()} (default even)")
 if "pane-agenda" not in html:
     fails.append("index.html has no agenda pane")
 if 'id="agenda-list"' not in html:
     fails.append("index.html has no #agenda-list")
+
+# --- 6b. Settings: the ratio cycle, export and import ------------------------
+# The offered ratios are a product decision, not a style detail: the five the
+# user asked for, in their order, with the 1:1 default appended so the even
+# split stays reachable after you cycle off it. If either half changes, this is
+# where it has to be argued.
+ratio_match = re.search(r"RATIOS\s*=\s*\[([^\]]+)\]", view)
+offered = re.findall(r'"([^"]+)"', ratio_match.group(1)) if ratio_match else []
+required = ["1:4", "1:3", "1:2", "2:3", "3:4", "1:1"]
+if offered != required:
+    fails.append(f"view.js RATIOS must be {required} in order "
+                 f"(the five requested ratios, then the 1:1 default), found {offered}")
+elif "function nextRatio(" not in view:
+    fails.append("view.js has no nextRatio, so the ratio button cannot cycle")
+elif "function ratioToTracks(" not in view:
+    fails.append("view.js has no ratioToTracks, so a chosen ratio cannot reach the grid")
+else:
+    print(f"ratio cycle: {' -> '.join(offered)} -> (wrap)")
+
+if 'setProperty("--pane-top"' not in app or 'setProperty("--pane-bottom"' not in app:
+    fails.append("app.js never writes --pane-top/--pane-bottom, so the chosen ratio never reaches the layout")
+if 'setSetting("paneRatio"' not in app:
+    fails.append("app.js never persists the pane ratio, so the choice resets on every launch")
+if 'getSetting("paneRatio"' not in app:
+    fails.append("app.js never reads the pane ratio back, so the stored choice is ignored")
+
+for required_label in (
+    "Notes/Reminders panel display ratio",
+    "Export notes/reminders to email",
+    "Import notes/reminders",
+):
+    if required_label not in html:
+        fails.append(f'the Settings dialog is missing the "{required_label}" control')
+if 'id="settings-dialog"' not in html:
+    fails.append("index.html has no #settings-dialog, so Settings has nowhere to open")
 
 # The agenda must be the upcoming-only view, soonest first.
 agenda = app.split("async function renderAgenda", 1)
@@ -224,6 +259,43 @@ elif "collectSubtree(" not in body_of("deleteFolder"):
 else:
     print("destructive paths: folder (recursive, counted), note and reminder all confirmed")
 
+# The restore is the largest destructive path in the app -- it replaces every
+# note and reminder on the device -- so it needs the same confirmation, and it
+# must still be bound to the text the user actually previewed: pasting new
+# content after a preview must not restore something the preview never showed.
+restore = body_of("restoreBackup")
+if not restore:
+    fails.append("app.js has no restoreBackup, but the Settings dialog offers an import")
+elif "confirm(" not in restore:
+    fails.append("restoreBackup replaces everything without confirming first")
+elif "replaceAll(" not in restore:
+    fails.append("restoreBackup never calls replaceAll(), so it cannot actually restore")
+elif "previewedText" not in restore:
+    fails.append("restoreBackup does not re-check the previewed text, so editing the "
+                 "textarea after previewing could restore something the preview never showed")
+else:
+    print("restore: bound to the previewed text, confirmed with counts, applied via replaceAll")
+
+# replaceAll must be all-or-nothing over exactly the three stores a backup
+# carries. settings and media are excluded by construction -- that is the
+# guarantee that an import can neither change the pane ratio nor destroy photos.
+storage = read("storage.js")
+start = storage.find("export async function replaceAll(")
+if start < 0:
+    fails.append("storage.js has no replaceAll, so a restore cannot be atomic")
+else:
+    end = storage.find("\nexport ", start + 5)
+    body = storage[start:] if end < 0 else storage[start:end]
+    store_list = re.search(r"db\.transaction\(\[([^\]]+)\]", body)
+    listed = re.findall(r'"([^"]+)"', store_list.group(1)) if store_list else []
+    if listed != ["folders", "notes", "reminders"]:
+        fails.append("replaceAll must run one transaction over exactly "
+                     f'["folders", "notes", "reminders"], found {listed}')
+    elif '"settings"' in body or '"media"' in body:
+        fails.append("replaceAll names settings or media; a restore must never touch either")
+    else:
+        print("replaceAll: one transaction over folders+notes+reminders; settings and media excluded")
+
 # Each delete button must be wired, or it would be silently inert.
 for button, handler in (
     ("delete-note-btn", "deleteSelectedNote"),
@@ -273,7 +345,7 @@ else:
             fails.append(f'wireControls() targets "#{selector}" but no element has that id')
 
     # The top-bar actions must go through the guarded wiring.
-    for button in ("new-folder-btn", "new-note-btn", "new-reminder-btn", "backup-btn"):
+    for button in ("new-folder-btn", "new-note-btn", "new-reminder-btn", "settings-btn"):
         if f'$("#{button}").addEventListener' in app:
             fails.append(f'#{button} is wired with a raw addEventListener, which throws if absent')
     if "function on(selector, event, handler)" not in app:

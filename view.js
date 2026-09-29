@@ -186,28 +186,38 @@ export function describeDeletion(name, { subfolders = 0, notes = 0 } = {}) {
 }
 
 /**
- * The pane splits offered in Settings, in cycle order.
- *
- * The user's five requested ratios come first so the first click lands on 1:4,
- * and the current default 1:1 is appended as the last step -- without it the
- * even split would become unreachable once you cycle off it.
+ * The pane splits offered in Settings, in cycle order: the share of the screen
+ * the top (notes) pane claims. The user's four requested percentages, wrapping
+ * 80% -> 20%.
  */
-export const RATIOS = ["1:4", "1:3", "1:2", "2:3", "3:4", "1:1"];
+export const RATIOS = ["20%", "40%", "60%", "80%"];
 
-/** The next ratio in the cycle. An unknown value restarts at the first. */
+/**
+ * The split before anything is chosen: the even split. It is deliberately NOT
+ * in the cycle -- the four above are the whole offer -- but it is the CSS
+ * fallback and the chip's value until the first click, so a fresh device (or an
+ * unreadable stored value) starts even rather than at an arbitrary share.
+ */
+export const DEFAULT_RATIO = "50%";
+
+/** The next ratio in the cycle. An unknown value (incl. the default) restarts at the first. */
 export function nextRatio(current) {
   const index = RATIOS.indexOf(current);
   return RATIOS[(index + 1) % RATIOS.length];
 }
 
 /**
- * CSS grid tracks for a ratio: "3:4" -> 3fr top, 4fr bottom.
- * Anything unparseable falls back to the default even split.
+ * CSS grid tracks for a top share: "40%" -> 40fr top, 60fr bottom.
+ * Anything unparseable -- including the old a:b ratio format from releases
+ * before 2026-09-29 -- falls back to the default even split.
  */
 export function ratioToTracks(ratio) {
-  const match = /^(\d+):(\d+)$/.exec(String(ratio ?? ""));
-  if (!match) return { top: "1fr", bottom: "1fr" };
-  return { top: `${match[1]}fr`, bottom: `${match[2]}fr` };
+  const match = /^(\d{1,3})%$/.exec(String(ratio ?? ""));
+  const pct = match ? Number(match[1]) : NaN;
+  if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
+    return { top: "1fr", bottom: "1fr" };
+  }
+  return { top: `${pct}fr`, bottom: `${100 - pct}fr` };
 }
 
 /** "Work / Projects / Apollo", built by walking parents up to the root. */

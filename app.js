@@ -24,6 +24,7 @@ import {
   nextRatio,
   RATIOS,
   ratioToTracks,
+  DEFAULT_RATIO,
   relativeFromNow,
   sortReminders
 } from "./view.js";
@@ -669,9 +670,11 @@ function countText(count, noun) {
 }
 
 /**
- * Put a ratio on the split. The default 1:1 is the CSS fallback, so resetting
- * the properties would also be correct -- but setting them explicitly keeps the
- * chip and the tracks reading from the same value.
+ * Put a top share on the split. The default 50% is the CSS fallback, so
+ * resetting the properties would also be correct -- but setting them
+ * explicitly keeps the chip and the tracks reading from the same value.
+ * Anything outside the offered four (including the old a:b stored values)
+ * reads as the default rather than as junk on screen.
  */
 function applyPaneRatio(ratio) {
   const shell = $(".app-shell");
@@ -681,11 +684,11 @@ function applyPaneRatio(ratio) {
     shell.style.setProperty("--pane-bottom", tracks.bottom);
   }
   const chip = $("#ratio-value");
-  if (chip) chip.textContent = RATIOS.includes(ratio) ? ratio : "1:1";
+  if (chip) chip.textContent = RATIOS.includes(ratio) ? ratio : DEFAULT_RATIO;
 }
 
 async function cyclePaneRatio() {
-  const next = nextRatio(await getSetting("paneRatio", "1:1"));
+  const next = nextRatio(await getSetting("paneRatio", DEFAULT_RATIO));
   await setSetting("paneRatio", next);
   applyPaneRatio(next);
 }
@@ -1055,7 +1058,7 @@ async function init() {
 
   // Device preferences must be in place before the first paint: the pane split
   // and the last address the backup was exported to.
-  applyPaneRatio(await getSetting("paneRatio", "1:1"));
+  applyPaneRatio(await getSetting("paneRatio", DEFAULT_RATIO));
   const savedEmail = await getSetting("backupEmail", "");
   if (savedEmail) {
     const input = $("#backup-email");

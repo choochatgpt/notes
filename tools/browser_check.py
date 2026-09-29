@@ -189,7 +189,7 @@ PROBE = """<!doctype html>
       const notesH = upperPane.getBoundingClientRect().height;
       const agendaH = lowerPane.getBoundingClientRect().height;
       const gap = Math.abs(notesH - agendaH);
-      check("the notes pane and the agenda pane are the same height (the default 1:1)",
+      check("the notes pane and the agenda pane are the same height (the default 50%)",
             gap <= Math.max(2, notesH * 0.02),
             "notes=" + Math.round(notesH) + " agenda=" + Math.round(agendaH)
             + " gap=" + Math.round(gap));
@@ -281,12 +281,17 @@ PROBE = """<!doctype html>
         const b = bot.getBoundingClientRect().height;
         return t + b > 0 ? t / (t + b) : -1;
       };
-      // The five requested ratios in order, then 1:1 so the default stays
-      // reachable, then one more click to prove the wrap -- which also leaves a
-      // non-default ratio behind for the persistence check at the very end.
-      const cycle = [["1:4", 1 / 5], ["1:3", 1 / 4], ["1:2", 1 / 3],
-                     ["2:3", 2 / 5], ["3:4", 3 / 7], ["1:1", 1 / 2],
-                     ["1:4", 1 / 5]];
+      // Before any click the dialog must show the default even split: the chip
+      // STARTS at 50%, and 50% is deliberately not one of the four offered
+      // shares -- it is where a fresh device lives until the first click.
+      check("the ratio control opens on the default 50%",
+            chipText() === "50%" && Math.abs(paneShare() - 0.5) <= 0.04,
+            "chip=" + chipText() + " topShare=" + paneShare().toFixed(3));
+      // The four requested top shares in order, then one more click to prove
+      // the wrap -- which also leaves a non-default share behind for the
+      // persistence check at the very end.
+      const cycle = [["20%", 0.2], ["40%", 0.4], ["60%", 0.6],
+                     ["80%", 0.8], ["20%", 0.2]];
       for (const [label, share] of cycle) {
         q("#ratio-btn").click();
         await waitFor(() => chipText() === label, 3000);
@@ -735,8 +740,8 @@ PROBE = """<!doctype html>
       return t + b > 0 ? t / (t + b) : -1;
     })();
     check("the restore did not touch the pane ratio (settings survive)",
-          !!chipAfter && chipAfter.textContent.trim() === "1:4"
-          && Math.abs(shareAfter - 1 / 5) <= 0.04,
+          !!chipAfter && chipAfter.textContent.trim() === "20%"
+          && Math.abs(shareAfter - 0.2) <= 0.04,
           "chip=" + (chipAfter ? chipAfter.textContent : "n/a")
           + " topShare=" + shareAfter.toFixed(3));
 
@@ -762,7 +767,7 @@ PROBE = """<!doctype html>
       const fresh = frame.contentDocument;
       const chip = fresh.querySelector("#ratio-value");
       check("the pane ratio comes back on restart",
-            !!chip && chip.textContent.trim() === "1:4",
+            !!chip && chip.textContent.trim() === "20%",
             "chip=" + (chip ? chip.textContent : "missing"));
       const top = fresh.querySelector(".app-shell > .pane:not(.pane-agenda)");
       const bot = fresh.querySelector(".pane-agenda");
@@ -773,7 +778,7 @@ PROBE = """<!doctype html>
         share = t + b > 0 ? t / (t + b) : -1;
       }
       check("...and is applied to the layout",
-            Math.abs(share - 1 / 5) <= 0.04, "topShare=" + share.toFixed(3));
+            Math.abs(share - 0.2) <= 0.04, "topShare=" + share.toFixed(3));
       const email = fresh.querySelector("#backup-email");
       check("the saved email address comes back",
             !!email && email.value === "probe@example.com",

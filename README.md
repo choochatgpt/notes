@@ -35,10 +35,10 @@ below.** The agenda is never scrolled off: a reminder coming due stays in view
 while you edit a note above it. The even split is the default because the agenda
 is where a reminder actually gets read, and a third of the screen cut the list
 short while the notes region had room to spare. It is a default rather than a
-rule: Settings → *Notes/Reminders panel display ratio* cycles the two panes
-through 1:4, 1:3, 1:2, 2:3, 3:4 and back to 1:1, and remembers the choice on the
-device. If the stored choice cannot be read, the app falls back to the even
-split — never to a broken layout.
+rule: Settings → *Notes/Reminders panel display ratio* cycles the top pane
+through 20%, 40%, 60% and 80% of the screen and back around, and remembers the
+choice on the device. If the stored choice cannot be read, the app falls back to
+the even split — never to a broken layout.
 
 **Every agenda row is exactly one line**, reading left to right as clock, title,
 how often it repeats, then when it is next due:
@@ -155,12 +155,14 @@ a control that exists but cannot be found is a control that does not work.
 
 The **Settings** button in the top bar opens one dialog with three controls.
 
-**Notes/Reminders panel display ratio.** Each click moves the split between the
-notes region and the agenda to the next ratio — `1:4 → 1:3 → 1:2 → 2:3 → 3:4 →
-1:1` and back around. The choice is stored on the device and applied again on
-the next launch (the browser check proves this by reloading the app and
-re-measuring the panes). The default `1:1` is part of the cycle so the even
-split is always one click away rather than lost once you move off it.
+**Notes/Reminders panel display ratio.** Each click moves the split to the next
+top-pane share — `20% → 40% → 60% → 80%` and back around, so the notes region
+claims a fifth, two fifths, three fifths, or four fifths of the screen. The
+choice is stored on the device and applied again on the next launch (the browser
+check proves this by reloading the app and re-measuring the panes). A fresh
+device starts at the even split (50%), which is the value the chip shows until
+the first click — the four shares are the whole offer, and 50% is the fallback
+an unreadable stored value degrades to.
 
 **Export notes/reminders to email.** Enter your own address, and the app builds
 the whole database — nested folders with their parenting, notes, and reminders —
@@ -253,10 +255,10 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 107 tests
+node tests/view.test.mjs ../view.js             # 113 tests
 node tests/backup.test.mjs ../backup.js         # 64 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 79 checks in real Chrome
+python tools/browser_check.py                   # 78 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -267,8 +269,9 @@ recursive folder delete (including that a parent cycle terminates), the wording
 of the delete confirmation, that every recurrence label names its period as well as its frequency, the folder picker's contents — tree order,
 indent depth, and that a folder whose parent is missing is still offered, since
 a folder the picker cannot name is one no note can be moved out of — and the
-pane-ratio cycle: the exact ratio list, that six clicks return to where they
-started, and that an unparseable stored ratio falls back to the even split.
+pane-ratio cycle: the exact four top-share percentages, that the 50% default is
+not among them, that four clicks wrap back to the first, and that an
+unparseable or old-format stored ratio falls back to the even split.
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
 (nesting, commas/quotes/newlines in note bodies, weekday rules), CRLF and LF

@@ -145,22 +145,30 @@ if 'id="agenda-list"' not in html:
     fails.append("index.html has no #agenda-list")
 
 # --- 6b. Settings: the ratio cycle, export and import ------------------------
-# The offered ratios are a product decision, not a style detail: the five the
-# user asked for, in their order, with the 1:1 default appended so the even
-# split stays reachable after you cycle off it. If either half changes, this is
-# where it has to be argued.
+# The offered ratios are a product decision, not a style detail: the four
+# top-share percentages the user asked for (2026-09-29 revision), in their
+# order, wrapping. The default 50% is deliberately NOT in the cycle -- it is
+# the CSS fallback and the chip's starting value, checked separately below.
 ratio_match = re.search(r"RATIOS\s*=\s*\[([^\]]+)\]", view)
 offered = re.findall(r'"([^"]+)"', ratio_match.group(1)) if ratio_match else []
-required = ["1:4", "1:3", "1:2", "2:3", "3:4", "1:1"]
+required = ["20%", "40%", "60%", "80%"]
 if offered != required:
     fails.append(f"view.js RATIOS must be {required} in order "
-                 f"(the five requested ratios, then the 1:1 default), found {offered}")
+                 f"(the four requested top shares), found {offered}")
 elif "function nextRatio(" not in view:
     fails.append("view.js has no nextRatio, so the ratio button cannot cycle")
 elif "function ratioToTracks(" not in view:
     fails.append("view.js has no ratioToTracks, so a chosen ratio cannot reach the grid")
+elif 'DEFAULT_RATIO = "50%"' not in view:
+    fails.append('view.js must define DEFAULT_RATIO = "50%" -- the even split '
+                 "is where a fresh device starts and what an unreadable value falls back to")
+elif 'DEFAULT_RATIO' not in app:
+    fails.append("app.js never uses DEFAULT_RATIO, so the chip and the store can drift from view.js")
+elif '<span id="ratio-value" class="chip accent">50%</span>' not in html:
+    fails.append("the ratio chip must START at 50%, so the dialog opens showing the "
+                 "default before any click")
 else:
-    print(f"ratio cycle: {' -> '.join(offered)} -> (wrap)")
+    print(f"ratio cycle: {' -> '.join(offered)} -> (wrap); default 50% even")
 
 if 'setProperty("--pane-top"' not in app or 'setProperty("--pane-bottom"' not in app:
     fails.append("app.js never writes --pane-top/--pane-bottom, so the chosen ratio never reaches the layout")

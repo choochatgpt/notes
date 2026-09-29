@@ -18,6 +18,7 @@ const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url
 const {
   absoluteLabel,
   collectSubtree,
+  DEFAULT_RATIO,
   describeDeletion,
   describeRule,
   esc,
@@ -382,48 +383,65 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
   );
 }
 
-console.log("\n=== 11. pane ratio cycle -- the Settings button's five, then home ===");
+console.log("\n=== 11. pane ratio cycle -- 20/40/60/80 top share, then wrap ===");
 {
-  // The user's requested order, with the default 1:1 appended so the even
-  // split stays reachable after you cycle off it. If either half of that
-  // reasoning changes, this list is where it shows up first.
+  // The user's four requested shares of the top pane, in cycle order. The
+  // default 50% is deliberately NOT in the list -- it is where a fresh device
+  // starts (and the CSS fallback), and the first click leaves it for 20%.
   equal("the offered ratios, in cycle order",
-        RATIOS.join(","), "1:4,1:3,1:2,2:3,3:4,1:1");
+        RATIOS.join(","), "20%,40%,60%,80%");
+  equal("the default is the even split", DEFAULT_RATIO, "50%");
+  check("the default is not one of the four, per the 2026-09-29 revision",
+        !RATIOS.includes(DEFAULT_RATIO));
 
-  equal("the first click from the default lands on 1:4", nextRatio("1:1"), "1:4");
-  equal("...then down the requested list", nextRatio("1:4"), "1:3");
-  equal("mid-cycle advances", nextRatio("1:2"), "2:3");
-  equal("the last requested ratio is followed by the default",
-        nextRatio("3:4"), "1:1");
+  equal("the first click from the default lands on 20%", nextRatio(DEFAULT_RATIO), "20%");
+  equal("...then up the requested list", nextRatio("20%"), "40%");
+  equal("mid-cycle advances", nextRatio("40%"), "60%");
+  equal("the last share wraps to the first", nextRatio("80%"), "20%");
 
   const visited = [];
-  let cursor = "1:1";
+  let cursor = "20%";
   for (let i = 0; i < RATIOS.length; i += 1) {
     cursor = nextRatio(cursor);
     visited.push(cursor);
   }
-  equal("six clicks return to where you started", cursor, "1:1");
-  equal("...having visited every offered ratio exactly once",
-        visited.join(","), "1:4,1:3,1:2,2:3,3:4,1:1");
+  equal("four clicks from the first share return to it", cursor, "20%");
+  equal("...having visited every offered share exactly once (last step wraps)",
+        visited.join(","), "40%,60%,80%,20%");
 
-  equal("an unknown stored value restarts at the first ratio",
-        nextRatio("banana"), "1:4");
-  equal("a missing value is treated the same way", nextRatio(null), "1:4");
-  equal("an empty value too", nextRatio(""), "1:4");
+  equal("an unknown stored value restarts at the first share",
+        nextRatio("banana"), "20%");
+  equal("a missing value is treated the same way", nextRatio(null), "20%");
+  equal("an empty value too", nextRatio(""), "20%");
+  equal("a stored ratio from the old a:b release also restarts",
+        nextRatio("1:4"), "20%");
 }
 
-console.log("\n=== 12. ratioToTracks -- ratio to grid tracks ===");
+console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
 {
-  const tracks = ratioToTracks("3:4");
-  equal("top track", tracks.top, "3fr");
-  equal("bottom track", tracks.bottom, "4fr");
-  equal("the default splits evenly", ratioToTracks("1:1").top, "1fr");
-  equal("...on both rows", ratioToTracks("1:1").bottom, "1fr");
-  equal("an unparseable ratio falls back to the even split",
+  const tracks = ratioToTracks("40%");
+  equal("top track", tracks.top, "40fr");
+  equal("bottom track", tracks.bottom, "60fr");
+  equal("the low end splits 20/80",
+        ratioToTracks("20%").top + "/" + ratioToTracks("20%").bottom,
+        "20fr/80fr");
+  equal("the high end splits 80/20",
+        ratioToTracks("80%").top + "/" + ratioToTracks("80%").bottom,
+        "80fr/20fr");
+  equal("the default 50% splits evenly",
+        ratioToTracks(DEFAULT_RATIO).top + "/" + ratioToTracks(DEFAULT_RATIO).bottom,
+        "50fr/50fr");
+  equal("an unparseable value falls back to the even split",
         ratioToTracks("banana").top + "/" + ratioToTracks("banana").bottom,
         "1fr/1fr");
   equal("undefined falls back too",
         ratioToTracks(undefined).top + "/" + ratioToTracks(undefined).bottom,
+        "1fr/1fr");
+  equal("the old a:b format from a previous release reads as the default, not junk",
+        ratioToTracks("1:4").top + "/" + ratioToTracks("1:4").bottom,
+        "1fr/1fr");
+  equal("an out-of-range share is refused rather than asked for",
+        ratioToTracks("140%").top + "/" + ratioToTracks("140%").bottom,
         "1fr/1fr");
   check("the fallback is a real fraction pair, so the grid never gets junk",
         /^(1fr)$/.test(ratioToTracks("junk!").top));

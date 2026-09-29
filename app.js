@@ -747,11 +747,34 @@ function syncMailtoLink(csv) {
 }
 
 /**
+ * Whether this browser can hand a real file to another app through the Web
+ * Share API. Where it cannot (most desktop browsers), the Share button hides
+ * itself: a visible control that opens nothing is the "the feature does not
+ * exist" failure this project has already hit twice -- the hover-only folder
+ * delete and the dead toolbar.
+ */
+function canShareCsvFiles() {
+  try {
+    if (typeof navigator.canShare !== "function") return false;
+    return navigator.canShare({
+      files: [new File(["# notes-backup v1"], "probe.csv", { type: "text/csv" })]
+    });
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * Rebuild the export view from live data: the CSV itself, the download blob,
  * and the mailto handoff. Called every time the panel opens so the preview the
  * user sees is never staler than the database behind it.
  */
 async function refreshExportCsv() {
+  // Feature-detect first, synchronously, so the panel never shows a Share
+  // button that this browser cannot act on.
+  const share = $("#share-csv-btn");
+  if (share) share.classList.toggle("hidden", !canShareCsvFiles());
+
   const [folders, notes, reminders] = await Promise.all([
     getAll("folders"), getAll("notes"), getAll("reminders")
   ]);
@@ -818,6 +841,33 @@ async function copyExportCsv() {
       : "Copying was blocked — the text is selected, copy it with Ctrl+C.";
   }
   updateExportNote(message);
+}
+
+/**
+ * Hand the CSV to another app as a real file. Unlike mailto (a URL, which
+ * some OS/browser/client combinations silently truncate), a shared file keeps
+ * every byte, so there is no size ceiling here. The user picks the target in
+ * the system share sheet -- including their mail app, which attaches the file.
+ */
+async function shareExportCsv() {
+  const csv = $("#export-csv")?.value || "";
+  if (!csv) return;
+
+  const file = new File([csv], `notes-backup-${nowIso().slice(0, 10)}.csv`,
+                        { type: "text/csv;charset=utf-8" });
+  if (typeof navigator.share !== "function" || !navigator.canShare({ files: [file] })) {
+    updateExportNote("Sharing files is not supported in this browser — use Copy or Download.");
+    return;
+  }
+
+  try {
+    await navigator.share({ files: [file], title: "Notes backup" });
+    updateExportNote("Shared.");
+  } catch (error) {
+    // AbortError is the user dismissing the share sheet — not a failure.
+    if (error && error.name === "AbortError") return;
+    updateExportNote(`Sharing failed: ${error && error.message ? error.message : "unknown error"}`);
+  }
 }
 
 function renderPreviewError(message) {
@@ -996,6 +1046,7 @@ function wireControls() {
   on("#export-btn", "click", showExportPanel);
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
+  on("#share-csv-btn", "click", shareExportCsv);
   on("#backup-email", "change", saveBackupEmail);
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);

@@ -235,7 +235,9 @@
 
     <!-- Export: the CSV is shown in full so the user can see exactly what leaves
          the device. The mail client cannot be attached to -- mailto: only opens
-         a draft -- so Copy and Download are always offered alongside it. -->
+         a draft -- so Copy and Download are always offered alongside it, and
+         Share (where the browser supports handing a file to another app) turns
+         the backup into a real attachment on phones. -->
     <section id="export-panel" class="dialog-panel hidden">
       <label class="dialog-field">
         Email address
@@ -249,6 +251,7 @@
         <a id="download-csv-btn" class="btn small" href="#" download="notes-backup.csv">
           <svg class="icon"><use href="#i-download"></use></svg><span>Download .csv</span>
         </a>
+        <button id="share-csv-btn" class="btn small hidden" type="button">Share .csv</button>
         <a id="open-email-btn" class="btn small primary" href="#">Open email</a>
       </div>
     </section>

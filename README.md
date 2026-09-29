@@ -167,7 +167,7 @@ an unreadable stored value degrades to.
 **Export notes/reminders to email.** Enter your own address, and the app builds
 the whole database — nested folders with their parenting, notes, and reminders —
 as one text CSV under a versioned `# notes-backup v1` header, then offers it
-three ways:
+four ways:
 
 - **Open email** opens your mail app with the CSV in the message body, addressed
   to the address you entered. `mailto:` cannot attach files, and long bodies are
@@ -178,12 +178,35 @@ three ways:
 - **Copy CSV** puts the exact text on the clipboard (with the selected text as a
   fallback when the browser blocks programmatic copying).
 - **Download .csv** saves it as a dated file.
+- **Share .csv** appears only where the browser can hand a file to another app
+  (mainly phones) and opens the system share sheet with the backup attached as
+  a real `.csv` — into a mail app, a messaging app, anything that takes files.
+  A shared file has no size ceiling and no intermediate URL to truncate it, so
+  this is the phone's way to attach the full backup. On browsers without file
+  share the button hides itself rather than sit there doing nothing.
 
 The address is remembered in the same local database as your notes — it never
 leaves the device either. The backup is **text only**: photos would not be in it
 (there are none yet). Reminder due dates are deliberately left out — they are
 recomputed from the start date and the rule on restore, so a due date can never
 be imported stale from another machine.
+
+**Emailing a backup from the PC.** `tools/email_backup.py` is the PC half: it
+SMTPs a downloaded CSV as a real attachment, so the mailbox credentials live on
+your machine in `%APPDATA%\notes-email\config.json` or in environment variables
+(`NOTES_SMTP_HOST`, `NOTES_SMTP_PASS`, …) — never in this repository, never in
+the app:
+
+```sh
+python tools/email_backup.py notes-backup-2026-09-30.csv --to you@example.com
+python tools/email_backup.py --watch "C:\Users\you\Downloads"  # auto-send each new backup
+python tools/email_backup.py --list-config                     # what is set; passwords never shown
+```
+
+`--watch` polls for `notes-backup-*.csv`, sends each one, and moves it to
+`sent/` so it cannot go out twice; `--dry-run` builds the message without
+sending and needs no configuration. It refuses files that do not carry the
+`# notes-backup` header (override with `--force`).
 
 **Import notes/reminders.** Paste the CSV from your email backup into the box and
 press **Preview import**. The preview states what the backup holds against what
@@ -258,7 +281,7 @@ node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 113 tests
 node tests/backup.test.mjs ../backup.js         # 64 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 78 checks in real Chrome
+python tools/browser_check.py                   # 79 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -291,7 +314,10 @@ the Settings invariants that are easy to regress silently: the exact ratio list
 in cycle order, the `1fr` fallbacks on the grid, the confirmation on the restore
 path, and that `replaceAll`'s transaction names folders, notes and reminders and
 *not* settings or media. That last one is what makes "your settings are kept"
-a fact rather than a promise.
+a fact rather than a promise. And it enforces the headline promise directly: no
+app module may contain `fetch`, `XMLHttpRequest` or `sendBeacon` — nothing ever
+leaves the device, with the user-chosen share sheet as the only sanctioned
+handoff.
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
@@ -307,7 +333,9 @@ cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
 
 For Settings it walks the whole story: every ratio click measured against the
-fraction of the screen it should claim, the export CSV built and read back (the
+fraction of the screen it should claim, the share button agreeing with the
+browser's own file-share support (visible only where it can work), the export
+CSV built and read back (the
 mail link's attribute only — a clicked `mailto:` hangs headless Chrome forever),
 a garbage paste refused, a previewed backup armed, an edit after the preview
 revoked, the confirmation cancelled and then accepted with its exact wording

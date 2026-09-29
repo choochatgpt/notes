@@ -359,6 +359,29 @@ PROBE = """<!doctype html>
               sizeNote ? sizeNote.textContent : ""),
             "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
 
+      // Web Share hands the real file to another app where the browser
+      // supports it (phones). Where it does not, the button must hide itself:
+      // a visible control that opens nothing reads as "the feature does not
+      // exist", which is the failure this project has already hit twice. The
+      // check asserts visibility agrees with the browser's own capability
+      // either way, so it holds in headless Chrome regardless of support.
+      const shareBtn = q("#share-csv-btn");
+      let fileShareable = false;
+      try {
+        const frameNav = frame.contentWindow.navigator;
+        fileShareable = typeof frameNav.canShare === "function"
+          && frameNav.canShare({
+               files: [new File(["# notes-backup v1"], "probe.csv",
+                                { type: "text/csv" })]
+             });
+      } catch (e) {
+        fileShareable = false;
+      }
+      check("the share button shows only when the browser can share files",
+            !!shareBtn && shareBtn.classList.contains("hidden") === !fileShareable,
+            "hidden=" + (shareBtn ? shareBtn.classList.contains("hidden") : "n/a")
+            + " canShare=" + fileShareable);
+
       q("#settings-close").click();
       await sleep(250);
       check("the dialog closes", !(q("#settings-dialog") || {}).open);

@@ -434,6 +434,23 @@ elif "hidden = false" not in show_error:
 elif bar_rule and fatal_rule and show_error:
     print("status bar: hidden at rest, revealed by showError, tinted on a fatal startup")
 
+# --- 14. The app never talks to the network ----------------------------------
+# The README promises it outright: "nothing you type can leave the device".
+# The one sanctioned way out is navigator.share -- the OS share sheet, where
+# the user picks the destination app -- which is a handoff, not a send. sw.js
+# is deliberately excluded: serving the shell network-first is checked in #11.
+network_clean = True
+for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js"):
+    source = read(module)
+    for banned in ("fetch(", "XMLHttpRequest", "sendBeacon"):
+        if banned in source:
+            network_clean = False
+            fails.append(f"{module} contains {banned}; the app must never send "
+                         "anything from the device")
+if network_clean:
+    print("no-network: app modules contain no fetch/XHR/sendBeacon; the share "
+          "sheet is a handoff, not a send")
+
 print()
 if notes:
     print("NOTES:")

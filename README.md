@@ -211,6 +211,25 @@ python tools/email_backup.py --list-config                     # what is set; pa
 sending and needs no configuration. It refuses files that do not carry the
 `# notes-backup` header (override with `--force`).
 
+**Phone → PC via the relay inbox.** When the phone's share sheet refuses the
+file (`NotAllowedError` — Chrome on Android on a Honor Magic V5 did exactly
+this in the wild, in more than one browser), the backup still moves by
+copy-paste through the **private** relay repo — never the public Pages repo,
+and text backups only:
+
+1. Phone: Settings → **Copy CSV**.
+2. Phone: github.com/choochatgpt/ask-ai-relay → `gitway/transfer_inbox/notes/`
+   → `inbox.csv` → Edit (pencil) → select all → paste → Commit changes.
+3. PC: `python tools/relay_pull_backup.py`.
+
+`tools/relay_pull_backup.py` fast-forwards the local clone, reads the inbox
+blob out of git (exact repo bytes, immune to autocrlf rewriting), refuses the
+placeholder or anything that lacks the `# notes-backup` header or exceeds the
+size cap, copies it into the GitWay transfer inbox with a SHA256 manifest,
+emails it through `email_backup.py`, and on send success resets the inbox to
+its placeholder and pushes. A failed send leaves the repo untouched — the
+payload waits for a fixed config rather than being lost to one.
+
 **Import notes/reminders.** Paste the CSV from your email backup into the box and
 press **Preview import**. The preview states what the backup holds against what
 this device currently holds, plus every repair the parser had to make — a note

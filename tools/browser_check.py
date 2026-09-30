@@ -67,7 +67,7 @@ CHROME_CANDIDATES = [
 PROBE = """<!doctype html>
 <meta charset="utf-8">
 <title>probe</title>
-<iframe id="app" src="./index.html" width="900" height="760"></iframe>
+<iframe id="app" src="./index.html" allow="web-share" width="900" height="760"></iframe>
 <script>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));

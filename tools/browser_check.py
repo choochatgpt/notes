@@ -382,9 +382,10 @@ PROBE = """<!doctype html>
             "hidden=" + (shareBtn ? shareBtn.classList.contains("hidden") : "n/a")
             + " canShare=" + fileShareable);
 
-      // The button can be visible yet the share still refused: Samsung
-      // Internet in the wild answers canShare(files) yes and then denies
-      // share() itself with NotAllowedError. Stub both endings so the two
+      // The button can be visible yet the share still refused: Chrome on
+      // Android (Honor Magic V5) in the wild answers canShare(files) yes
+      // and then denies share() itself with NotAllowedError. Stub both
+      // endings so the two
       // messages are proven rather than assumed, then restore the real
       // method -- the stubs shadow the prototype with an own property, so
       // deleting the own property puts the original back.

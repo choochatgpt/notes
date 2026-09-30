@@ -184,8 +184,8 @@ four ways:
   A shared file has no size ceiling and no intermediate URL to truncate it, so
   this is the phone's way to attach the full backup. On browsers without file
   share the button hides itself rather than sit there doing nothing — and
-  where a browser advertises support and then refuses the call anyway (seen on
-  Samsung Internet: `canShare` yes, share denied), the note names the refusal
+  where a browser advertises support and then refuses the call anyway (seen in
+  Chrome on Android: `canShare` yes, share denied), the note names the refusal
   and points at Download and Copy instead of echoing a bare denial.
 
 The address is remembered in the same local database as your notes — it never
@@ -340,7 +340,7 @@ fraction of the screen it should claim, the share button agreeing with the
 browser's own file-share support (visible only where it can work) and both
 endings of the share call proven — the stubbed success confirming itself and
 the stubbed `NotAllowedError` refusal answered with the Download/Copy way out,
-the exact failure a Samsung Internet report produced in the wild — the export
+the exact failure a Chrome-on-Android report produced in the wild — the export
 CSV built and read back (the
 mail link's attribute only — a clicked `mailto:` hangs headless Chrome forever),
 a garbage paste refused, a previewed backup armed, an edit after the preview

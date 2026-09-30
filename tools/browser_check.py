@@ -382,6 +382,38 @@ PROBE = """<!doctype html>
             "hidden=" + (shareBtn ? shareBtn.classList.contains("hidden") : "n/a")
             + " canShare=" + fileShareable);
 
+      // The button can be visible yet the share still refused: Samsung
+      // Internet in the wild answers canShare(files) yes and then denies
+      // share() itself with NotAllowedError. Stub both endings so the two
+      // messages are proven rather than assumed, then restore the real
+      // method -- the stubs shadow the prototype with an own property, so
+      // deleting the own property puts the original back.
+      if (shareBtn && !shareBtn.classList.contains("hidden")) {
+        const frameNav = frame.contentWindow.navigator;
+        Object.defineProperty(frameNav, "share", {
+          configurable: true,
+          value: () => frame.contentWindow.Promise.resolve()
+        });
+        shareBtn.click();
+        await sleep(350);
+        check("a completed share confirms itself",
+              (sizeNote ? sizeNote.textContent : "").indexOf("Shared.") !== -1,
+              "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
+        Object.defineProperty(frameNav, "share", {
+          configurable: true,
+          value: () => frame.contentWindow.Promise.reject(
+                   new frame.contentWindow.DOMException("Permission denied",
+                                                        "NotAllowedError"))
+        });
+        shareBtn.click();
+        await sleep(350);
+        check("a refused share explains the way out, not a bare denial",
+              (sizeNote ? sizeNote.textContent : "").indexOf("refused the share") !== -1
+              && (sizeNote ? sizeNote.textContent : "").indexOf("Download") !== -1,
+              "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
+        delete frameNav.share;
+      }
+
       q("#settings-close").click();
       await sleep(250);
       check("the dialog closes", !(q("#settings-dialog") || {}).open);

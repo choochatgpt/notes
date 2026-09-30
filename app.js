@@ -866,6 +866,17 @@ async function shareExportCsv() {
   } catch (error) {
     // AbortError is the user dismissing the share sheet — not a failure.
     if (error && error.name === "AbortError") return;
+    // NotAllowedError is the browser or OS refusing the share. Seen in the
+    // wild on Samsung Internet, which answers canShare(files) yes and then
+    // denies the call itself — so the refusal must name the way out, not
+    // echo a bare denial.
+    if (error && error.name === "NotAllowedError") {
+      const detail = error.message ? ` (${error.message})` : "";
+      updateExportNote("The browser refused the share" + detail
+        + " — use Download .csv and attach the file in your mail app,"
+        + " or Copy CSV and paste it into the email.");
+      return;
+    }
     updateExportNote(`Sharing failed: ${error && error.message ? error.message : "unknown error"}`);
   }
 }

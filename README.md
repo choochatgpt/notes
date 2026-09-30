@@ -183,7 +183,10 @@ four ways:
   a real `.csv` — into a mail app, a messaging app, anything that takes files.
   A shared file has no size ceiling and no intermediate URL to truncate it, so
   this is the phone's way to attach the full backup. On browsers without file
-  share the button hides itself rather than sit there doing nothing.
+  share the button hides itself rather than sit there doing nothing — and
+  where a browser advertises support and then refuses the call anyway (seen on
+  Samsung Internet: `canShare` yes, share denied), the note names the refusal
+  and points at Download and Copy instead of echoing a bare denial.
 
 The address is remembered in the same local database as your notes — it never
 leaves the device either. The backup is **text only**: photos would not be in it
@@ -281,7 +284,7 @@ node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 113 tests
 node tests/backup.test.mjs ../backup.js         # 64 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 79 checks in real Chrome
+python tools/browser_check.py                   # 81 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -334,7 +337,10 @@ hit — see "Releasing" below.
 
 For Settings it walks the whole story: every ratio click measured against the
 fraction of the screen it should claim, the share button agreeing with the
-browser's own file-share support (visible only where it can work), the export
+browser's own file-share support (visible only where it can work) and both
+endings of the share call proven — the stubbed success confirming itself and
+the stubbed `NotAllowedError` refusal answered with the Download/Copy way out,
+the exact failure a Samsung Internet report produced in the wild — the export
 CSV built and read back (the
 mail link's attribute only — a clicked `mailto:` hangs headless Chrome forever),
 a garbage paste refused, a previewed backup armed, an edit after the preview

@@ -48,9 +48,10 @@ how often it repeats, then when it is next due:
 ```
 
 The title is the only part that flexes; it ellipsises rather than pushing the
-recurrence or the due time off the row. On a narrow screen the absolute time is
-dropped so the row stays one line — "in 2 hours" is the part that decides whether
-you act now, and the exact timestamp is a tap away in the reminder's editor.
+recurrence or the due time off the row. On a narrow screen the **date is the part
+that stays**: the row drops the relative "in 2 hours" and keeps the absolute
+date, because that is the part that was asked for — one line, date visible —
+whereas the desktop row shows both.
 
 The recurrence label always names **both the period and the frequency**:
 `Weekly · Tue, Thu`, not just `Tue, Thu`. The weekday list alone says which days
@@ -131,7 +132,13 @@ it leaves that list — which is what the chip is telling you.
 
 ## Deleting
 
-Deleting a note or a reminder asks for confirmation naming the item.
+Deleting a note or a reminder asks for confirmation naming the item. Deleting a
+note that carries photos names them too — its attached photos are removed with
+it, bytes and all:
+
+```
+Delete "Receipts"? Its 2 attached photos will be removed too. This cannot be undone.
+```
 
 Deleting a **folder** deletes the folder, its subfolders and every note inside
 them — the whole subtree, in one action. The confirmation counts what is about to
@@ -154,9 +161,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 18"), so on any device you can
+and the release number at the bottom ("Version 19"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v18`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v19`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -173,33 +180,32 @@ an unreadable stored value degrades to.
 
 **Export notes/reminders to email.** Enter your own address, and the app builds
 the whole database — nested folders with their parenting, notes, and reminders —
-as one text CSV under a versioned `# notes-backup v1` header, then offers it
-four ways:
+as one text CSV under a versioned `# notes-backup v2` header, then offers it
+exactly two ways:
 
-- **Open email** opens your mail app with the CSV in the message body, addressed
+- **Copy CSV** puts the exact text on the clipboard (with the selected text as a
+  fallback when the browser blocks programmatic copying). This is also the
+  phone → relay-inbox path's first step.
+- **Export CSV** opens your mail app with the CSV in the message body, addressed
   to the address you entered. `mailto:` cannot attach files, and long bodies are
   silently truncated by some mail clients, so a backup that would exceed a
   conservative 1800-character limit is refused outright rather than cut short —
-  Copy or Download it and attach it yourself instead. The app never sends
+  the panel says so and points at Copy CSV instead. The app never sends
   anything itself; you press Send.
-- **Copy CSV** puts the exact text on the clipboard (with the selected text as a
-  fallback when the browser blocks programmatic copying).
-- **Download .csv** saves it as a dated file.
-- **Share .csv** appears only where the browser can hand a file to another app
-  (mainly phones) and opens the system share sheet with the backup attached as
-  a real `.csv` — into a mail app, a messaging app, anything that takes files.
-  A shared file has no size ceiling and no intermediate URL to truncate it, so
-  this is the phone's way to attach the full backup. On browsers without file
-  share the button hides itself rather than sit there doing nothing — and
-  where a browser advertises support and then refuses the call anyway (seen in
-  Chrome on Android: `canShare` yes, share denied), the note names the refusal
-  and points at Download and Copy instead of echoing a bare denial.
+
+*Download .csv* and *Share .csv* were removed on request (2026-10-01): a saved
+file still needed a manual attach step, and the phone's share sheet had already
+refused a send in the wild — copy + mailto covered every route the two of them
+served. The app now has no `navigator.share` anywhere; the static check bans it
+outright.
 
 The address is remembered in the same local database as your notes — it never
-leaves the device either. The backup is **text only**: photos would not be in it
-(there are none yet). Reminder due dates are deliberately left out — they are
-recomputed from the start date and the rule on restore, so a due date can never
-be imported stale from another machine.
+leaves the device either. The backup is **text only**: photos ride along as an
+id list (`mediaIds`) and never as bytes. On the same device a restore therefore
+reattaches the pictures; on a new device the notes come back without them. A
+v1 backup (no mediaIds column) still restores. Reminder due dates are
+deliberately left out — they are recomputed from the start date and the rule on
+restore, so a due date can never be imported stale from another machine.
 
 **Emailing a backup from the PC.** `tools/email_backup.py` is the PC half: it
 SMTPs a downloaded CSV as a real attachment, so the mailbox credentials live on
@@ -262,7 +268,8 @@ more with the counts stated before anything runs:
 ```
 Replace everything? This permanently deletes all 2 folders, 2 notes, 1 reminder
 on this device and restores 2 folders, 1 note, 1 reminder from the backup
-(exported 2026-09-29T03:09:36.905Z). Your settings are kept. This cannot be undone.
+(exported 2026-09-29T03:09:36.905Z). Photos are not included in a backup.
+Your settings are kept. This cannot be undone.
 ```
 
 The replace is a single database transaction: it lands completely or not at all —
@@ -272,15 +279,35 @@ restore writes only folders, notes and reminders, so neither the pane ratio nor
 the saved email address can be changed by an import — and any photos that exist
 later would sit in a store the restore does not touch.
 
+## Photos on notes
+
+Open a note, press **Add photo/video**, and pick images or videos. The
+thumbnails appear on a strip above Delete / Add photo/video / Save, the change
+is applied immediately (no need to press Save first, and nothing is orphaned if
+you close without saving), and tapping a thumbnail opens it full-size in a
+viewer. The **×** on a thumbnail removes that one photo.
+
+The storage is split so that neither half is heavier than it needs to be:
+
+- A small record per attachment — id, file name, type, size and a bounded
+  JPEG thumbnail — in the IndexedDB `media` store.
+- The full-size bytes in the browser's **OPFS** (`media/` directory, keyed by
+  the same id), read only when the viewer opens.
+
+Everything is origin-scoped device storage: photos never leave the device, and
+the text backup carries only the id list. `replaceAll` — the restore's one
+transaction — touches neither the media store nor OPFS, so a restore can never
+destroy a photo; a same-device restore reattaches them via the ids, and a
+different device simply shows notes without them. Deleting a note deletes its
+photos (the confirmation names the count first), and the browser check proves
+the bytes actually leave OPFS when they should.
+
+The editor's three buttons — Delete, Add photo/video, Save — are pinned to one
+line at every width: the row never wraps, and the labels compact down instead.
+
 ## Not built yet
 
-**Attachments do not exist.** The *Add photo/video* button is a stub: pressing it
-shows a placeholder message and stores nothing. PDFs are not accepted at all, and
-no file of any kind is saved today. Text is the only thing a note can hold — which
-does cover a label like "2025 medical reports" (that is just the note's title or
-body), but not the report itself.
-
-- Photo/video/PDF attachment bytes (the button is a stub).
+- PDFs and other non-image/video files (the picker accepts images and videos only).
 - Undo or a trash for a deleted folder.
 - Notification delivery, and marking a reminder as done.
 
@@ -310,7 +337,7 @@ Notes entered in one do not appear in the other.
 | `app.js` | State, rendering, and event wiring |
 | `view.js` | Pure formatting, ordering and pane-ratio helpers — no DOM, so Node can test it |
 | `backup.js` | Pure CSV backup serializer/parser and confirmation wording — no DOM, so Node can test it |
-| `storage.js` | IndexedDB wrapper (`notes-local`, v1) |
+| `storage.js` | IndexedDB wrapper (`notes-local`, v1) + the OPFS byte store for photos |
 | `reminder.js` | Recurrence engine and `nextDueAt` calculation |
 | `sw.js` | Offline cache |
 
@@ -319,9 +346,9 @@ Notes entered in one do not appear in the other.
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 127 tests
-node tests/backup.test.mjs ../backup.js         # 64 tests
+node tests/backup.test.mjs ../backup.js         # 76 tests
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 86 checks in real Chrome, plus 6 in a 380px phone-width frame
+python tools/browser_check.py                   # 97 checks in real Chrome, plus 14 in a 380px phone-width frame
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -337,11 +364,12 @@ not among them, that four clicks wrap back to the first, and that an
 unparseable or old-format stored ratio falls back to the even split.
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
-(nesting, commas/quotes/newlines in note bodies, weekday rules), CRLF and LF
-input, a leading BOM, malformed rows / missing sections / duplicate ids refused
-with line numbers, dangling folder references repaired *and reported*, the
-confirmation wording's counts, and the mailto ceiling refusing rather than
-truncating.
+(nesting, commas/quotes/newlines in note bodies, weekday rules, the v2
+`mediaIds` column), CRLF and LF input, a leading BOM, malformed rows / missing
+sections / duplicate ids refused with line numbers, dangling folder references
+repaired *and reported*, the confirmation wording's counts and its
+photos-not-included clause, **a v1 file still parsing** (only a file newer than
+the app is refused), and the mailto ceiling refusing rather than truncating.
 
 All three take the module path as an argument and default to the `../source/` layout.
 
@@ -355,9 +383,13 @@ in cycle order, the `1fr` fallbacks on the grid, the confirmation on the restore
 path, and that `replaceAll`'s transaction names folders, notes and reminders and
 *not* settings or media. That last one is what makes "your settings are kept"
 a fact rather than a promise. And it enforces the headline promise directly: no
-app module may contain `fetch`, `XMLHttpRequest` or `sendBeacon` — nothing ever
-leaves the device, with the user-chosen share sheet as the only sanctioned
-handoff.
+app module may contain `fetch`, `XMLHttpRequest`, `sendBeacon` or
+`navigator.share` — nothing ever leaves the device. The v19 pins are static
+too: the export panel is exactly Copy CSV + Export CSV (download/share gone),
+the editor action row is nowrap, the narrow layout keeps the reminder date and
+stands the relative time down, photos have their strip/viewer/OPFS plumbing,
+and backup.js is v2 with a mediaIds column and a parse gate that accepts
+older files.
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
@@ -373,19 +405,26 @@ cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
 
 For Settings it walks the whole story: every ratio click measured against the
-fraction of the screen it should claim, the share button agreeing with the
-browser's own file-share support (visible only where it can work) and both
-endings of the share call proven — the stubbed success confirming itself and
-the stubbed `NotAllowedError` refusal answered with the Download/Copy way out,
-the exact failure a Chrome-on-Android report produced in the wild — the export
-CSV built and read back (the
-mail link's attribute only — a clicked `mailto:` hangs headless Chrome forever),
-a garbage paste refused, a previewed backup armed, an edit after the preview
-revoked, the confirmation cancelled and then accepted with its exact wording
-inspected, folder nesting restored by indentation, the note that existed only on
-the device gone afterwards, and — after a full page reload — the ratio, the email
-address and the restored data all still there. That last sequence is the proof
-that an import replaces your notes and nothing else.
+fraction of the screen it should claim, the export panel carrying exactly
+Copy CSV + Export CSV with the removed buttons proven absent, the export CSV
+built and read back (the mail link's attribute only — a clicked `mailto:` hangs
+headless Chrome forever), a garbage paste refused, a previewed backup armed, an
+edit after the preview revoked, the confirmation cancelled and then accepted
+with its exact wording inspected, folder nesting restored by indentation, the
+note that existed only on the device gone afterwards, and — after a full page
+reload — the ratio, the email address and the restored data all still there.
+That last sequence is the proof that an import replaces your notes and nothing
+else.
+
+The photo pipeline is driven end to end with synthetic files (canvas-built PNGs
+handed over through a `DataTransfer`, exactly what a real picker produces):
+two attaches land two thumbnails *and* two files in OPFS *and* two records in
+IndexedDB; removing one takes its bytes out of OPFS; save + reopen brings the
+remaining thumbnail back; deleting the note — whose confirmation is inspected
+for the photo warning — empties OPFS and the media store completely. The
+380px pass measures the things layout bugs hide in: the reminder row shows the
+date with the relative time stood down and no leftover separator, all on one
+line; and Delete / Add photo/video / Save sit on one line at phone width.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

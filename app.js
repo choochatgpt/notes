@@ -5,6 +5,9 @@ import {
   getSetting,
   newId,
   openDatabase,
+  opfsDelete,
+  opfsGet,
+  opfsPut,
   put,
   remove,
   replaceAll,
@@ -75,6 +78,7 @@ const els = {
   noteTitle: $("#note-title"),
   noteBody: $("#note-body"),
   noteFolder: $("#note-folder"),
+  mediaStrip: $("#media-strip"),
   reminderTitle: $("#reminder-title"),
   reminderBody: $("#reminder-body"),
   reminderStart: $("#reminder-start"),
@@ -416,6 +420,7 @@ async function loadEditor() {
       : null;
     renderFolderPicker(folderId);
     state.editChip = folderId ? folderPath(folderId, state.folders) : "Unfiled";
+    await renderMediaStrip(item);
     return;
   }
 
@@ -590,8 +595,18 @@ async function deleteSelectedNote() {
   if (!note) return;
 
   const title = note.title?.trim() || "Untitled note";
-  if (!confirm(`Delete “${title}”? This cannot be undone.`)) return;
+  // Photos are named when they exist: the note's bytes go with it, and the
+  // confirmation is the only warning before that happens.
+  const photoCount = (note.mediaIds || []).length;
+  const photos = photoCount
+    ? ` Its ${photoCount} attached photo${photoCount === 1 ? "" : "s"} will be removed too.`
+    : "";
+  if (!confirm(`Delete “${title}”?${photos} This cannot be undone.`)) return;
 
+  for (const id of note.mediaIds || []) {
+    await remove("media", id);
+    await opfsDelete(id);
+  }
   await remove("notes", note.id);
   state.mode = "browse";
   state.selectedItemId = null;
@@ -643,6 +658,195 @@ async function deleteSelectedReminder() {
   await renderAll();
 }
 
+/* ------------------------------------------------------------------- media */
+
+/**
+ * Attached photos and videos. The model is "immediate": picking files updates
+ * the note record and the strip right away, before Save. That is deliberate --
+ * the note already exists on disk when the editor opens (createNote persisted
+ * it), so there is no draft state to lose, and closing without saving cannot
+ * orphan bytes that were never referenced.
+ *
+ * Storage split: a small media record (id, metadata, thumbnail dataURL) in the
+ * IndexedDB "media" store, and the full bytes in OPFS under the same id. The
+ * text backup carries only the ids, never the bytes.
+ */
+
+/**
+ * A small JPEG data URL for the strip. The full-size file is never decoded
+ * into the note list -- a photo album's worth of originals would overrun
+ * memory -- so the strip shows a bounded thumbnail and the viewer reads the
+ * OPFS bytes on demand.
+ */
+async function makeThumbnail(file) {
+  if (!file.type.startsWith("image/")) return "";
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("The image could not be read."));
+      img.src = url;
+    });
+    const max = 320;
+    const scale = Math.min(1, max / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((image.naturalWidth || max) * scale));
+    canvas.height = Math.max(1, Math.round((image.naturalHeight || max) * scale));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.72);
+  } catch (error) {
+    // An undecodable image keeps its place in the strip and stays openable in
+    // the viewer; a broken thumbnail must not fail the whole attach.
+    console.warn("Thumbnail generation failed:", error);
+    return "";
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** The media records a note references, in attached order, existing ones only. */
+async function loadNoteMedia(note) {
+  const records = [];
+  for (const id of note.mediaIds || []) {
+    const record = await get("media", id);
+    if (record) records.push(record);
+  }
+  return records;
+}
+
+function renderMediaStrip(note) {
+  if (!els.mediaStrip) return Promise.resolve();
+  return loadNoteMedia(note).then(records => {
+    els.mediaStrip.replaceChildren();
+    els.mediaStrip.classList.toggle("hidden", records.length === 0);
+    for (const record of records) {
+      const cell = document.createElement("div");
+      cell.className = "media-thumb";
+      cell.dataset.media = record.id;
+      cell.title = record.name || "Attached media";
+
+      if (record.thumb) {
+        const img = document.createElement("img");
+        img.src = record.thumb;
+        img.alt = record.name || "Attached photo";
+        cell.append(img);
+      } else {
+        // Videos carry no frame thumbnail; a play glyph marks them.
+        const tag = document.createElement("span");
+        tag.className = "media-video-tag";
+        tag.textContent = "▶";
+        tag.setAttribute("aria-label", "Video");
+        cell.append(tag);
+      }
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "media-remove";
+      remove.title = "Remove";
+      remove.setAttribute("aria-label", "Remove this photo");
+      remove.textContent = "×";
+      remove.addEventListener("click", event => {
+        event.stopPropagation();
+        removeNoteMedia(record.id);
+      });
+      cell.append(remove);
+
+      cell.addEventListener("click", () => viewMedia(record.id));
+      els.mediaStrip.append(cell);
+    }
+  });
+}
+
+/** Attach the picked files to the open note, bytes first, then the record. */
+async function addNoteMedia(fileList) {
+  // Snapshot the FileList before the first await: the input can be reset
+  // while the note is being read, and a cleared list would attach nothing.
+  const files = [...fileList].filter(file =>
+    file && (file.type.startsWith("image/") || file.type.startsWith("video/")));
+  if (!files.length) return;
+
+  const note = await get("notes", state.selectedItemId);
+  if (!note) return;
+
+  const ids = [...(note.mediaIds || [])];
+  for (const file of files) {
+    const id = newId();
+    await opfsPut(id, file);
+    await put("media", {
+      id,
+      noteId: note.id,
+      name: file.name || "",
+      type: file.type || "",
+      size: file.size || 0,
+      thumb: await makeThumbnail(file),
+      addedAt: nowIso()
+    });
+    ids.push(id);
+  }
+
+  await put("notes", { ...note, mediaIds: ids, updatedAt: nowIso() });
+  await renderAll();
+}
+
+/** Detach one photo: its record, its bytes, and its id on the note. */
+async function removeNoteMedia(mediaId) {
+  const note = await get("notes", state.selectedItemId);
+  if (!note) return;
+
+  await remove("media", mediaId);
+  await opfsDelete(mediaId);
+  await put("notes", {
+    ...note,
+    mediaIds: (note.mediaIds || []).filter(id => id !== mediaId),
+    updatedAt: nowIso()
+  });
+  await renderAll();
+}
+
+// The viewer's object URL, held so closing the dialog can revoke it -- an
+// unreleased URL per view would leak the decoded bytes for the page's life.
+let mediaObjectUrl = null;
+
+/** Open the viewer on the stored bytes. Reads OPFS on demand, never before. */
+async function viewMedia(mediaId) {
+  const record = await get("media", mediaId);
+  const file = await opfsGet(mediaId);
+  const dialog = $("#media-dialog");
+  const img = $("#media-view");
+  const video = $("#media-video");
+  if (!record || !file || !dialog || !img || !video) return;
+
+  if (mediaObjectUrl) URL.revokeObjectURL(mediaObjectUrl);
+  mediaObjectUrl = URL.createObjectURL(file);
+
+  const isVideo = (record.type || "").startsWith("video/");
+  img.classList.toggle("hidden", isVideo);
+  video.classList.toggle("hidden", !isVideo);
+  if (isVideo) {
+    video.src = mediaObjectUrl;
+  } else {
+    img.src = mediaObjectUrl;
+    img.alt = record.name || "Attached photo";
+  }
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function closeMedia() {
+  const dialog = $("#media-dialog");
+  if (dialog?.open && typeof dialog.close === "function") dialog.close();
+  else dialog?.removeAttribute("open");
+  const video = $("#media-video");
+  if (video && typeof video.pause === "function") video.pause();
+  if (mediaObjectUrl) {
+    URL.revokeObjectURL(mediaObjectUrl);
+    mediaObjectUrl = null;
+  }
+  const img = $("#media-view");
+  if (img) img.src = "";
+}
+
 async function switchKind(kind) {
   state.activeKind = kind;
   // Switching tabs always leaves the editor: the other tab is a list.
@@ -658,13 +862,12 @@ function syncWeekdayVisibility() {
 
 /* ------------------------------------------------------- settings & backup */
 
-let exportBlobUrl = null;
 // The exact text the last successful preview saw. A restore is only allowed to
 // act on that text: if the textarea changed afterwards, the preview describes a
 // file that is no longer there and the button goes inert again.
 let previewedText = null;
 // Held separately so a copy confirmation can be shown without erasing the
-// oversize warning that explains why "Open email" is missing.
+// oversize warning that explains why Export CSV will not open.
 let oversizeNote = "";
 
 function countText(count, noun) {
@@ -739,8 +942,8 @@ function syncMailtoLink(csv) {
     link.classList.remove("hidden");
   } else {
     // Refuse rather than truncate: a backup that silently loses its tail is
-    // worse than one that will not open. Copy and Download still have it all.
-    oversizeNote = `Too large for an email app (${built.encodedLength} characters, limit ${built.limit}).`;
+    // worse than one that will not open. Copy CSV still has it all.
+    oversizeNote = `Too large for an email app (${built.encodedLength} characters, limit ${built.limit}) — use Copy CSV and paste it into the email.`;
     link.href = "#";
     link.setAttribute("aria-disabled", "true");
     link.classList.add("hidden");
@@ -749,34 +952,11 @@ function syncMailtoLink(csv) {
 }
 
 /**
- * Whether this browser can hand a real file to another app through the Web
- * Share API. Where it cannot (most desktop browsers), the Share button hides
- * itself: a visible control that opens nothing is the "the feature does not
- * exist" failure this project has already hit twice -- the hover-only folder
- * delete and the dead toolbar.
- */
-function canShareCsvFiles() {
-  try {
-    if (typeof navigator.canShare !== "function") return false;
-    return navigator.canShare({
-      files: [new File(["# notes-backup v1"], "probe.csv", { type: "text/csv" })]
-    });
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
- * Rebuild the export view from live data: the CSV itself, the download blob,
- * and the mailto handoff. Called every time the panel opens so the preview the
- * user sees is never staler than the database behind it.
+ * Rebuild the export view from live data: the CSV itself and the mailto
+ * handoff. Called every time the panel opens so the preview the user sees is
+ * never staler than the database behind it.
  */
 async function refreshExportCsv() {
-  // Feature-detect first, synchronously, so the panel never shows a Share
-  // button that this browser cannot act on.
-  const share = $("#share-csv-btn");
-  if (share) share.classList.toggle("hidden", !canShareCsvFiles());
-
   const [folders, notes, reminders] = await Promise.all([
     getAll("folders"), getAll("notes"), getAll("reminders")
   ]);
@@ -784,16 +964,6 @@ async function refreshExportCsv() {
 
   const box = $("#export-csv");
   if (box) box.value = csv;
-
-  const download = $("#download-csv-btn");
-  if (download) {
-    if (exportBlobUrl) URL.revokeObjectURL(exportBlobUrl);
-    exportBlobUrl = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8" })
-    );
-    download.href = exportBlobUrl;
-    download.download = `notes-backup-${nowIso().slice(0, 10)}.csv`;
-  }
 
   syncMailtoLink(csv);
 }
@@ -845,45 +1015,6 @@ async function copyExportCsv() {
   updateExportNote(message);
 }
 
-/**
- * Hand the CSV to another app as a real file. Unlike mailto (a URL, which
- * some OS/browser/client combinations silently truncate), a shared file keeps
- * every byte, so there is no size ceiling here. The user picks the target in
- * the system share sheet -- including their mail app, which attaches the file.
- */
-async function shareExportCsv() {
-  const csv = $("#export-csv")?.value || "";
-  if (!csv) return;
-
-  const file = new File([csv], `notes-backup-${nowIso().slice(0, 10)}.csv`,
-                        { type: "text/csv;charset=utf-8" });
-  if (typeof navigator.share !== "function" || !navigator.canShare({ files: [file] })) {
-    updateExportNote("Sharing files is not supported in this browser — use Copy or Download.");
-    return;
-  }
-
-  try {
-    await navigator.share({ files: [file], title: "Notes backup" });
-    updateExportNote("Shared.");
-  } catch (error) {
-    // AbortError is the user dismissing the share sheet — not a failure.
-    if (error && error.name === "AbortError") return;
-    // NotAllowedError is the browser or OS refusing the share. Seen in the
-    // wild in Chrome on Android (Honor Magic V5 foldable, 2026-09-30), which
-    // answers canShare(files) yes and then denies the call itself — the same
-    // refusal is reported across other Chromium browsers — so the refusal
-    // must name the way out, not echo a bare denial.
-    if (error && error.name === "NotAllowedError") {
-      const detail = error.message ? ` (${error.message})` : "";
-      updateExportNote("The browser refused the share" + detail
-        + " — use Download .csv and attach the file in your mail app,"
-        + " or Copy CSV and paste it into the email.");
-      return;
-    }
-    updateExportNote(`Sharing failed: ${error && error.message ? error.message : "unknown error"}`);
-  }
-}
-
 function renderPreviewError(message) {
   const out = $("#preview-out");
   if (out) out.innerHTML = `<p class="bad">${esc(message)}</p>`;
@@ -928,7 +1059,7 @@ async function previewRestore() {
     `<p>Backup holds <strong>${esc(incoming)}</strong>${parsed.exportedAt ? ` (exported ${esc(parsed.exportedAt)})` : ""}.</p>`,
     `<p>This device currently holds <strong>${esc(current)}</strong>.</p>`,
     ...parsed.warnings.map(warning => `<p class="warn">${esc(warning)}</p>`),
-    '<p class="muted">Restoring deletes everything on this device first. Your settings are kept.</p>'
+    '<p class="muted">Restoring deletes everything on this device first. Photos are not included in a backup. Your settings are kept.</p>'
   ].join("");
 }
 
@@ -1060,7 +1191,6 @@ function wireControls() {
   on("#export-btn", "click", showExportPanel);
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
-  on("#share-csv-btn", "click", shareExportCsv);
   on("#backup-email", "change", saveBackupEmail);
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);
@@ -1074,9 +1204,17 @@ function wireControls() {
   on("#reminder-editor", "submit", saveReminder);
   on("#reminder-repeat", "change", syncWeekdayVisibility);
   on("#add-media-btn", "click", () => $("#media-input")?.click());
-  on("#media-input", "change", () => {
-    alert("Media bytes are deliberately deferred until the OPFS/IndexedDB storage path is validated.");
+  on("#media-input", "change", async event => {
+    const input = event.target;
+    if (input?.files?.length) await addNoteMedia(input.files);
+    // Reset only after the attach finishes, so picking the same file again
+    // still fires a change event.
+    input.value = "";
   });
+  on("#media-close", "click", closeMedia);
+  // Escape (a native dialog "cancel") routes here too: the bytes' URL must be
+  // released whichever way the viewer closes.
+  on("#media-dialog", "close", closeMedia);
   on("#new-folder-name", "keydown", event => {
     if (event.key === "Escape") {
       els.newFolderName.value = "";

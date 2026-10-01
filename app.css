@@ -606,15 +606,102 @@ body {
 .weekday-picker legend { padding: 0 5px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .weekday-picker label { flex-direction: row; align-items: center; gap: 5px; font-weight: 500; font-size: 13px; color: var(--text); }
 
+/* Attached photos. Small square thumbs; the viewer owns the full-size bytes. */
+.media-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: none;
+}
+.media-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.media-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.media-video-tag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 20px;
+  color: var(--text-dim);
+}
+.media-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 62%, transparent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+.media-remove:hover { background: color-mix(in srgb, #000 82%, transparent); }
+
+.media-dialog {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 10px;
+  max-width: min(92vw, 900px);
+}
+.media-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.media-view {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+/* .media-view sets display:block; without this the class-based hidden toggle
+   loses to it and both viewer elements would paint at once. */
+.media-view.hidden { display: none; }
+
+/* One line, never a second row. The user asked for Delete, Add photo/video and
+   Save to share a single line, so the row is nowrap and the buttons compact
+   down instead: smaller padding, and a label that ellipsises under pressure
+   rather than pushing Save off the row. */
 .editor-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding-top: 2px;
 }
 .editor-actions .btn.primary { margin-left: auto; }
+.editor-actions .btn {
+  padding: 6px 10px;
+  gap: 5px;
+  font-size: 12.5px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.editor-actions .btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ------------------------------------------------------------- settings */
 
@@ -776,11 +863,12 @@ body[data-fatal="true"] .pane { opacity: .55; }
   .folder-select { font-size: 12.5px; }
   .context-chip { max-width: 46%; }
 
-  /* Keep the row on one line by dropping the absolute date, not by wrapping.
-     "in 2 hours" is the part that decides whether you act now, and the exact
-     timestamp is still one tap away in the reminder's own editor. Wrapping would
-     give every row a second line, which is the thing being fixed. */
-  .item-row.reminder-row .when-abs { display: none; }
+  /* Keep the reminder row on one line, but keep the DATE (the user asked for
+     it explicitly, 2026-10-01): the absolute label stays and the relative
+     "in 2 hours" stands down, along with its separator. Wrapping would give
+     every row a second line, which is the thing being fixed. */
+  .item-row.reminder-row .when-rel { display: none; }
+  .item-row.reminder-row .when-abs::before { content: none; margin: 0; }
   .item-row.reminder-row { gap: 6px; }
 
   .item-row:not(.reminder-row) .when-abs { display: none; }

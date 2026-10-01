@@ -57,7 +57,7 @@ const fixture = {
   ],
   notes: [
     { id: "n1", folderId: "f2", title: 'Q3, "final"', body: "line one\nline two, with comma",
-      createdAt: STAMP, updatedAt: STAMP },
+      mediaIds: ["m1", "m2"], createdAt: STAMP, updatedAt: STAMP },
     { id: "n2", folderId: null, title: "", body: "", createdAt: STAMP, updatedAt: STAMP }
   ],
   reminders: [
@@ -101,6 +101,13 @@ console.log("=== 1. build -> parse round-trip ===");
         byId(parsed.notes, "n1").title, 'Q3, "final"');
   equal("a body with an embedded newline round-trips exactly",
         byId(parsed.notes, "n1").body, "line one\nline two, with comma");
+  equal("attached photo ids round-trip, order kept",
+        JSON.stringify(byId(parsed.notes, "n1").mediaIds), JSON.stringify(["m1", "m2"]));
+  equal("a note without photos parses as no photos",
+        JSON.stringify(byId(parsed.notes, "n2").mediaIds), "[]");
+  check("the notes section carries a mediaIds column",
+        csv.indexOf("id,folderId,title,body,mediaIds,createdAt,updatedAt") !== -1,
+        csv.split("\r\n")[3]);
 
   const weekly = byId(parsed.reminders, "r1");
   equal("the recurrence object round-trips field for field",
@@ -228,6 +235,8 @@ console.log("\n=== 5. describeRestore -- counts before the point of no return ==
   check("the export date is stated", text.indexOf(STAMP) !== -1, text);
   check("what is kept is stated", /settings are kept/i.test(text), text);
   check("irreversibility is stated", text.indexOf("cannot be undone") !== -1, text);
+  check("the photo exclusion is stated (v2 backups carry ids, never bytes)",
+        text.indexOf("Photos are not included") !== -1, text);
 
   const bare = describeRestore({});
   check("zero counts still read as words, not blanks",
@@ -239,7 +248,8 @@ console.log("\n=== 5. describeRestore -- counts before the point of no return ==
 
 console.log("\n=== 6. buildMailtoHref -- refused rather than truncated ===");
 {
-  const small = buildMailtoHref({ to: "me@example.com", subject: "Notes backup", body: "# notes-backup v1\r\n" });
+  const small = buildMailtoHref({ to: "me@example.com", subject: "Notes backup",
+                                  body: `# notes-backup v${SCHEMA_VERSION}\r\n` });
   check("a small backup produces a link", small.ok, JSON.stringify(small));
   check("...addressed to the user", small.href.startsWith("mailto:me@example.com?"), small.href);
   check("...carrying the subject", decodeURIComponent(small.href).indexOf("Notes backup") !== -1);
@@ -272,6 +282,55 @@ console.log("\n=== 6. buildMailtoHref -- refused rather than truncated ===");
     body: "y".repeat(MAILTO_SAFE_LIMIT - room + 1)
   });
   equal("one character past the limit is refused", overLimit.ok, false);
+}
+
+console.log("\n=== 7. versions: v2 out, v1 still read ===");
+{
+  // The exact bytes an app at the previous release wrote: no mediaIds column,
+  // a v1 header. Columns are matched by header name, so this must keep parsing.
+  const v1 = [
+    "# notes-backup v1, exported 2026-01-01T00:00:00.000Z",
+    "## folders",
+    "id,parentId,name,createdAt,updatedAt",
+    `f1,,Work,${STAMP},${STAMP}`,
+    "## notes",
+    "id,folderId,title,body,createdAt,updatedAt",
+    `n1,f1,Hello,"Body, text",${STAMP},${STAMP}`,
+    "## reminders",
+    "id,folderId,title,body,enabled,startAt,timeZone,recurrence,createdAt,updatedAt",
+    `r1,,Ring,,true,2027-01-05T09:00:00.000Z,UTC,` +
+      `"{""version"":1,""kind"":""once"",""interval"":1,""weekdays"":[]}",${STAMP},${STAMP}`,
+    ""
+  ].join("\r\n");
+
+  const old = parseBackupCsv(v1);
+  check("a v1 backup still parses", old.ok, old.errors.join(" | "));
+  equal("...and reports its own version", old.version, 1);
+  equal("...with its note intact", old.notes[0].body, "Body, text");
+  equal("...and no photos, since v1 carried none",
+        JSON.stringify(old.notes[0].mediaIds), "[]");
+  equal("...with its reminder intact", old.reminders[0].title, "Ring");
+
+  equal("new exports carry the current version in the header",
+        `# notes-backup v${SCHEMA_VERSION}, exported ${STAMP}`,
+        buildBackupCsv({ folders: [], notes: [], reminders: [], exportedAt: STAMP })
+          .split("\r\n")[0]);
+
+  // A note row whose mediaIds cell holds ids must not confuse the following
+  // columns: the join character is a semicolon, not a comma.
+  const withPhotos = buildBackupCsv({
+    folders: [],
+    notes: [{ id: "n1", folderId: null, title: "P", body: "b",
+              mediaIds: ["m1", "m2"], createdAt: STAMP, updatedAt: STAMP }],
+    reminders: [],
+    exportedAt: STAMP
+  });
+  const photoRow = withPhotos.split("\r\n").find(line => line.startsWith("n1,"));
+  check("mediaIds ride in one cell, not one column per id",
+        /^n1,,P,b,"?m1;m2"?,/.test(photoRow), photoRow);
+  equal("...and parse back into a list",
+        JSON.stringify(parseBackupCsv(withPhotos).notes[0].mediaIds),
+        JSON.stringify(["m1", "m2"]));
 }
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);

@@ -14,7 +14,7 @@ const DAY = 86400000;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
- * The release number the Settings dialog shows ("Version 18").
+ * The release number the Settings dialog shows ("Version 19").
  *
  * The user asked to be able to see which revision is running. A number on
  * screen is only an answer if it is the same number the offline cache is
@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "18";
+export const APP_VERSION = "19";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {

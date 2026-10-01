@@ -514,20 +514,119 @@ if "APP_VERSION" not in app or "app-version" not in app:
 
 # --- 14. The app never talks to the network ----------------------------------
 # The README promises it outright: "nothing you type can leave the device".
-# The one sanctioned way out is navigator.share -- the OS share sheet, where
-# the user picks the destination app -- which is a handoff, not a send. sw.js
-# is deliberately excluded: serving the shell network-first is checked in #11.
+# The backup leaves only through Copy CSV (the clipboard) or Export CSV (the
+# user's own mail app, handed a mailto: URL). navigator.share was removed on
+# 2026-10-01 after the phone's share sheet refused a send in the wild, so the
+# API is banned outright now -- its reintroduction would be a new decision,
+# not a cleanup. sw.js is deliberately excluded: serving the shell
+# network-first is checked in #11.
 network_clean = True
 for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js"):
     source = read(module)
-    for banned in ("fetch(", "XMLHttpRequest", "sendBeacon"):
+    for banned in ("fetch(", "XMLHttpRequest", "sendBeacon",
+                   "navigator.share", "canShare"):
         if banned in source:
             network_clean = False
             fails.append(f"{module} contains {banned}; the app must never send "
                          "anything from the device")
 if network_clean:
-    print("no-network: app modules contain no fetch/XHR/sendBeacon; the share "
-          "sheet is a handoff, not a send")
+    print("no-network: app modules contain no fetch/XHR/sendBeacon/share; "
+          "the backup leaves via the clipboard or the user's mail app")
+
+# --- 15. The v19 pair: two export buttons, one-line editor actions, ----------
+#        the visible reminder date, and real photo attachments.
+#
+# 15a. Export is exactly Copy CSV + Export CSV. Download and Share were
+# removed on request (2026-10-01); their return would be a new decision.
+for gone in ("download-csv-btn", "share-csv-btn"):
+    if f'id="{gone}"' in html:
+        fails.append(f'#{gone} is back in the markup; the export panel is '
+                     'Copy CSV + Export CSV only (2026-10-01 request)')
+for label in (">Copy CSV</button>", ">Export CSV</a>"):
+    if label not in html:
+        fails.append(f"index.html lost the {label[1:].split('<')[0]} export button "
+                     "(the user asked for exactly these two labels)")
+if 'id="open-email-btn"' not in html:
+    fails.append('index.html lost #open-email-btn -- Export CSV is the same '
+                 'mailto anchor under its new label')
+if 'id="i-download"' in html or 'href="#i-download"' in html or 'href="#i-download"' in app:
+    fails.append("the i-download glyph is back, but nothing downloads anymore")
+
+# 15b. The editor's Delete / Add photo/video / Save share one line.
+editor_actions = re.search(r"\.editor-actions\s*\{([^}]*)\}", css)
+if not editor_actions:
+    fails.append("no .editor-actions rule found")
+elif "nowrap" not in editor_actions.group(1):
+    fails.append(".editor-actions does not pin flex-wrap: nowrap, so the three "
+                 "editor buttons can wrap onto a second row")
+else:
+    print("editor actions: Delete / Add photo/video / Save pinned to one line")
+
+# 15c. The narrow layout keeps the reminder DATE and drops the relative time --
+# the reverse of what it used to do, per the 2026-10-01 request.
+narrow_css = css.split("@media (max-width: 760px)", 1)
+narrow_block = narrow_css[1] if len(narrow_css) > 1 else ""
+if ".item-row.reminder-row .when-abs { display: none" in css:
+    fails.append("the narrow layout hides the reminder's absolute date again; "
+                 "the user asked for the date to stay and the relative time to go")
+if ".item-row.reminder-row .when-rel { display: none" not in narrow_block:
+    fails.append("the narrow layout does not stand down .when-rel, so the date "
+                 "and the relative time would both fight for the phone row")
+if ".item-row.reminder-row .when-abs::before { content: none" not in narrow_block:
+    fails.append("the narrow layout leaves the · separator on .when-abs, which "
+                 "leads the date with a dangling dot once .when-rel is hidden")
+else:
+    print("reminder rows: the date survives the narrow row; the relative time stands down")
+
+# 15d. Photo attachments: strip markup, image glyph, OPFS helpers, cleanup.
+for required in ('id="media-strip"', 'id="media-input"', 'id="media-dialog"',
+                 'id="media-view"', 'id="media-video"', 'id="media-close"',
+                 'id="add-media-btn"'):
+    if required not in html:
+        fails.append(f"index.html lost {required}, so photos have nowhere to render")
+if '<symbol id="i-image"' not in html:
+    fails.append("index.html has no i-image sprite symbol for the add-photo button")
+if 'href="#i-image"' not in html:
+    fails.append("the add-media button does not use the i-image glyph "
+                 "(it still points at a folder icon)")
+if 'accept="image/*,video/*"' not in html:
+    fails.append('#media-input no longer accepts image/*,video/*')
+for helper in ("export async function opfsPut(", "export async function opfsGet(",
+               "export async function opfsDelete("):
+    if helper not in storage:
+        fails.append(f"storage.js lost {helper.split('(')[0].replace('export async function ', '')}() "
+                     "-- photo bytes have nowhere to live")
+for called in ("opfsPut(", "opfsGet(", "opfsDelete("):
+    if called not in app:
+        fails.append(f"app.js never calls {called}, so the OPFS layer is dead code")
+delete_note = body_of("deleteSelectedNote")
+if "opfsDelete(" not in delete_note or '"media"' not in delete_note:
+    fails.append("deleteSelectedNote leaves the photos behind: it must remove each "
+                 "media record and its OPFS bytes with the note")
+if "makeThumbnail(" not in app or "renderMediaStrip(" not in app:
+    fails.append("app.js lost the thumbnail/strip pipeline")
+if 'URL.revokeObjectURL' not in app:
+    fails.append("app.js never revokes object URLs, so every photo view leaks its bytes")
+else:
+    print("photos: strip + viewer wired; bytes in OPFS; delete and revoke paths pinned")
+
+# 15e. Backup v2: the notes section carries mediaIds, and OLDER files parse.
+backup = read("backup.js")
+if 'SCHEMA_VERSION = 2' not in backup:
+    fails.append("backup.js SCHEMA_VERSION is not 2 -- the mediaIds column needs "
+                 "a version bump (v1 readers must refuse v2 files, never choke on them)")
+if '"mediaIds"' not in backup:
+    fails.append("backup.js has no mediaIds column in the notes section")
+if "if (result.version > SCHEMA_VERSION)" not in backup:
+    fails.append("parseBackupCsv does not accept OLDER backups (the gate must be "
+                 "version > SCHEMA_VERSION, not !==: a v1 file has no mediaIds "
+                 "column but is otherwise readable)")
+if "Photos are not included" not in backup:
+    fails.append("describeRestore no longer states that photos are not included, "
+                 "so a restore could look like it lost someone's photos")
+else:
+    print("backup: v2 with a mediaIds column; v1 files still parse; the photo "
+          "exclusion is stated in the restore confirmation")
 
 print()
 if notes:

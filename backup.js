@@ -1,19 +1,28 @@
 /**
  * Pure backup serializer and parser: text in, data out, no DOM and no storage.
  *
- * The backup is a sectioned CSV under a versioned `# notes-backup v1` header.
+ * The backup is a sectioned CSV under a versioned `# notes-backup v2` header.
  * Folders are included even though the export is called "notes/reminders":
  * without them a restore could not rebuild the tree, and every note's folderId
  * would dangle. Reminder due dates are deliberately NOT stored -- nextDueAt is a
  * cached value that goes stale, so it is recomputed from startAt + recurrence
  * after the restore instead of being trusted from the file.
  *
+ * Notes carry a mediaIds column (v2): the ids of the photos attached on the
+ * device. The BYTES are never in the file -- a backup stays text-only -- but
+ * keeping the ids means a same-device restore reattaches the photos, which
+ * still sit in OPFS/IndexedDB where a restore never reaches.
+ *
+ * Version 1 files are still read: columns are matched by header name, so a v1
+ * notes section without mediaIds parses with an empty list. Only a file NEWER
+ * than this app is refused.
+ *
  * The parser validates the whole document before anything writes to the
  * database. A malformed file produces errors, not exceptions, so the UI can
  * refuse the restore rather than half-apply it.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * mailto: URLs are silently truncated by some mail clients somewhere between
@@ -24,7 +33,7 @@ export const MAILTO_SAFE_LIMIT = 1800;
 
 const SECTIONS = [
   { name: "folders", columns: ["id", "parentId", "name", "createdAt", "updatedAt"] },
-  { name: "notes", columns: ["id", "folderId", "title", "body", "createdAt", "updatedAt"] },
+  { name: "notes", columns: ["id", "folderId", "title", "body", "mediaIds", "createdAt", "updatedAt"] },
   {
     name: "reminders",
     columns: ["id", "folderId", "title", "body", "enabled", "startAt",
@@ -59,6 +68,7 @@ export function buildBackupCsv({ folders = [], notes = [], reminders = [], expor
       lines.push(csvRow(section.columns.map(column => {
         if (column === "recurrence") return JSON.stringify(row.recurrence ?? null);
         if (column === "enabled") return row.enabled === false ? "false" : "true";
+        if (column === "mediaIds") return (row.mediaIds || []).join(";");
         return row[column];
       })));
     }
@@ -144,15 +154,18 @@ export function parseBackupCsv(text) {
   const header = first ? first.cells.join(",") : "";
   const match = /^#\s*notes-backup\s+v(\d+)/.exec(header);
   if (!match) {
-    errors.push('This is not a notes backup — it does not start with "# notes-backup v1".');
+    errors.push(`This is not a notes backup — it does not start with "# notes-backup v${SCHEMA_VERSION}".`);
     return result;
   }
   result.version = Number.parseInt(match[1], 10);
   const stamp = /,\s*exported\s+(.+)$/.exec(header);
   result.exportedAt = stamp ? stamp[1].trim() : null;
 
-  if (result.version !== SCHEMA_VERSION) {
-    errors.push(`This backup is version v${versionLabel(result.version)} but this app reads v${SCHEMA_VERSION}.`);
+  // A NEWER file is refused: this app cannot know what its columns mean. An
+  // OLDER one is accepted -- v1 rows simply have no mediaIds column, and every
+  // column is read by header name, so nothing else has to change.
+  if (result.version > SCHEMA_VERSION) {
+    errors.push(`This backup is version v${versionLabel(result.version)} but this app reads v${SCHEMA_VERSION}. Update the app first.`);
     return result;
   }
 
@@ -230,11 +243,17 @@ export function parseBackupCsv(text) {
         if (!id) { errors.push(`line ${entry.line}: a note row has no id.`); continue; }
         if (seen.has(id)) { errors.push(`line ${entry.line}: duplicate note id "${id}".`); continue; }
         seen.add(id);
+        // mediaIds is a v2 column; a v1 file has none and parses as no photos.
+        // Semicolon-joined because an id is a UUID, and the cell must survive
+        // the same quoting rules as any other text.
+        const mediaIds = cellAt(entry, header, "mediaIds")
+          .split(";").filter(Boolean);
         result.notes.push({
           id,
           folderId: cellAt(entry, header, "folderId") || null,
           title: cellAt(entry, header, "title"),
           body: cellAt(entry, header, "body"),
+          mediaIds,
           createdAt: cellAt(entry, header, "createdAt"),
           updatedAt: cellAt(entry, header, "updatedAt")
         });
@@ -338,15 +357,15 @@ export function describeRestore({ current = {}, incoming = {}, exportedAt = null
   ].join(", ");
   const stamp = exportedAt ? ` (exported ${exportedAt})` : "";
   return `Replace everything? This permanently deletes all ${now} on this device `
-    + `and restores ${then} from the backup${stamp}. Your settings are kept. `
-    + "This cannot be undone.";
+    + `and restores ${then} from the backup${stamp}. Photos are not included in a `
+    + "backup. Your settings are kept. This cannot be undone.";
 }
 
 /**
  * A mailto: handoff of the CSV as the message body. `mailto:` cannot attach
  * files, and long URLs get truncated by some clients, so an oversized body is
- * refused outright -- the caller falls back to Copy / Download instead. A
- * truncated backup that looks complete is worse than one that will not open.
+ * refused outright -- the caller falls back to Copy CSV instead. A truncated
+ * backup that looks complete is worse than one that will not open.
  */
 export function buildMailtoHref({ to = "", subject = "", body = "", limit = MAILTO_SAFE_LIMIT } = {}) {
   const address = String(to).trim();

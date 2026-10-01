@@ -68,7 +68,7 @@ CHROME_CANDIDATES = [
 PROBE = """<!doctype html>
 <meta charset="utf-8">
 <title>probe</title>
-<iframe id="app" src="./index.html" allow="web-share" width="900" height="760"></iframe>
+<iframe id="app" src="./index.html" width="900" height="760"></iframe>
 <script>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -335,8 +335,9 @@ PROBE = """<!doctype html>
       }
 
       // Export: the CSV itself, the mailto handoff (the attribute is read, never
-      // clicked -- a real mailto hangs headless Chrome), the download, and the
-      // copy confirmation.
+      // clicked -- a real mailto hangs headless Chrome), and the copy
+      // confirmation. The panel is exactly Copy CSV + Export CSV since the
+      // user asked the other two buttons off (2026-10-01).
       q("#export-btn").click();
       await waitFor(() => {
         const box = q("#export-csv");
@@ -348,12 +349,22 @@ PROBE = """<!doctype html>
       const csvBox = q("#export-csv");
       const exportedCsv = csvBox ? csvBox.value : "";
       check("the CSV holds the current backup under the versioned header",
-            exportedCsv.indexOf("# notes-backup v1") === 0
+            exportedCsv.indexOf("# notes-backup v" + "__EXPECTED_SCHEMA__") === 0
             && exportedCsv.indexOf("Probe Standup") !== -1,
             exportedCsv.slice(0, 70));
       check("the CSV carries all three sections",
             ["## folders", "## notes", "## reminders"]
               .every(section => exportedCsv.indexOf(section) !== -1));
+
+      // Exactly two ways out, under the exact labels the user asked for.
+      check("the export panel offers exactly Copy CSV + Export CSV",
+            !!q("#copy-csv-btn") && /Copy CSV/.test(q("#copy-csv-btn").textContent)
+            && !!q("#open-email-btn") && /Export CSV/.test(q("#open-email-btn").textContent),
+            "copy=" + (q("#copy-csv-btn") ? q("#copy-csv-btn").textContent.trim() : "missing")
+            + " export=" + (q("#open-email-btn") ? q("#open-email-btn").textContent.trim() : "missing"));
+      check("the download and share buttons are gone, not hidden",
+            !q("#download-csv-btn") && !q("#share-csv-btn"),
+            "download=" + !!q("#download-csv-btn") + " share=" + !!q("#share-csv-btn"));
 
       const emailInput = q("#backup-email");
       emailInput.value = "probe@example.com";
@@ -366,21 +377,13 @@ PROBE = """<!doctype html>
             href.indexOf("mailto:probe@example.com?") === 0, href.slice(0, 60));
       const decoded = decodeURIComponent(href);
       check("...and carries the backup in the body",
-            decoded.indexOf("# notes-backup v1") !== -1
+            decoded.indexOf("# notes-backup v" + "__EXPECTED_SCHEMA__") !== -1
             && decoded.indexOf("Probe Standup") !== -1,
             "decoded=" + decoded.length + " chars");
       check("the mail link is offered, since this backup fits the safe limit",
             !!mailLink && !mailLink.classList.contains("hidden")
             && mailLink.getAttribute("aria-disabled") !== "true",
             "hidden=" + (mailLink ? mailLink.classList.contains("hidden") : "n/a"));
-
-      const download = q("#download-csv-btn");
-      const downloadName = download ? (download.getAttribute("download") || "") : "";
-      check("a downloadable CSV is offered",
-            !!download && (download.getAttribute("href") || "").indexOf("blob:") === 0
-            && downloadName.indexOf("notes-backup-") === 0
-            && downloadName.slice(-4) === ".csv",
-            "download=" + downloadName);
 
       q("#copy-csv-btn").click();
       await sleep(400);
@@ -389,62 +392,6 @@ PROBE = """<!doctype html>
             /Copied to the clipboard|Copying was blocked/.test(
               sizeNote ? sizeNote.textContent : ""),
             "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
-
-      // Web Share hands the real file to another app where the browser
-      // supports it (phones). Where it does not, the button must hide itself:
-      // a visible control that opens nothing reads as "the feature does not
-      // exist", which is the failure this project has already hit twice. The
-      // check asserts visibility agrees with the browser's own capability
-      // either way, so it holds in headless Chrome regardless of support.
-      const shareBtn = q("#share-csv-btn");
-      let fileShareable = false;
-      try {
-        const frameNav = frame.contentWindow.navigator;
-        fileShareable = typeof frameNav.canShare === "function"
-          && frameNav.canShare({
-               files: [new File(["# notes-backup v1"], "probe.csv",
-                                { type: "text/csv" })]
-             });
-      } catch (e) {
-        fileShareable = false;
-      }
-      check("the share button shows only when the browser can share files",
-            !!shareBtn && shareBtn.classList.contains("hidden") === !fileShareable,
-            "hidden=" + (shareBtn ? shareBtn.classList.contains("hidden") : "n/a")
-            + " canShare=" + fileShareable);
-
-      // The button can be visible yet the share still refused: Chrome on
-      // Android (Honor Magic V5) in the wild answers canShare(files) yes
-      // and then denies share() itself with NotAllowedError. Stub both
-      // endings so the two
-      // messages are proven rather than assumed, then restore the real
-      // method -- the stubs shadow the prototype with an own property, so
-      // deleting the own property puts the original back.
-      if (shareBtn && !shareBtn.classList.contains("hidden")) {
-        const frameNav = frame.contentWindow.navigator;
-        Object.defineProperty(frameNav, "share", {
-          configurable: true,
-          value: () => frame.contentWindow.Promise.resolve()
-        });
-        shareBtn.click();
-        await sleep(350);
-        check("a completed share confirms itself",
-              (sizeNote ? sizeNote.textContent : "").indexOf("Shared.") !== -1,
-              "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
-        Object.defineProperty(frameNav, "share", {
-          configurable: true,
-          value: () => frame.contentWindow.Promise.reject(
-                   new frame.contentWindow.DOMException("Permission denied",
-                                                        "NotAllowedError"))
-        });
-        shareBtn.click();
-        await sleep(350);
-        check("a refused share explains the way out, not a bare denial",
-              (sizeNote ? sizeNote.textContent : "").indexOf("refused the share") !== -1
-              && (sizeNote ? sizeNote.textContent : "").indexOf("Download") !== -1,
-              "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
-        delete frameNav.share;
-      }
 
       q("#settings-close").click();
       await sleep(250);
@@ -500,6 +447,23 @@ PROBE = """<!doctype html>
         : "n/a";
       check("the due block lies along the row rather than stacking",
             whenDir === "row", "flex-direction=" + whenDir);
+
+      // The user asked for the date itself on the row (2026-10-01). At desktop
+      // width both labels show: the relative time first, then the absolute
+      // date after the separator. The absolute label must be a real date --
+      // non-empty and carrying a digit -- not an empty span.
+      const computed = frame.contentWindow.getComputedStyle;
+      const abs = row.querySelector(".when-abs");
+      const rel = row.querySelector(".when-rel");
+      const absText = abs ? abs.textContent.trim() : "";
+      check("the row carries the date of the next occurrence",
+            !!abs && absText.length > 0 && /\\d/.test(absText),
+            "abs=" + JSON.stringify(absText));
+      check("at desktop width both the relative time and the date show",
+            !!rel && computed(rel).display !== "none"
+            && computed(abs).display !== "none",
+            "rel=" + (rel ? computed(rel).display : "missing")
+            + " abs=" + (abs ? computed(abs).display : "missing"));
     }
 
     // --- the notes half still swaps into the editor ---
@@ -622,6 +586,125 @@ PROBE = """<!doctype html>
               doc.querySelectorAll("#note-list .item-row").length === 0,
               "rows=" + doc.querySelectorAll("#note-list .item-row").length);
       }
+    }
+
+    // --- attaching photos to a note ---
+    // The picker cannot be driven directly in headless Chrome, so the change
+    // event is fired by hand with synthetic files built on a canvas and handed
+    // over through a DataTransfer -- the same objects a real picker produces.
+    // The checks follow the storage split: a thumbnail on the strip, the full
+    // bytes in OPFS, both surviving save + reopen, and both going away when
+    // the note (or the photo) is removed.
+    const opfsCount = async () => {
+      const root = await frame.contentWindow.navigator.storage.getDirectory();
+      const dir = await root.getDirectoryHandle("media");
+      const names = [];
+      for await (const name of dir.keys()) names.push(name);
+      return names;
+    };
+    const mediaRows = async () => await new Promise((resolve, reject) => {
+      const rq = frame.contentWindow.indexedDB.open("notes-local");
+      rq.onsuccess = () => {
+        const db = rq.result;
+        try {
+          const all = db.transaction("media", "readonly").objectStore("media").getAll();
+          all.onsuccess = () => { db.close(); resolve(all.result); };
+          all.onerror = () => { db.close(); reject(all.error); };
+        } catch (error) {
+          db.close();
+          reject(error);
+        }
+      };
+      rq.onerror = () => reject(rq.error);
+    });
+    const makeImageFile = async (name, color) => {
+      const canvas = doc.createElement("canvas");
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 32, 32);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      return new frame.contentWindow.File([blob], name, { type: "image/png" });
+    };
+
+    let photosOk = false;
+    try {
+      q("#new-note-btn").click();
+      await sleep(800);
+      q("#note-title").value = "Photo Note";
+      q("#note-editor").requestSubmit();
+      await sleep(500);
+
+      const input = q("#media-input");
+      const transfer = new frame.contentWindow.DataTransfer();
+      transfer.items.add(await makeImageFile("one.png", "#e0533d"));
+      transfer.items.add(await makeImageFile("two.png", "#3d7be0"));
+      input.files = transfer.files;
+      input.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      await sleep(1500);
+
+      const thumbs = [...doc.querySelectorAll("#media-strip .media-thumb")];
+      check("attaching two photos puts two thumbnails on the strip",
+            thumbs.length === 2, "thumbs=" + thumbs.length);
+      check("the thumbnails carry the note's media ids",
+            thumbs.every(t => t.dataset.media), "ids=" + thumbs.map(t => t.dataset.media).join(","));
+      const opfsNames = await opfsCount();
+      check("the full-size bytes landed in OPFS", opfsNames.length === 2,
+            "files=" + opfsNames.length);
+      const rows = await mediaRows();
+      check("the media records landed in IndexedDB", rows.length === 2
+            && rows.every(r => r.thumb && r.thumb.startsWith("data:image/")),
+            "rows=" + rows.length);
+
+      // Removing one photo takes its bytes with it, not just the thumbnail.
+      const firstRemove = thumbs[0] && thumbs[0].querySelector(".media-remove");
+      if (firstRemove) firstRemove.click();
+      await sleep(900);
+      const afterRemove = [...doc.querySelectorAll("#media-strip .media-thumb")];
+      check("removing a photo takes it off the strip",
+            afterRemove.length === 1, "thumbs=" + afterRemove.length);
+      check("...and its bytes out of OPFS",
+            (await opfsCount()).length === 1, "files=" + (await opfsCount()).length);
+
+      // Save + reopen: the attachment is part of the note, not editor state.
+      q("#note-editor").requestSubmit();
+      await sleep(800);
+      q("#editor-back").click();
+      await sleep(600);
+      const photoRow = [...doc.querySelectorAll("#note-list .item-row")]
+        .find(row => row.textContent.includes("Photo Note"));
+      if (photoRow) photoRow.click();
+      await sleep(800);
+      const reopened = doc.querySelector("#media-strip .media-thumb img");
+      check("the photo survives save + reopen",
+            !!reopened && (reopened.getAttribute("src") || "").startsWith("data:image/"),
+            "img=" + !!reopened);
+      photosOk = !!reopened;
+
+      // Deleting the note takes the rest of its media with it. The
+      // confirmation must name the photos that are about to go.
+      confirmAnswer = true;
+      const confirmsBeforeDelete = confirms.length;
+      q("#delete-note-btn").click();
+      await sleep(1000);
+      const deleteWording = confirms[confirms.length - 1] || "";
+      check("deleting a photo note warns about the photos",
+            confirms.length > confirmsBeforeDelete
+            && /Photo Note/.test(deleteWording) && /photo/.test(deleteWording),
+            "said=" + deleteWording.slice(0, 120));
+      check("the photo note is gone from the list",
+            !([...doc.querySelectorAll("#note-list .item-row")]
+              .some(row => row.textContent.includes("Photo Note"))));
+      check("...and its remaining bytes are gone from OPFS",
+            (await opfsCount()).length === 0,
+            "files=" + (await opfsCount()).length);
+      check("...and its media records are gone from IndexedDB",
+            (await mediaRows()).length === 0,
+            "rows=" + (await mediaRows()).length);
+    } catch (error) {
+      check("the photo pipeline ran to completion", false,
+            String(error && error.message || error));
     }
 
     // --- import: paste the backup back, preview it, replace everything ---
@@ -925,7 +1008,7 @@ PROBE = """<!doctype html>
 PROBE_NARROW = """<!doctype html>
 <meta charset="utf-8">
 <title>probe-narrow</title>
-<iframe id="app" src="./index.html" allow="web-share" width="380" height="740"></iframe>
+<iframe id="app" src="./index.html" width="380" height="740"></iframe>
 <script>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -979,6 +1062,75 @@ PROBE_NARROW = """<!doctype html>
             getComputedStyle(sub).whiteSpace === "pre-line",
             getComputedStyle(sub).whiteSpace);
     }
+
+    // --- the reminder row keeps its DATE at phone width ---
+    // The user asked for the next-due date on the row, one line. Narrow used to
+    // solve the row by hiding the date; now it hides the relative time instead.
+    // A real reminder is created (the profile is fresh) so the measurement is
+    // of real content, and the row height proves the date did not re-wrap it.
+    q("#reminders-tab").click();
+    await sleep(500);
+    q("#new-reminder-btn").click();
+    await sleep(800);
+    q("#reminder-title").value = "Narrow Standup";
+    q("#reminder-start").value = "2027-01-05T09:00";
+    q("#reminder-editor").requestSubmit();
+    await sleep(800);
+    q("#editor-back").click();
+    await sleep(600);
+
+    const reminderRow = doc.querySelector("#reminder-manage-list .reminder-row");
+    check("narrow: the reminder row exists", !!reminderRow);
+    if (reminderRow) {
+      const abs = reminderRow.querySelector(".when-abs");
+      const rel = reminderRow.querySelector(".when-rel");
+      const computed = (el, pseudo) => frame.contentWindow.getComputedStyle(el, pseudo);
+      const absText = abs ? abs.textContent.trim() : "";
+      check("narrow: the reminder row shows the date",
+            !!abs && absText.length > 0 && /\\d/.test(absText)
+            && computed(abs).display !== "none",
+            "abs=" + JSON.stringify(absText)
+            + " display=" + (abs ? computed(abs).display : "missing"));
+      check("narrow: the relative time stands down to make room",
+            !!rel && computed(rel).display === "none",
+            "rel=" + (rel ? computed(rel).display : "missing"));
+      check("narrow: the date carries no leftover separator",
+            computed(abs, "::before").content === "none",
+            "before=" + computed(abs, "::before").content);
+      const titleEl = reminderRow.querySelector(".item-title");
+      const lineH = parseFloat(computed(titleEl).lineHeight) || 20;
+      const rowH = reminderRow.getBoundingClientRect().height;
+      check("narrow: the reminder row is still a single line",
+            rowH <= lineH * 1.9, "rowH=" + Math.round(rowH) + " line=" + Math.round(lineH));
+    }
+
+    // --- the editor's three buttons share one line at phone width ---
+    // Same-line is a layout fact: the tops of Delete, Add photo/video and Save
+    // must agree, and the row must be one button tall, not two stacked.
+    q("#notes-tab").click();
+    await sleep(400);
+    q("#new-note-btn").click();
+    await sleep(800);
+    const buttons = ["#delete-note-btn", "#add-media-btn", "#save-note-btn"]
+      .map(sel => q(sel));
+    if (buttons.every(b => b)) {
+      const tops = buttons.map(b => Math.round(b.getBoundingClientRect().top));
+      const spread = Math.max(...tops) - Math.min(...tops);
+      const actionBox = q(".editor-actions").getBoundingClientRect();
+      const buttonH = buttons[2].getBoundingClientRect().height;
+      check("narrow: Delete, Add photo/video and Save sit on one line",
+            spread <= 2, "tops=" + tops.join(","));
+      check("narrow: the action row is one button tall, not two",
+            actionBox.height <= buttonH * 1.35,
+            "rowH=" + Math.round(actionBox.height) + " btnH=" + Math.round(buttonH));
+      check("narrow: no photo strip shows on a note without photos",
+            !q("#media-strip") || q("#media-strip").classList.contains("hidden"),
+            "stripVisible=" + (q("#media-strip")
+              ? !q("#media-strip").classList.contains("hidden") : "missing"));
+    } else {
+      check("narrow: the three editor buttons all exist",
+            false, "missing=" + buttons.map(b => !!b).join(","));
+    }
   } catch (error) {
     check("narrow probe ran to completion", false, String(error && error.message || error));
   }
@@ -997,9 +1149,20 @@ def expected_version() -> str:
     return found.group(1)
 
 
+def expected_schema() -> str:
+    """The backup SCHEMA_VERSION this checkout writes, to pin the CSV checks."""
+    found = re.search(r'export const SCHEMA_VERSION = (\d+);',
+                      (REPO / "backup.js").read_text(encoding="utf-8"))
+    if not found:
+        raise SystemExit("backup.js exports no SCHEMA_VERSION -- the probe cannot be pinned")
+    return found.group(1)
+
+
 # The probe asserts the chip against the version this very checkout carries,
-# so a stale published number fails the desktop pass outright.
+# so a stale published number fails the desktop pass outright. The CSV header
+# check is pinned to the schema this checkout writes for the same reason.
 PROBE = PROBE.replace("__EXPECTED_VERSION__", expected_version())
+PROBE = PROBE.replace("__EXPECTED_SCHEMA__", expected_schema())
 
 HOLDER: dict[str, str | None] = {"data": None}
 

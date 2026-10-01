@@ -34,9 +34,6 @@
       <path d="M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15z"/>
       <path d="M10 21a2 2 0 0 0 4 0"/>
     </symbol>
-    <symbol id="i-download" viewBox="0 0 24 24">
-      <path d="M12 4v11"/><path d="M8 11.5l4 4 4-4"/><path d="M5 20h14"/>
-    </symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24">
@@ -45,6 +42,11 @@
     </symbol>
     <symbol id="i-clock" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>
+    </symbol>
+    <symbol id="i-image" viewBox="0 0 24 24">
+      <rect x="3.5" y="5" width="17" height="14" rx="1.5"/>
+      <circle cx="9" cy="10" r="1.6"/>
+      <path d="M4.5 17l4.5-4.5 3 3 3.5-3.5 4 4"/>
     </symbol>
     <symbol id="i-gear" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="3"/>
@@ -140,12 +142,15 @@
               </label>
             </div>
             <textarea id="note-body" class="body-input" placeholder="Write a note..."></textarea>
+            <!-- Attached photos/videos. Thumbnails render here; the full bytes
+                 stay in this device's OPFS and are never backed up. -->
+            <div id="media-strip" class="media-strip hidden"></div>
             <div class="editor-actions">
               <button id="delete-note-btn" class="btn danger" type="button">
                 <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
               </button>
               <button id="add-media-btn" class="btn" type="button">
-                <svg class="icon"><use href="#i-folder"></use></svg><span>Add photo/video</span>
+                <svg class="icon"><use href="#i-image"></use></svg><span>Add photo/video</span>
               </button>
               <button id="save-note-btn" class="btn primary" type="submit">Save</button>
             </div>
@@ -234,10 +239,13 @@
     </div>
 
     <!-- Export: the CSV is shown in full so the user can see exactly what leaves
-         the device. The mail client cannot be attached to -- mailto: only opens
-         a draft -- so Copy and Download are always offered alongside it, and
-         Share (where the browser supports handing a file to another app) turns
-         the backup into a real attachment on phones. -->
+         the device. Two ways out, both named for what they do: Copy CSV puts the
+         text on the clipboard (the relay-inbox path starts here), and Export CSV
+         opens the entered address in the user's own mail app with the backup as
+         the draft body. Download and Share were removed (2026-10-01): a saved
+         file still needed a manual attach step and the phone's share sheet had
+         already refused once in the wild, while copy + mailto covered every
+         route the two of them served. -->
     <section id="export-panel" class="dialog-panel hidden">
       <label class="dialog-field">
         Email address
@@ -248,11 +256,7 @@
       <p id="export-size-note" class="muted"></p>
       <div class="dialog-actions">
         <button id="copy-csv-btn" class="btn small" type="button">Copy CSV</button>
-        <a id="download-csv-btn" class="btn small" href="#" download="notes-backup.csv">
-          <svg class="icon"><use href="#i-download"></use></svg><span>Download .csv</span>
-        </a>
-        <button id="share-csv-btn" class="btn small hidden" type="button">Share .csv</button>
-        <a id="open-email-btn" class="btn small primary" href="#">Open email</a>
+        <a id="open-email-btn" class="btn small primary" href="#">Export CSV</a>
       </div>
     </section>
 
@@ -273,6 +277,17 @@
     <!-- The visible release number (the user asked for it): if this ever
          disagrees with sw.js's cache name, static_check.py fails the build. -->
     <p class="dialog-version">Version <span id="app-version"></span></p>
+  </dialog>
+
+  <!-- Photo/video viewer. The bytes never leave the device: the dialog shows
+         the OPFS copy through an object URL, and closing revokes it. -->
+  <dialog id="media-dialog" class="media-dialog" aria-label="Attached photo">
+    <div class="dialog-head">
+      <span class="panel-title">Attached media</span>
+      <button id="media-close" class="btn small" type="button">Close</button>
+    </div>
+    <img id="media-view" class="media-view hidden" alt="">
+    <video id="media-video" class="media-view hidden" controls playsinline></video>
   </dialog>
 
   <!-- The status bar carries failures only, and takes no space when there are

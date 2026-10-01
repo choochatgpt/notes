@@ -127,6 +127,58 @@ export async function requestPersistentStorage() {
 }
 
 /**
+ * The full-size bytes of an attached photo or video live in OPFS, keyed by the
+ * media record's id. IndexedDB holds only the small thumbnail and the
+ * metadata; keeping the two apart means listing a note's photos never reads
+ * multi-megabyte files, and a restore can never destroy either store (replaceAll
+ * touches neither "media" nor OPFS). Everything here degrades to a clean no when
+ * the browser lacks the API -- photos are a Chrome/Android-first feature and
+ * every caller treats a null read as "not there".
+ */
+async function mediaDir() {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle("media", { create: true });
+}
+
+/** Store one attachment's bytes under its media id. */
+export async function opfsPut(id, file) {
+  const dir = await mediaDir();
+  const handle = await dir.getFileHandle(id, { create: true });
+  const writable = await handle.createWritable();
+  try {
+    await writable.write(file);
+    await writable.close();
+  } catch (error) {
+    // A half-written file is worse than none: drop it so a failed add cannot
+    // leave bytes the note does not reference.
+    try { await dir.removeEntry(id); } catch (_) { /* nothing to clean up */ }
+    throw error;
+  }
+}
+
+/** The stored File for an id, or null when it is missing or unreadable. */
+export async function opfsGet(id) {
+  try {
+    const dir = await mediaDir();
+    const handle = await dir.getFileHandle(id);
+    return await handle.getFile();
+  } catch (error) {
+    if (error && (error.name === "NotFoundError" || error.name === "TypeError")) return null;
+    throw error;
+  }
+}
+
+/** Delete one attachment's bytes. A missing entry is already the goal state. */
+export async function opfsDelete(id) {
+  try {
+    const dir = await mediaDir();
+    await dir.removeEntry(id);
+  } catch (error) {
+    if (error && error.name !== "NotFoundError") throw error;
+  }
+}
+
+/**
  * Replace the folder, note and reminder stores in ONE transaction: either the
  * whole backup lands or nothing does. A half-applied restore -- new notes with
  * the old folders still present, or the reverse -- would leave dangling

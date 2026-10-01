@@ -22,6 +22,7 @@ import {
   folderPath,
   localInputValue,
   nextRatio,
+  noteSnippet,
   RATIOS,
   ratioToTracks,
   DEFAULT_RATIO,
@@ -229,7 +230,7 @@ async function renderNoteList() {
 
   els.noteList.innerHTML = notes.map(note => {
     const title = note.title?.trim() || "Untitled note";
-    const snippet = (note.body || "").replace(/\s+/g, " ").trim();
+    const snippet = noteSnippet(note.body || "");
     const when = note.updatedAt ? relativeFromNow(note.updatedAt) : "";
 
     return `<button class="item-row ${state.mode === "edit" && state.selectedItemId === note.id ? "active" : ""}"
@@ -237,7 +238,7 @@ async function renderNoteList() {
       <svg class="icon"><use href="#i-note"></use></svg>
       <span class="item-main">
         <span class="item-title">${esc(title)}</span>
-        <span class="item-sub">${snippet ? esc(snippet.slice(0, 90)) : "Empty"}</span>
+        <span class="item-sub">${snippet ? esc(snippet) : "Empty"}</span>
       </span>
       ${when ? `<span class="when-abs">${esc(when)}</span>` : "<span></span>"}
     </button>`;

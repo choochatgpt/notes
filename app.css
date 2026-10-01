@@ -467,8 +467,10 @@ body {
   color: var(--text-dim);
   font-size: 12.5px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* pre-line, not nowrap: the preview honours the Enter keys the author
+     pressed. Bound comes from noteSnippet(), which caps lines and marks
+     truncation, so the row can only ever grow to a few lines. */
+  white-space: pre-line;
 }
 .item-rule { margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap; }
 

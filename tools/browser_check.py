@@ -605,10 +605,40 @@ PROBE = """<!doctype html>
       q("#new-note-btn").click();
       await sleep(800);
       q("#note-title").value = "Keeper Note";
+      // A three-line body on purpose: the list preview must show the Enter
+      // keys (the \\n in this PROBE string is a real newline once it reaches
+      // the page), and the same cell later round-trips the CSV newline path.
+      q("#note-body").value = "first line\\nsecond line\\nthird line";
       q("#note-editor").requestSubmit();
       await sleep(800);
       q("#editor-back").click();
       await sleep(600);
+
+      // The preview fix, asserted on the real rendered row: the text keeps
+      // its line breaks, the element actually renders multi-line tall, and
+      // the CSS half of the fix (pre-line) is what the browser resolved.
+      const keeperRow = [...doc.querySelectorAll("#note-list .item-row")]
+        .find(row => row.textContent.includes("Keeper Note"));
+      const keeperSub = keeperRow && keeperRow.querySelector(".item-sub");
+      check("the keeper row exists to preview", !!keeperRow);
+      if (keeperSub) {
+        const preview = keeperSub.textContent;
+        // The sub is an inline span, so clientHeight is always 0 -- measure its
+        // real painted box instead, against the row's single-line title.
+        const title = keeperRow.querySelector(".item-title");
+        const subH = keeperSub.getBoundingClientRect().height;
+        const titleH = title ? title.getBoundingClientRect().height : 0;
+        check("the preview keeps the note's line breaks",
+              preview.startsWith("first line") && preview.includes("\\n")
+              && preview.includes("third line"),
+              JSON.stringify(preview));
+        check("the preview paints about three line boxes, not one",
+              subH > titleH * 1.8,
+              "subH=" + Math.round(subH) + " titleH=" + Math.round(titleH));
+        check("the browser resolved .item-sub to pre-line",
+              getComputedStyle(keeperSub).whiteSpace === "pre-line",
+              getComputedStyle(keeperSub).whiteSpace);
+      }
 
       q("#new-folder-btn").click();
       await sleep(400);

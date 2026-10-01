@@ -186,6 +186,31 @@ export function describeDeletion(name, { subfolders = 0, notes = 0 } = {}) {
 }
 
 /**
+ * The note-list preview bounds. A note typed with the Enter key must not read
+ * as one long line in the list -- the preview keeps the author's line breaks
+ * -- but it also must not let one huge note eat the list, so it stops after
+ * SNIPPET_LINES lines and truncates any single line past SNIPPET_LINE_CHARS,
+ * an ellipsis marking everything cut off.
+ */
+export const SNIPPET_LINES = 4;
+export const SNIPPET_LINE_CHARS = 120;
+
+/** The list preview text for a note body: line breaks kept, bounded, or "". */
+export function noteSnippet(body) {
+  const text = String(body ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return "";
+  const lines = text.split("\n");
+  const kept = lines.slice(0, SNIPPET_LINES).map(line => {
+    const clean = line.replace(/[ \t]+/g, " ").trim();
+    return clean.length > SNIPPET_LINE_CHARS
+      ? clean.slice(0, SNIPPET_LINE_CHARS).trimEnd() + "…"
+      : clean;
+  });
+  const snippet = kept.join("\n");
+  return lines.length > SNIPPET_LINES ? snippet + "…" : snippet;
+}
+
+/**
  * The pane splits offered in Settings, in cycle order: the share of the screen
  * the top (notes) pane claims. The user's four requested percentages, wrapping
  * 80% -> 20%.

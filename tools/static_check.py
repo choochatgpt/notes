@@ -434,6 +434,32 @@ elif "hidden = false" not in show_error:
 elif bar_rule and fatal_rule and show_error:
     print("status bar: hidden at rest, revealed by showError, tinted on a fatal startup")
 
+# --- 13b. The list preview honours the Enter keys the author pressed ---------
+# A note typed with line breaks used to render in the list as one long line:
+# the JS flattened \s+ to a space and the CSS pinned white-space:nowrap. Both
+# halves must stay fixed -- fixing only the text (keeping nowrap) or only the
+# CSS (keeping the flatten) reproduces the bug.
+sub_rule = re.search(r"\.item-sub\s*\{[^}]*\}", css)
+if not sub_rule:
+    fails.append("app.css has no .item-sub rule for the note-list preview")
+elif "white-space: pre-line" not in sub_rule.group(0):
+    fails.append(".item-sub no longer sets white-space:pre-line, so the preview "
+                 "collapses the author's line breaks back into one line")
+elif re.search(r"text-overflow:\s*ellipsis", sub_rule.group(0)):
+    fails.append(".item-sub still ellipsises; line-boundary cutting is noteSnippet's "
+                 "job now, and the two disagree about where a line ends")
+if "noteSnippet(" not in app:
+    fails.append("app.js does not render the preview through noteSnippet, so the "
+                 "one-line flatten is the live code again")
+elif ".slice(0, 90)" in app:
+    fails.append("the 90-char slice is back in the note row; bounds belong to "
+                 "noteSnippet, which respects line boundaries")
+if "noteSnippet" not in view:
+    fails.append("view.js lost noteSnippet")
+elif "white-space: pre-line" in (sub_rule.group(0) if sub_rule else "") \
+        and "noteSnippet(" in app and "noteSnippet" in view:
+    print("note preview: line breaks kept by noteSnippet + pre-line, bounds in one place")
+
 # --- 14. The app never talks to the network ----------------------------------
 # The README promises it outright: "nothing you type can leave the device".
 # The one sanctioned way out is navigator.share -- the OS share sheet, where

@@ -300,10 +300,10 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 113 tests
+node tests/view.test.mjs ../view.js             # 125 tests
 node tests/backup.test.mjs ../backup.js         # 64 tests
 python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 81 checks in real Chrome
+python tools/browser_check.py                   # 85 checks in real Chrome
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

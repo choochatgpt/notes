@@ -26,9 +26,11 @@ const {
   folderPath,
   localInputValue,
   nextRatio,
+  noteSnippet,
   RATIOS,
   ratioToTracks,
   relativeFromNow,
+  SNIPPET_LINE_CHARS,
   sortReminders
 } = await import(resolved.href);
 
@@ -446,6 +448,63 @@ console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
   check("the fallback is a real fraction pair, so the grid never gets junk",
         /^(1fr)$/.test(ratioToTracks("junk!").top));
 }
+
+console.log("\n=== 12. noteSnippet -- the list preview keeps the author's line breaks ===");
+equal(
+  "empty bodies yield an empty preview",
+  noteSnippet(""),
+  ""
+);
+equal(
+  "null/undefined yield an empty preview",
+  noteSnippet(null) + "/" + noteSnippet(undefined),
+  "/"
+);
+equal(
+  "a single short line passes through unchanged",
+  noteSnippet("Buy milk"),
+  "Buy milk"
+);
+equal(
+  "Enter keys survive -- the bug this replaces flattened every line into one",
+  noteSnippet("first\nsecond\nthird"),
+  "first\nsecond\nthird"
+);
+equal(
+  "CRLF bodies normalise to LF, so a pasted Windows note previews the same",
+  noteSnippet("alpha\r\nbeta"),
+  "alpha\nbeta"
+);
+equal(
+  "leading and trailing blank space is trimmed away",
+  noteSnippet("\n\n  deep thought  \n\n"),
+  "deep thought"
+);
+equal(
+  "at most four lines are kept",
+  noteSnippet("1\n2\n3\n4\n5\n6"),
+  "1\n2\n3\n4…"
+);
+equal(
+  "a line far past the char cap truncates with an ellipsis",
+  noteSnippet("x".repeat(200)).length,
+  SNIPPET_LINE_CHARS + 1
+);
+check("...and that long-line truncation actually ends in the ellipsis",
+      noteSnippet("y".repeat(200)).endsWith("…"));
+equal(
+  "internal runs of spaces collapse but the line stays one line",
+  noteSnippet("a    b"),
+  "a b"
+);
+check(
+  "four short lines fit without any ellipsis, so an ordinary note is never cut",
+  noteSnippet("l1\nl2\nl3\nl4") === "l1\nl2\nl3\nl4"
+);
+check(
+  "a five-line note keeps its first four then marks the cut",
+  noteSnippet("l1\nl2\nl3\nl4\nl5") === "l1\nl2\nl3\nl4…"
+);
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);
 process.exit(failed ? 1 : 0);

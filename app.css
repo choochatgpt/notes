@@ -455,6 +455,12 @@ body {
 
 .item-main { min-width: 0; }
 
+/* The title stacks as a block so the preview always STARTS on its own line,
+   in every engine, rather than by an accident of inline whitespace. The
+   preview stays inline: its line breaks are what pre-line renders, and its
+   painted line boxes are what the probe counts. */
+.item-main .item-title { display: block; }
+
 .item-title {
   font-size: 14px;
   font-weight: 600;
@@ -767,6 +773,16 @@ body[data-fatal="true"] .pane { opacity: .55; }
      give every row a second line, which is the thing being fixed. */
   .item-row.reminder-row .when-abs { display: none; }
   .item-row.reminder-row { gap: 6px; }
+
+  .item-row:not(.reminder-row) .when-abs { display: none; }
+
+  /* Note rows need the same surgery for a harder reason: the date is a
+     white-space:nowrap column, and grid hands it its full width BEFORE the
+     1fr preview column gets a share. On a phone that left the preview a few
+     characters wide, and pre-line wrapped EVERY word onto its own line --
+     the "one word per line" report of 2026-10-01. Without the date column
+     the preview owns the row and words flow again; Enter keys still break
+     lines because that is pre-line, not the date. */
 }
 
 @media (prefers-reduced-motion: reduce) {

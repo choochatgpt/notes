@@ -460,6 +460,30 @@ elif "white-space: pre-line" in (sub_rule.group(0) if sub_rule else "") \
         and "noteSnippet(" in app and "noteSnippet" in view:
     print("note preview: line breaks kept by noteSnippet + pre-line, bounds in one place")
 
+# The title stacks as a block so the preview always starts on its own line
+# regardless of inline whitespace in the markup; the preview itself stays
+# inline so its pre-line line breaks are the only breaks it ever has.
+stack_rule = re.search(r"\.item-main \.item-title\s*\{[^}]*\}", css)
+if not stack_rule:
+    fails.append("the note row's title no longer stacks as a block, so the "
+                 "preview can end up beside the title instead of below it")
+elif "display: block" not in stack_rule.group(0):
+    fails.append("the .item-main .item-title rule lost display:block")
+
+# The phone-width squeeze: the note row's date is a white-space:nowrap grid
+# column that takes its full width BEFORE the 1fr preview column gets a share,
+# so on a narrow list the preview dropped to a few characters and pre-line
+# wrapped every word onto its own line. The narrow layout must drop the date.
+narrow_when = re.search(r"\.item-row:not\(\.reminder-row\) \.when-abs\s*\{[^}]*\}", css)
+if not narrow_when:
+    fails.append("the narrow layout no longer drops the note row's date column, "
+                 "which squeezed the preview to one word per line on a phone")
+elif "display: none" not in narrow_when.group(0):
+    fails.append("the note row's narrow date-column rule lost display:none")
+elif narrow_when:
+    print("narrow rows: the note date column stands down below 760px, "
+          "so the preview owns the row")
+
 # --- 14. The app never talks to the network ----------------------------------
 # The README promises it outright: "nothing you type can leave the device".
 # The one sanctioned way out is navigator.share -- the OS share sheet, where

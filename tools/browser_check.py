@@ -884,6 +884,79 @@ PROBE = """<!doctype html>
 </script>
 """
 
+# The main frame is 900px wide, so a layout bug that only appears at phone
+# width can never reproduce there -- that is exactly how the "one word per
+# line" preview squeeze (2026-10-01) shipped green. This pass runs the app
+# again in a 380px frame, phone-wide, and asserts what the user actually
+# asked for: only Enter keys break lines. Every line below is short enough
+# to fit the narrow preview WITHOUT wrapping, so if spaces still wrapped,
+# the painted box count would blow past four and the check would fail.
+PROBE_NARROW = """<!doctype html>
+<meta charset="utf-8">
+<title>probe-narrow</title>
+<iframe id="app" src="./index.html" allow="web-share" width="380" height="740"></iframe>
+<script>
+(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const results = [];
+  const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail || "" });
+  async function waitFor(predicate, ms) {
+    const deadline = Date.now() + (ms || 15000);
+    while (Date.now() < deadline) {
+      if (predicate()) return true;
+      await sleep(100);
+    }
+    return false;
+  }
+
+  try {
+    const frame = document.getElementById("app");
+    const appeared = await waitFor(
+      () => frame.contentDocument && frame.contentDocument.querySelector(".app-shell"));
+    check("narrow: app shell rendered", appeared,
+          appeared ? "" : "the iframe never presented the app");
+    if (!appeared) throw new Error("no app shell in the narrow frame");
+
+    const doc = frame.contentDocument;
+    await waitFor(() => doc.body.dataset.ready === "true" || doc.body.dataset.fatal === "true");
+    check("narrow: app settled ready", doc.body.dataset.ready === "true",
+          "ready=" + doc.body.dataset.ready + " fatal=" + doc.body.dataset.fatal);
+    if (doc.body.dataset.ready !== "true") throw new Error("the narrow app never settled");
+
+    const q = sel => doc.querySelector(sel);
+    q("#new-note-btn").click();
+    await sleep(800);
+    q("#note-title").value = "Narrow Probe";
+    q("#note-body").value = "one two three four\\nfive six seven\\neight nine ten\\neleven twelve";
+    q("#note-editor").requestSubmit();
+    await sleep(800);
+    q("#editor-back").click();
+    await sleep(600);
+
+    const row = [...doc.querySelectorAll("#note-list .item-row")]
+      .find(r => r.textContent.includes("Narrow Probe"));
+    const sub = row && row.querySelector(".item-sub");
+    check("narrow: the probe note is in the list", !!row);
+    if (sub) {
+      const box = sub.getBoundingClientRect();
+      const rects = sub.getClientRects().length;
+      check("narrow: four Enters make exactly four painted lines -- spaces make none",
+            rects === 4, "rects=" + rects + " width=" + Math.round(box.width));
+      check("narrow: the preview column keeps a real share of the row",
+            box.width > 90, "width=" + Math.round(box.width));
+      check("narrow: the preview still resolves to pre-line",
+            getComputedStyle(sub).whiteSpace === "pre-line",
+            getComputedStyle(sub).whiteSpace);
+    }
+  } catch (error) {
+    check("narrow probe ran to completion", false, String(error && error.message || error));
+  }
+
+  await fetch("/__result", { method: "POST", body: JSON.stringify(results) });
+})();
+</script>
+"""
+
 HOLDER: dict[str, str | None] = {"data": None}
 
 
@@ -927,7 +1000,7 @@ def serve(directory: Path, port: int) -> tuple[socketserver.TCPServer, threading
 
 
 def drive(port: int, browser: Path, httpd, thread, label: str,
-          cross_origin: bool = False) -> list[dict]:
+          cross_origin: bool = False, page: str = "_probe.html") -> list[dict]:
     """Run Chrome at the probe page and wait for it to report back.
 
     Chrome is terminated and the server shut down on every path out, including
@@ -951,7 +1024,7 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
         # that has nothing to do with the app under test. It also needs a
         # non-default profile, which the line above already supplies.
         argv += ["--disable-web-security", "--disable-site-isolation-trials"]
-    argv.append(f"http://127.0.0.1:{port}/_probe.html")
+    argv.append(f"http://127.0.0.1:{port}/{page}")
 
     process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.time() + 90
@@ -981,15 +1054,34 @@ def run_probe(stage: Path, port: int, browser: Path) -> list[dict]:
 
 def run_probe_url(url: str, port: int, browser: Path) -> list[dict]:
     """Probe an app that is already served -- the live site, not a local stage."""
-    HOLDER["data"] = None
-    # The probe page itself only drives the clicks, so a throwaway directory is
-    # enough; the app under test comes from `url`.
     scratch = WORK / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     (scratch / "_probe.html").write_text(
         PROBE.replace('src="./index.html"', f'src="{url}"'), encoding="utf-8")
+    HOLDER["data"] = None
     httpd, thread = serve(scratch, port)
     return drive(port, browser, httpd, thread, url, cross_origin=True)
+
+
+def run_probe_narrow(stage: Path, port: int, browser: Path) -> list[dict]:
+    """The same stage again, in a phone-width frame (see PROBE_NARROW)."""
+    (stage / "_probe_narrow.html").write_text(PROBE_NARROW, encoding="utf-8")
+    HOLDER["data"] = None
+    httpd, thread = serve(stage, port)
+    return drive(port, browser, httpd, thread, stage.name + " @380px",
+                 page="_probe_narrow.html")
+
+
+def run_probe_url_narrow(url: str, port: int, browser: Path) -> list[dict]:
+    """The narrow pass against an app that is already served."""
+    scratch = WORK / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "_probe_narrow.html").write_text(
+        PROBE_NARROW.replace('src="./index.html"', f'src="{url}"'), encoding="utf-8")
+    HOLDER["data"] = None
+    httpd, thread = serve(scratch, port)
+    return drive(port, browser, httpd, thread, url + " @380px",
+                 cross_origin=True, page="_probe_narrow.html")
 
 
 def find_browser(explicit: str | None) -> Path:
@@ -1033,6 +1125,9 @@ def main() -> int:
     if args.url:
         results = run_probe_url(args.url, 8190, browser)
         report(args.url, results)
+        narrow = run_probe_url_narrow(args.url, 8191, browser)
+        report("phone-width frame (380px)", narrow)
+        results = results + narrow
         broken = [r["name"] for r in results if not r["ok"]]
         print("\n=== verdict ===")
         if broken:
@@ -1062,8 +1157,10 @@ def main() -> int:
     verdicts: dict[str, list[dict]] = {}
     for index, (label, stage) in enumerate(stages.items()):
         results = run_probe(stage, 8190 + index, browser)
-        verdicts[label] = results
         report(label, results)
+        narrow = run_probe_narrow(stage, 8210 + index, browser)
+        report("phone-width frame (380px)", narrow)
+        verdicts[label] = results + narrow
 
     failures = 0
     print("\n=== verdict ===")

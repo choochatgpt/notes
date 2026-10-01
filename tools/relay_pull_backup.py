@@ -41,6 +41,8 @@ Usage:
     python tools/relay_pull_backup.py --dry-run       # build email, send nothing,
                                                       # reset nothing
     python tools/relay_pull_backup.py --no-cleanup    # send, leave inbox as pasted
+    python tools/relay_pull_backup.py --archive-dir C:\notes_backups
+                                                      # also keep a dated copy on disk
     python tools/relay_pull_backup.py --list-config   # via email_backup.py
 
 Exit codes: 0 = nothing waiting or full success, 1 = failure.
@@ -103,6 +105,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="build the email and print it; send nothing, reset nothing")
     parser.add_argument("--no-cleanup", action="store_true",
                         help="send, but leave the repo inbox exactly as pasted")
+    parser.add_argument("--archive-dir", metavar="DIR",
+                        help="also write a dated copy of each picked-up backup "
+                             "here (the watcher uses this so every backup lands "
+                             "on disk as well as in the mailbox)")
     args = parser.parse_args(argv)
 
     repo = Path(args.repo)
@@ -164,6 +170,23 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"extracted {len(payload)} bytes -> {dest}")
     print(f"sha256 {sha256}")
+
+    # The dated on-disk copy, so every backup lands on the PC even if the
+    # mailbox is never opened. Written before the send: an email failure then
+    # still leaves the bytes safe here, not only in the inbox.
+    if args.archive_dir and not args.dry_run:
+        archive = Path(args.archive_dir)
+        archive.mkdir(parents=True, exist_ok=True)
+        dated = archive / f"notes-backup-{stamp}.csv"
+        counter = 1
+        while dated.exists():
+            dated = archive / f"notes-backup-{stamp}-{counter}.csv"
+            counter += 1
+        dated.write_bytes(payload)
+        manifest["archived_to"] = str(dated)
+        (inbox_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"archived copy -> {dated}")
 
     email_cmd = [sys.executable, str(TOOLS_DIR / "email_backup.py"), str(dest)]
     if args.dry_run:

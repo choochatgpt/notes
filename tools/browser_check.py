@@ -43,6 +43,7 @@ import argparse
 import functools
 import http.server
 import json
+import re
 import shutil
 import socketserver
 import subprocess
@@ -254,6 +255,36 @@ PROBE = """<!doctype html>
       const settingsDialog = q("#settings-dialog");
       check("Settings opens the dialog", !!(settingsDialog && settingsDialog.open),
             "open=" + (settingsDialog ? settingsDialog.open : "no dialog"));
+
+      // The visible release number (the user asked for it): the chip must
+      // carry exactly the version the harness read out of view.js when it
+      // built this probe -- a stale or missing chip fails outright.
+      const shownVersion = (q("#app-version") || {}).textContent || "";
+      const expectedVersion = "__EXPECTED_VERSION__";
+      check("the dialog shows the current app version",
+            shownVersion.trim() === expectedVersion,
+            "shown=" + JSON.stringify(shownVersion)
+            + " expected=" + expectedVersion);
+      // On a deployment the live sw.js is reachable, so the chip can also be
+      // compared against what the shell ACTUALLY caches there. A local stage
+      // deliberately ships no sw.js (its registration 404s by design), so for
+      // it the injected expectation above is the whole assertion.
+      if (frame.contentWindow.location.origin !== location.origin) {
+        try {
+          // fetch inside the frame's realm, so "sw.js" resolves against the
+          // app's own origin; the fresh profile's empty cache cannot answer
+          // it with a stale cached copy.
+          const response = await frame.contentWindow.fetch("sw.js");
+          const cacheMatch = /CACHE_NAME = "notes-shell-v(\\d+)"/.exec(await response.text());
+          check("the shown version is the shell cache version",
+                !!cacheMatch && cacheMatch[1] === shownVersion.trim(),
+                "shown=" + shownVersion.trim()
+                + " sw=" + (cacheMatch ? cacheMatch[1] : "none"));
+        } catch (error) {
+          check("the shown version is the shell cache version", false,
+                String(error && error.message || error));
+        }
+      }
 
       // The three controls, by the exact labels the user asked for.
       const dialogText = settingsDialog ? settingsDialog.textContent : "";
@@ -956,6 +987,19 @@ PROBE_NARROW = """<!doctype html>
 })();
 </script>
 """
+
+def expected_version() -> str:
+    """The APP_VERSION this checkout carries, to pin the probe's chip check."""
+    found = re.search(r'export const APP_VERSION = "(\d+)";',
+                      (REPO / "view.js").read_text(encoding="utf-8"))
+    if not found:
+        raise SystemExit("view.js exports no APP_VERSION -- the probe cannot be pinned")
+    return found.group(1)
+
+
+# The probe asserts the chip against the version this very checkout carries,
+# so a stale published number fails the desktop pass outright.
+PROBE = PROBE.replace("__EXPECTED_VERSION__", expected_version())
 
 HOLDER: dict[str, str | None] = {"data": None}
 

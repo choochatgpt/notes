@@ -484,6 +484,34 @@ elif narrow_when:
     print("narrow rows: the note date column stands down below 760px, "
           "so the preview owns the row")
 
+# --- 13c. The visible version is the cache version ---------------------------
+# The user asked to be able to see which revision is running. A number on
+# screen is only an answer if it is the same number the offline cache is
+# pinned to, so the two are locked here: view.js exports APP_VERSION, sw.js
+# names its cache after it, and the dialog shows it. Bump both together --
+# this section fails the build the moment they drift.
+shown_version = re.search(r'export const APP_VERSION = "(\d+)";', view)
+cached_version = re.search(r'CACHE_NAME = "notes-shell-v(\d+)";', sw)
+if not shown_version:
+    fails.append('view.js no longer exports APP_VERSION = "<number>", so the '
+                 "app has no release number to show")
+if not cached_version:
+    fails.append("sw.js CACHE_NAME no longer reads notes-shell-v<number>")
+if shown_version and cached_version:
+    if shown_version.group(1) != cached_version.group(1):
+        fails.append(f"the visible version (APP_VERSION {shown_version.group(1)}) "
+                     f"and the shell cache (notes-shell-v{cached_version.group(1)}) "
+                     "disagree -- bump them together, or the user reads one "
+                     "number while another runs")
+    else:
+        print(f"version: the dialog shows {shown_version.group(1)} and sw.js "
+              f"caches notes-shell-v{cached_version.group(1)} -- one number")
+if 'id="app-version"' not in html:
+    fails.append("index.html lost #app-version, so the release number is "
+                 "visible nowhere")
+if "APP_VERSION" not in app or "app-version" not in app:
+    fails.append("app.js no longer writes APP_VERSION into #app-version")
+
 # --- 14. The app never talks to the network ----------------------------------
 # The README promises it outright: "nothing you type can leave the device".
 # The one sanctioned way out is navigator.share -- the OS share sheet, where

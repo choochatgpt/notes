@@ -13,6 +13,7 @@ import {
 } from "./storage.js";
 import { reminderWithNextDue } from "./reminder.js";
 import {
+  APP_VERSION,
   absoluteLabel,
   collectSubtree,
   describeDeletion,
@@ -1082,6 +1083,12 @@ function wireControls() {
       els.newFolderForm.classList.add("hidden");
     }
   });
+
+  // The visible release number, filled before any await so the dialog can
+  // never open with an empty chip -- knowing which revision runs is the
+  // whole point of showing it. static_check.py pins the value to sw.js.
+  const versionChip = $("#app-version");
+  if (versionChip) versionChip.textContent = APP_VERSION;
 }
 
 /**

@@ -16,6 +16,7 @@
 // either the flat workspace layout or the durable-mirror one.
 const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url);
 const {
+  APP_VERSION,
   absoluteLabel,
   collectSubtree,
   DEFAULT_RATIO,
@@ -505,6 +506,12 @@ check(
   "a five-line note keeps its first four then marks the cut",
   noteSnippet("l1\nl2\nl3\nl4\nl5") === "l1\nl2\nl3\nl4…"
 );
+
+console.log("\n=== 13. APP_VERSION -- the release number the user can see ===");
+check("APP_VERSION is a bare number the dialog can show verbatim",
+      /^\d+$/.test(APP_VERSION), APP_VERSION);
+check("the version moved past the one-word-per-line release (17)",
+      Number(APP_VERSION) >= 18, APP_VERSION);
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);
 process.exit(failed ? 1 : 0);

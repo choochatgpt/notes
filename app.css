@@ -664,6 +664,15 @@ body {
   padding-top: 12px;
   border-top: 1px solid var(--border-soft);
 }
+
+/* The release number, where the user can see it (their request). It is not
+   decoration: static_check.py pins the number shown here to sw.js's cache
+   name, so what the dialog says is what the shell actually runs. */
+.dialog-version {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
 .dialog-field {
   display: flex;
   flex-direction: column;

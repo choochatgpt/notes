@@ -153,7 +153,14 @@ a control that exists but cannot be found is a control that does not work.
 
 ## Settings: the ratio, export, import
 
-The **Settings** button in the top bar opens one dialog with three controls.
+The **Settings** button in the top bar opens one dialog with three controls —
+and the release number at the bottom ("Version 18"), so on any device you can
+see which revision is running. The number is not free-floating decoration:
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v18`) and
+fails the build if the two drift, and the browser check compares what the
+dialog shows against the version this checkout carries (and, on the deployed
+site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
+`CACHE_NAME` in `sw.js` together, every release.
 
 **Notes/Reminders panel display ratio.** Each click moves the split to the next
 top-pane share — `20% → 40% → 60% → 80%` and back around, so the notes region
@@ -230,6 +237,17 @@ emails it through `email_backup.py`, and on send success resets the inbox to
 its placeholder and pushes. A failed send leaves the repo untouched — the
 payload waits for a fixed config rather than being lost to one.
 
+**The pickup runs itself.** `tools/relay_backup_watch.py` loops in the
+background (registered as a Windows scheduled task, "Notes backup watch", at
+sign-in): every 5 minutes it fetches the relay clone, and the moment the inbox
+blob stops being the placeholder it hands the pickup to
+`relay_pull_backup.py --archive-dir C:\notes_backups` — so a paste on the phone
+lands on the PC as a dated copy in `C:\notes_backups` *and* an emailed
+attachment, with no PC-side step to remember. Failures are logged to
+`C:\notes_backups\relay_backup_watch.log` and retried on a later cycle; the
+repo is only ever touched by the pickup tool's own success path. `--once`
+runs a single cycle for testing.
+
 **Import notes/reminders.** Paste the CSV from your email backup into the box and
 press **Preview import**. The preview states what the backup holds against what
 this device currently holds, plus every repair the parser had to make — a note
@@ -300,10 +318,10 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 125 tests
+node tests/view.test.mjs ../view.js             # 127 tests
 node tests/backup.test.mjs ../backup.js         # 64 tests
-python tools/static_check.py                    # wiring and structural invariants
-python tools/browser_check.py                   # 85 checks in real Chrome, plus 6 in a 380px phone-width frame
+python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
+python tools/browser_check.py                   # 86 checks in real Chrome, plus 6 in a 380px phone-width frame
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

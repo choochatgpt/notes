@@ -269,6 +269,10 @@
         <button id="restore-btn" class="btn small danger" type="button" disabled>Restore (overwrite all)</button>
       </div>
     </section>
+
+    <!-- The visible release number (the user asked for it): if this ever
+         disagrees with sw.js's cache name, static_check.py fails the build. -->
+    <p class="dialog-version">Version <span id="app-version"></span></p>
   </dialog>
 
   <!-- The status bar carries failures only, and takes no space when there are

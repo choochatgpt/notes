@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Watch the PRIVATE relay repo and handle each upload automatically.
 
-Two inboxes, two handlers, one poll:
+Two inboxes, two handlers, one poll -- plus the sync branch:
 
   * the TEXT backup inbox (gitway/transfer_inbox/notes/inbox.csv): the phone
     pastes a backup CSV there (Settings -> 'Share CSV for backup'); when the
@@ -11,6 +11,12 @@ Two inboxes, two handlers, one poll:
     saved photos there ("Add file" -> "Upload files"); when any real file is
     present this runs relay_pull_media.py, which archives them under
     C:\\notes_backups\\media with SHA256 manifests and clears the folder.
+  * the SYNC branch (notes-inbox): the app itself pushes a whole export --
+    backup CSV + every photo -- through api.github.com with the user's own
+    token (the one-tap route the user asked for on 2026-10-03, modelled on
+    JScan's authorised transport). When anything but ack.json is on the
+    branch this runs relay_pull_sync_inbox.py, which verifies the bundle,
+    archives + emails it, then rewrites the branch so the bytes leave GitHub.
 
 This watcher removes the remembering: it polls the relay clone every --every
 seconds and the watched path is exactly the tool a manual run would take --
@@ -52,6 +58,7 @@ REPO_DEFAULT = r"C:\python\projects\chat\ask-ai-relay"
 ARCHIVE_DEFAULT = r"C:\notes_backups"
 REPO_INBOX_PATH = "gitway/transfer_inbox/notes/inbox.csv"
 REPO_MEDIA_DIR = "gitway/transfer_inbox/notes/media"
+SYNC_BRANCH = "notes-inbox"
 MEDIA_PLACEHOLDERS = {"readme.md", "readme.txt", ".gitkeep"}
 MAX_BYTES = 10 * 1024 * 1024
 BACKUP_HEADER = b"# notes-backup"
@@ -129,6 +136,41 @@ def media_step(args: argparse.Namespace, repo: Path, head: str) -> str | None:
             "behind is retried next cycle")
 
 
+def sync_step(args: argparse.Namespace, repo: Path, head: str) -> str | None:
+    """Run the one-tap sync pickup when anything but ack.json waits. None when
+    idle -- including the branch not existing yet, which is the normal state
+    until the app's first sync."""
+    try:
+        listing = run_git(repo, "ls-tree", "-r", "--name-only",
+                          f"origin/{SYNC_BRANCH}").decode("utf-8", "replace")
+    except RuntimeError as error:
+        if "Not a valid object name" in error.args[0] \
+                or "does not exist" in error.args[0] or "fatal" in error.args[0]:
+            return None
+        raise
+    waiting = [
+        name.strip() for name in listing.splitlines()
+        if name.strip() and name.strip() != "ack.json"
+    ]
+    if not waiting:
+        return None  # an empty (acknowledged) branch must not grow the log
+    log(f"sync pickup: {len(waiting)} file(s) waiting on {SYNC_BRANCH} "
+        f"(origin {head}): {', '.join(waiting[:8])}"
+        + (" ..." if len(waiting) > 8 else ""))
+    done = subprocess.run(
+        [sys.executable, str(TOOLS_DIR / "relay_pull_sync_inbox.py"),
+         "--repo", str(repo)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    for line in (done.stdout or "").splitlines():
+        log("  | " + line)
+    if done.stderr and done.stderr.strip():
+        log("  stderr: " + done.stderr.strip()[:400])
+    if done.returncode == 0:
+        return "sync pickup succeeded: bundle archived (+ emailed if a backup CSV rode along), branch cleared"
+    return (f"relay_pull_sync_inbox.py exited {done.returncode}; the bundle is "
+            "still on the branch and the next cycle retries it")
+
+
 def csv_step(args: argparse.Namespace, repo: Path, head: str) -> str:
     """The original text-backup pickup, unchanged in behavior."""
     blob = remote_blob(repo, args.repo_path, head)
@@ -169,7 +211,8 @@ def cycle(args: argparse.Namespace) -> str:
     run_git(repo, "fetch", "origin", "--prune")
     head = run_git(repo, "rev-parse", "--verify", "--short", "FETCH_HEAD") \
         .decode().strip()
-    results = [media_step(args, repo, head), csv_step(args, repo, head)]
+    results = [media_step(args, repo, head), csv_step(args, repo, head),
+               sync_step(args, repo, head)]
     return "; ".join(result for result in results if result)
 
 
@@ -200,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout = sys.stderr = LOG_FILE.open("a", encoding="utf-8", buffering=1)
 
     log(f"watcher started: repo={args.repo} inbox={args.repo_path} "
-        f"media={REPO_MEDIA_DIR} archive={args.archive_dir} every={args.every:g}s")
+        f"media={REPO_MEDIA_DIR} sync={SYNC_BRANCH} archive={args.archive_dir} "
+        f"every={args.every:g}s")
     failures = 0
     while True:
         try:

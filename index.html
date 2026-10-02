@@ -281,11 +281,16 @@
     <p class="dialog-version">Version <span id="app-version"></span></p>
   </dialog>
 
-  <!-- Photo/video viewer. The bytes never leave the device: the dialog shows
-         the OPFS copy through an object URL, and closing revokes it. -->
+  <!-- Photo/video viewer. The bytes live in this device's OPFS; the dialog
+         shows them through an object URL, and closing revokes it. Save to
+         device (2026-10-02) writes a copy into the phone's downloads/gallery --
+         the one way bytes can leave, added so they can travel onward to the
+         private relay repo's media inbox (the user chose the GitWay photo
+         route). Nothing is uploaded by the app itself. -->
   <dialog id="media-dialog" class="media-dialog" aria-label="Attached photo">
     <div class="dialog-head">
       <span class="panel-title">Attached media</span>
+      <button id="media-save-btn" class="btn small" type="button">Save to device</button>
       <button id="media-close" class="btn small" type="button">Close</button>
     </div>
     <img id="media-view" class="media-view hidden" alt="">

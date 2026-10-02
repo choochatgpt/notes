@@ -582,9 +582,13 @@ else:
     print("reminder rows: the date survives the narrow row; the relative time stands down")
 
 # 15d. Photo attachments: strip markup, image glyph, OPFS helpers, cleanup.
+# "Save to device" in the viewer is sanctioned (2026-10-02: the user chose the
+# GitWay media route, which needs bytes to reach the phone's downloads for a
+# manual upload to the PRIVATE relay repo); the CSV download button remains
+# gone -- 15a still refuses #download-csv-btn.
 for required in ('id="media-strip"', 'id="media-input"', 'id="media-dialog"',
                  'id="media-view"', 'id="media-video"', 'id="media-close"',
-                 'id="add-media-btn"'):
+                 'id="media-save-btn"', 'id="add-media-btn"'):
     if required not in html:
         fails.append(f"index.html lost {required}, so photos have nowhere to render")
 if '<symbol id="i-image"' not in html:
@@ -610,6 +614,11 @@ if "makeThumbnail(" not in app or "renderMediaStrip(" not in app:
     fails.append("app.js lost the thumbnail/strip pipeline")
 if 'URL.revokeObjectURL' not in app:
     fails.append("app.js never revokes object URLs, so every photo view leaks its bytes")
+save_media = body_of("saveMediaToDevice")
+if 'on("#media-save-btn"' not in app:
+    fails.append('app.js never wires #media-save-btn, so "Save to device" is a dead button')
+if "link.download" not in save_media or "URL.createObjectURL" not in save_media:
+    fails.append("saveMediaToDevice no longer hands the OPFS bytes to a download anchor")
 else:
     print("photos: strip + viewer wired; bytes in OPFS; delete and revoke paths pinned")
 

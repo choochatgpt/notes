@@ -806,7 +806,10 @@ async function removeNoteMedia(mediaId) {
 
 // The viewer's object URL, held so closing the dialog can revoke it -- an
 // unreleased URL per view would leak the decoded bytes for the page's life.
+// mediaCurrentId says which attachment the viewer is on, so Save to device
+// knows which bytes to hand out.
 let mediaObjectUrl = null;
+let mediaCurrentId = null;
 
 /** Open the viewer on the stored bytes. Reads OPFS on demand, never before. */
 async function viewMedia(mediaId) {
@@ -817,6 +820,7 @@ async function viewMedia(mediaId) {
   const video = $("#media-video");
   if (!record || !file || !dialog || !img || !video) return;
 
+  mediaCurrentId = mediaId;
   if (mediaObjectUrl) URL.revokeObjectURL(mediaObjectUrl);
   mediaObjectUrl = URL.createObjectURL(file);
 
@@ -843,8 +847,33 @@ function closeMedia() {
     URL.revokeObjectURL(mediaObjectUrl);
     mediaObjectUrl = null;
   }
+  mediaCurrentId = null;
   const img = $("#media-view");
   if (img) img.src = "";
+}
+
+/**
+ * Hand a copy of the viewed bytes to the browser's own download path: an
+ * object URL plus a transient anchor, revoked once the click has landed. This
+ * is the sanctioned way media leaves the app (2026-10-02) -- the user saves a
+ * photo and uploads it onward themselves; the app never uploads anything.
+ * The original file name is kept so the gallery entry is recognisable.
+ */
+async function saveMediaToDevice() {
+  if (!mediaCurrentId) return;
+  const record = await get("media", mediaCurrentId);
+  const file = await opfsGet(mediaCurrentId);
+  if (!record || !file) return;
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = record.name || ((record.type || "").startsWith("video/") ? "video" : "photo");
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Revoking synchronously can cancel the download on some engines; give the
+  // browser a beat to start it.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function switchKind(kind) {
@@ -1212,6 +1241,7 @@ function wireControls() {
     input.value = "";
   });
   on("#media-close", "click", closeMedia);
+  on("#media-save-btn", "click", saveMediaToDevice);
   // Escape (a native dialog "cancel") routes here too: the bytes' URL must be
   // released whichever way the viewer closes.
   on("#media-dialog", "close", closeMedia);

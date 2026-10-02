@@ -682,6 +682,35 @@ PROBE = """<!doctype html>
             "img=" + !!reopened);
       photosOk = !!reopened;
 
+      // The viewer: tapping a thumb opens the OPFS copy through an object URL,
+      // and "Save to device" is present and clickable without breaking the
+      // dialog (the headless download itself is the browser's to do; the pin
+      // for the anchor+createObjectURL mechanics is static).
+      reopened.click();
+      await sleep(900);
+      const viewer = doc.querySelector("#media-dialog");
+      const viewerImg = doc.querySelector("#media-view");
+      check("tapping a thumbnail opens the viewer on the OPFS bytes",
+            !!viewer && viewer.open && !!viewerImg && !viewerImg.classList.contains("hidden")
+            && (viewerImg.getAttribute("src") || "").startsWith("blob:"),
+            "open=" + !!(viewer && viewer.open)
+            + " src=" + ((viewerImg && viewerImg.getAttribute("src") || "").slice(0, 5)));
+      const saveBtn = doc.querySelector("#media-save-btn");
+      check("the viewer offers Save to device",
+            !!saveBtn && !saveBtn.disabled
+            && /Save to device/.test(saveBtn.textContent),
+            "save=" + (saveBtn ? saveBtn.textContent.trim() : "missing"));
+      if (saveBtn) saveBtn.click();
+      await sleep(400);
+      check("saving does not close or break the viewer",
+            !!viewer && viewer.open, "open=" + !!(viewer && viewer.open));
+      doc.querySelector("#media-close").click();
+      await sleep(400);
+      check("closing the viewer clears the picture",
+            !(doc.querySelector("#media-dialog") || {}).open
+            && !(doc.querySelector("#media-view").getAttribute("src")),
+            "open=" + !!(doc.querySelector("#media-dialog") || {}).open);
+
       // Deleting the note takes the rest of its media with it. The
       // confirmation must name the photos that are about to go.
       confirmAnswer = true;

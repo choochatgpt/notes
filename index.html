@@ -239,13 +239,14 @@
     </div>
 
     <!-- Export: the CSV is shown in full so the user can see exactly what leaves
-         the device. Two ways out, both named for what they do: Copy CSV puts the
-         text on the clipboard (the relay-inbox path starts here), and Export CSV
-         opens the entered address in the user's own mail app with the backup as
-         the draft body. Download and Share were removed (2026-10-01): a saved
-         file still needed a manual attach step and the phone's share sheet had
-         already refused once in the wild, while copy + mailto covered every
-         route the two of them served. -->
+         the device. Two ways out: Share CSV for backup puts the text on the
+         clipboard -- it is called share because the paste into the relay inbox or
+         an email is the share (the relay-inbox path starts here) -- and Export
+         CSV opens the entered address in the user's own mail app with the backup
+         as the draft body. Download and Share-sheet were removed (2026-10-01): a
+         saved file still needed a manual attach step and the phone's share sheet
+         had already refused once in the wild, while clipboard + mailto covered
+         every route the two of them served. -->
     <section id="export-panel" class="dialog-panel hidden">
       <label class="dialog-field">
         Email address
@@ -255,7 +256,8 @@
                 aria-label="Backup CSV"></textarea>
       <p id="export-size-note" class="muted"></p>
       <div class="dialog-actions">
-        <button id="copy-csv-btn" class="btn small" type="button">Copy CSV</button>
+        <button id="copy-csv-btn" class="btn small" type="button"
+                title="Copies the backup text to your clipboard — paste it into the relay inbox or an email">Share CSV for backup</button>
         <a id="open-email-btn" class="btn small primary" href="#">Export CSV</a>
       </div>
     </section>

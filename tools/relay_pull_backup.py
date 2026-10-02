@@ -3,12 +3,13 @@
 
 This is the phone -> PC bridge for backups when the phone's share sheet is
 refused (NotAllowedError in Chrome on Android was the case in the wild):
-the Web Share path dies, but Copy CSV always works, and the relay repo is
+the Web Share path dies, but the clipboard copy ("Share CSV for backup",
+renamed from Copy CSV on 2026-10-02) always works, and the relay repo is
 reachable from the phone's browser.
 
 Phone flow (the inbox lives in choochatgpt/ask-ai-relay -- PRIVATE, never
 the public Pages repo):
-    1. Notes -> Settings -> Copy CSV
+    1. Notes -> Settings -> Share CSV for backup
     2. github.com/choochatgpt/ask-ai-relay -> gitway/transfer_inbox/notes/
        -> inbox.csv -> Edit (pencil) -> select all -> paste -> Commit changes
     3. On the PC: python tools/relay_pull_backup.py
@@ -67,7 +68,8 @@ PLACEHOLDER_FIRST_LINE = b"# NOTES TRANSFER INBOX"
 PLACEHOLDER = (
     "# NOTES TRANSFER INBOX - this is a placeholder, not a backup.\n"
     "# From the phone: open this file on github.com, tap the pencil (Edit),\n"
-    "# select all, paste the CSV copied from Notes -> Settings -> Copy CSV,\n"
+    "# select all, paste the CSV copied from Notes -> Settings ->\n"
+    "# 'Share CSV for backup',\n"
     "# then Commit changes. The PC pickup tool (tools/relay_pull_backup.py in\n"
     "# the notes repo) emails it via SMTP and resets this file to the placeholder.\n"
 ).encode("utf-8")

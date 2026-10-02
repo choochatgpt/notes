@@ -336,8 +336,8 @@ PROBE = """<!doctype html>
 
       // Export: the CSV itself, the mailto handoff (the attribute is read, never
       // clicked -- a real mailto hangs headless Chrome), and the copy
-      // confirmation. The panel is exactly Copy CSV + Export CSV since the
-      // user asked the other two buttons off (2026-10-01).
+      // confirmation. The panel is exactly Share CSV for backup + Export CSV
+      // since the user asked the other two buttons off (2026-10-01).
       q("#export-btn").click();
       await waitFor(() => {
         const box = q("#export-csv");
@@ -357,8 +357,8 @@ PROBE = """<!doctype html>
               .every(section => exportedCsv.indexOf(section) !== -1));
 
       // Exactly two ways out, under the exact labels the user asked for.
-      check("the export panel offers exactly Copy CSV + Export CSV",
-            !!q("#copy-csv-btn") && /Copy CSV/.test(q("#copy-csv-btn").textContent)
+      check("the export panel offers exactly Share CSV for backup + Export CSV",
+            !!q("#copy-csv-btn") && /Share CSV for backup/.test(q("#copy-csv-btn").textContent)
             && !!q("#open-email-btn") && /Export CSV/.test(q("#open-email-btn").textContent),
             "copy=" + (q("#copy-csv-btn") ? q("#copy-csv-btn").textContent.trim() : "missing")
             + " export=" + (q("#open-email-btn") ? q("#open-email-btn").textContent.trim() : "missing"));
@@ -388,7 +388,7 @@ PROBE = """<!doctype html>
       q("#copy-csv-btn").click();
       await sleep(400);
       const sizeNote = q("#export-size-note");
-      check("Copy CSV confirms or explains itself",
+      check("the clipboard copy confirms or explains itself",
             /Copied to the clipboard|Copying was blocked/.test(
               sizeNote ? sizeNote.textContent : ""),
             "said=" + (sizeNote ? sizeNote.textContent : "n/a"));

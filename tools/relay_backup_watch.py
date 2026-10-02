@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Watch the PRIVATE relay repo and handle each pasted notes backup automatically.
 
-The backup loop is: on the phone, Settings -> Copy CSV -> paste into the relay
-inbox -> Commit. The last leg -- getting the backup onto this PC and emailed --
-used to need someone to remember to run `python tools/relay_pull_backup.py`.
+The backup loop is: on the phone, Settings -> 'Share CSV for backup' -> paste
+into the relay inbox -> Commit. The last leg -- getting the backup onto this PC
+and emailed -- used to need someone to remember to run
+`python tools/relay_pull_backup.py`.
 This watcher removes the remembering: it polls the relay clone every
 --every seconds, and the moment the inbox blob on origin stops being the
 placeholder it runs relay_pull_backup.py in a subprocess, so the watched path

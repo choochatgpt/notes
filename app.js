@@ -942,8 +942,8 @@ function syncMailtoLink(csv) {
     link.classList.remove("hidden");
   } else {
     // Refuse rather than truncate: a backup that silently loses its tail is
-    // worse than one that will not open. Copy CSV still has it all.
-    oversizeNote = `Too large for an email app (${built.encodedLength} characters, limit ${built.limit}) — use Copy CSV and paste it into the email.`;
+    // worse than one that will not open. The clipboard copy still has it all.
+    oversizeNote = `Too large for an email app (${built.encodedLength} characters, limit ${built.limit}) — use Share CSV for backup and paste it into the email.`;
     link.href = "#";
     link.setAttribute("aria-disabled", "true");
     link.classList.add("hidden");

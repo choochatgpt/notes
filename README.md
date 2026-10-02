@@ -183,15 +183,16 @@ the whole database — nested folders with their parenting, notes, and reminders
 as one text CSV under a versioned `# notes-backup v2` header, then offers it
 exactly two ways:
 
-- **Copy CSV** puts the exact text on the clipboard (with the selected text as a
-  fallback when the browser blocks programmatic copying). This is also the
-  phone → relay-inbox path's first step.
+- **Share CSV for backup** puts the exact text on the clipboard (with the
+  selected text as a fallback when the browser blocks programmatic copying).
+  It is named for what the copy is *for* — the paste into the relay inbox or
+  an email is the share. This is the phone → relay-inbox path's first step.
 - **Export CSV** opens your mail app with the CSV in the message body, addressed
   to the address you entered. `mailto:` cannot attach files, and long bodies are
   silently truncated by some mail clients, so a backup that would exceed a
   conservative 1800-character limit is refused outright rather than cut short —
-  the panel says so and points at Copy CSV instead. The app never sends
-  anything itself; you press Send.
+  the panel says so and points at Share CSV for backup instead. The app never
+  sends anything itself; you press Send.
 
 *Download .csv* and *Share .csv* were removed on request (2026-10-01): a saved
 file still needed a manual attach step, and the phone's share sheet had already
@@ -230,7 +231,7 @@ this in the wild, in more than one browser), the backup still moves by
 copy-paste through the **private** relay repo — never the public Pages repo,
 and text backups only:
 
-1. Phone: Settings → **Copy CSV**.
+1. Phone: Settings → **Share CSV for backup**.
 2. Phone: github.com/choochatgpt/ask-ai-relay → `gitway/transfer_inbox/notes/`
    → `inbox.csv` → Edit (pencil) → select all → paste → Commit changes.
 3. PC: `python tools/relay_pull_backup.py`.
@@ -385,7 +386,9 @@ path, and that `replaceAll`'s transaction names folders, notes and reminders and
 a fact rather than a promise. And it enforces the headline promise directly: no
 app module may contain `fetch`, `XMLHttpRequest`, `sendBeacon` or
 `navigator.share` — nothing ever leaves the device. The v19 pins are static
-too: the export panel is exactly Copy CSV + Export CSV (download/share gone),
+too: the export panel is exactly Share CSV for backup + Export CSV (download/
+share gone; the clipboard button's label was renamed to "Share CSV for backup"
+on 2026-10-02),
 the editor action row is nowrap, the narrow layout keeps the reminder date and
 stands the relative time down, photos have their strip/viewer/OPFS plumbing,
 and backup.js is v2 with a mediaIds column and a parse gate that accepts
@@ -406,7 +409,7 @@ hit — see "Releasing" below.
 
 For Settings it walks the whole story: every ratio click measured against the
 fraction of the screen it should claim, the export panel carrying exactly
-Copy CSV + Export CSV with the removed buttons proven absent, the export CSV
+Share CSV for backup + Export CSV with the removed buttons proven absent, the export CSV
 built and read back (the mail link's attribute only — a clicked `mailto:` hangs
 headless Chrome forever), a garbage paste refused, a previewed backup armed, an
 edit after the preview revoked, the confirmation cancelled and then accepted

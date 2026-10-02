@@ -364,7 +364,7 @@ export function describeRestore({ current = {}, incoming = {}, exportedAt = null
 /**
  * A mailto: handoff of the CSV as the message body. `mailto:` cannot attach
  * files, and long URLs get truncated by some clients, so an oversized body is
- * refused outright -- the caller falls back to Copy CSV instead. A truncated
+ * refused outright -- the caller falls back to the clipboard copy instead. A truncated
  * backup that looks complete is worse than one that will not open.
  */
 export function buildMailtoHref({ to = "", subject = "", body = "", limit = MAILTO_SAFE_LIMIT } = {}) {

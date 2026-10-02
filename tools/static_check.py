@@ -514,7 +514,8 @@ if "APP_VERSION" not in app or "app-version" not in app:
 
 # --- 14. The app never talks to the network ----------------------------------
 # The README promises it outright: "nothing you type can leave the device".
-# The backup leaves only through Copy CSV (the clipboard) or Export CSV (the
+# The backup leaves only through Share CSV for backup (the clipboard) or Export
+# CSV (the
 # user's own mail app, handed a mailto: URL). navigator.share was removed on
 # 2026-10-01 after the phone's share sheet refused a send in the wild, so the
 # API is banned outright now -- its reintroduction would be a new decision,
@@ -536,13 +537,15 @@ if network_clean:
 # --- 15. The v19 pair: two export buttons, one-line editor actions, ----------
 #        the visible reminder date, and real photo attachments.
 #
-# 15a. Export is exactly Copy CSV + Export CSV. Download and Share were
-# removed on request (2026-10-01); their return would be a new decision.
+# 15a. Export is exactly Share CSV for backup + Export CSV. Download and Share
+# were removed on request (2026-10-01); their return would be a new decision.
+# The clipboard button is labelled "share" because the paste into the relay
+# inbox or an email is the share (label renamed 2026-10-02).
 for gone in ("download-csv-btn", "share-csv-btn"):
     if f'id="{gone}"' in html:
         fails.append(f'#{gone} is back in the markup; the export panel is '
-                     'Copy CSV + Export CSV only (2026-10-01 request)')
-for label in (">Copy CSV</button>", ">Export CSV</a>"):
+                     'Share CSV for backup + Export CSV only')
+for label in (">Share CSV for backup</button>", ">Export CSV</a>"):
     if label not in html:
         fails.append(f"index.html lost the {label[1:].split('<')[0]} export button "
                      "(the user asked for exactly these two labels)")

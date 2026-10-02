@@ -239,15 +239,34 @@
     </div>
 
     <!-- Export: the CSV is shown in full so the user can see exactly what leaves
-         the device. Two ways out: Share CSV for backup puts the text on the
-         clipboard -- it is called share because the paste into the relay inbox or
-         an email is the share (the relay-inbox path starts here) -- and Export
-         CSV opens the entered address in the user's own mail app with the backup
-         as the draft body. Download and Share-sheet were removed (2026-10-01): a
-         saved file still needed a manual attach step and the phone's share sheet
-         had already refused once in the wild, while clipboard + mailto covered
-         every route the two of them served. -->
+         the device. The primary route (2026-10-03, the user asked for it: "the
+         moment i click the button export notes/reminders to email, it must sync
+         all notes and jpg to my PC. just like how jscan does it") is the one-tap
+         sync: the app itself pushes the backup CSV and every photo to the
+         PRIVATE relay repo's notes-inbox branch through api.github.com, using
+         the user's own fine-grained PAT kept in this device's localStorage only
+         (sync.js). The PC watcher archives the photos and emails the CSV, then
+         rewrites the branch so the bytes leave GitHub. The older manual routes
+         stay below as fallbacks: Share CSV for backup puts the text on the
+         clipboard (the paste into the relay inbox or an email is the share) and
+         Export CSV opens the entered address in the user's own mail app. -->
     <section id="export-panel" class="dialog-panel hidden">
+      <div class="dialog-actions">
+        <button id="sync-now-btn" class="btn primary" type="button">Sync notes + photos to PC now</button>
+      </div>
+      <p id="sync-status" class="muted" role="status"></p>
+      <div class="dialog-row sync-token-row">
+        <input id="sync-token" type="password" placeholder="Backup token (paste once)"
+               autocomplete="off" aria-label="GitHub backup token">
+        <button id="sync-token-save" class="btn small" type="button">Save</button>
+        <button id="sync-token-remove" class="btn small" type="button">Remove</button>
+      </div>
+      <p class="muted">One-time setup: github.com &rarr; Settings &rarr; Developer settings
+        &rarr; Fine-grained tokens &rarr; Generate new token: Repository access
+        &ldquo;Only select repositories&rdquo; &rarr; choochatgpt/ask-ai-relay &rarr;
+        Permissions &rarr; Contents: Read and write. The token lives only in this
+        browser and is never placed in the app's public code.</p>
+      <hr class="dialog-sep">
       <label class="dialog-field">
         Email address
         <input id="backup-email" type="email" placeholder="you@example.com" autocomplete="off">

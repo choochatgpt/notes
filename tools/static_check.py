@@ -512,27 +512,52 @@ if 'id="app-version"' not in html:
 if "APP_VERSION" not in app or "app-version" not in app:
     fails.append("app.js no longer writes APP_VERSION into #app-version")
 
-# --- 14. The app never talks to the network ----------------------------------
-# The README promises it outright: "nothing you type can leave the device".
-# The backup leaves only through Share CSV for backup (the clipboard) or Export
-# CSV (the
-# user's own mail app, handed a mailto: URL). navigator.share was removed on
-# 2026-10-01 after the phone's share sheet refused a send in the wild, so the
-# API is banned outright now -- its reintroduction would be a new decision,
-# not a cleanup. sw.js is deliberately excluded: serving the shell
-# network-first is checked in #11.
+# --- 14. Network rules, scoped (rewritten 2026-10-03) ------------------------
+# The original rule was absolute: no fetch/XHR/sendBeacon/share in any app
+# module, because "nothing you type can leave the device" except through the
+# clipboard or the user's own mail app. On 2026-10-03 the user asked for the
+# one-tap sync ("the moment i click the button export notes/reminders to email,
+# it must sync all notes and jpg to my PC. just like how jscan does it"), which
+# is impossible without one network call -- so sync.js is the single sanctioned
+# exception, on exactly JScan's authorised terms (2026-09-21): fetch to
+# https://api.github.com ONLY, the user's own PAT from localStorage ONLY, on an
+# explicit user action ONLY. Everything else keeps the old ban, and sync.js
+# itself is pinned so the exception cannot quietly widen.
 network_clean = True
-for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js"):
+for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js",
+               "sync.js"):
     source = read(module)
-    for banned in ("fetch(", "XMLHttpRequest", "sendBeacon",
-                   "navigator.share", "canShare"):
+    for banned in ("XMLHttpRequest", "sendBeacon", "navigator.share", "canShare"):
         if banned in source:
             network_clean = False
             fails.append(f"{module} contains {banned}; the app must never send "
                          "anything from the device")
+for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js"):
+    source = read(module)
+    if "fetch(" in source:
+        network_clean = False
+        fails.append(f"{module} contains fetch(; only sync.js may talk to the "
+                     "network (the 2026-10-03 one-tap sync exception)")
+sync_source = read("sync.js")
+if sync_source:
+    if "fetch(" in sync_source and "https://api.github.com" not in sync_source:
+        network_clean = False
+        fails.append("sync.js calls fetch but is not pinned to "
+                     "https://api.github.com -- the exception is scoped to "
+                     "exactly one origin")
+    if "localStorage.getItem" not in sync_source \
+            or "notes.sync.token" not in sync_source:
+        network_clean = False
+        fails.append("sync.js no longer reads its token from localStorage "
+                     "(notes.sync.token) -- the token must stay on the device")
+    if re.search(r"ghp_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}", sync_source):
+        network_clean = False
+        fails.append("sync.js contains what looks like a hardcoded GitHub "
+                     "token -- tokens live in the user's localStorage, never "
+                     "in the public source")
 if network_clean:
-    print("no-network: app modules contain no fetch/XHR/sendBeacon/share; "
-          "the backup leaves via the clipboard or the user's mail app")
+    print("network: app modules stay silent except sync.js, which may fetch "
+          "https://api.github.com only, with the user's own localStorage token")
 
 # --- 15. The v19 pair: two export buttons, one-line editor actions, ----------
 #        the visible reminder date, and real photo attachments.
@@ -639,6 +664,34 @@ if "Photos are not included" not in backup:
 else:
     print("backup: v2 with a mediaIds column; v1 files still parse; the photo "
           "exclusion is stated in the restore confirmation")
+
+# 15f. One-tap sync (2026-10-03): the export panel's primary action is the
+# sync button, backed by the one-time token row. The transport pins live in
+# the section 14 network rules; this pins the UI so the promise is reachable.
+for required in ('id="sync-now-btn"', 'id="sync-status"', 'id="sync-token"',
+                 'id="sync-token-save"', 'id="sync-token-remove"'):
+    if required not in html:
+        fails.append(f"index.html lost {required} -- the one-tap sync has no UI")
+if ">Sync notes + photos to PC now</button>" not in html:
+    fails.append('the sync button is no longer labelled "Sync notes + photos to PC now"')
+sync_token_tag = re.search(r'<input[^>]*id="sync-token"[^>]*>', html)
+if not sync_token_tag or 'type="password"' not in sync_token_tag.group(0):
+    fails.append("#sync-token is not type=password -- the token must never "
+                 "render in the clear on a shared screen")
+for handler in ("runSync", "saveSyncToken", "removeSyncToken", "syncMediaName",
+                "friendlySyncError"):
+    if f"function {handler}(" not in app:
+        fails.append(f"app.js lost {handler}() -- the sync flow is incomplete")
+if 'on("#sync-now-btn"' not in app or 'on("#sync-token-save"' not in app \
+        or 'on("#sync-token-remove"' not in app:
+    fails.append("app.js does not wire the sync buttons -- dead controls")
+if "checkPickedUp(" not in app or "syncSubmit(" not in app:
+    fails.append("app.js no longer reports pickups or calls the sync transport")
+if "hasToken()" not in app:
+    fails.append("app.js does not gate the sync on a saved token -- it would "
+                 "start an export that can only fail")
+else:
+    print("sync: button + token row wired; transport gated on the device token")
 
 print()
 if notes:

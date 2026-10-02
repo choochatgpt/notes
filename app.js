@@ -39,6 +39,14 @@ import {
   describeRestore,
   parseBackupCsv
 } from "./backup.js";
+import {
+  MAX_FILE_BYTES as SYNC_MAX_FILE_BYTES,
+  checkPickedUp,
+  clearToken,
+  hasToken,
+  setToken,
+  submit as syncSubmit
+} from "./sync.js";
 
 /**
  * The upper pane is either browsing (folders + list, or the reminder manager) or
@@ -1000,6 +1008,142 @@ async function refreshExportCsv() {
 async function showExportPanel() {
   showPanel("export");
   await refreshExportCsv();
+  // The user asked (2026-10-03) for the export click itself to sync everything:
+  // with a token saved this button now sends the CSV + every photo on its own.
+  await runSync();
+}
+
+/* ---- one-tap sync (sync.js) ------------------------------------------- */
+
+let syncBusy = false;
+
+function setSyncStatus(message) {
+  const el = $("#sync-status");
+  if (el) el.textContent = message;
+}
+
+/**
+ * Attachment filenames are user data; strip everything that could break a git
+ * path or a Windows filename, and keep the id prefix so two photos that share
+ * an original name can never overwrite each other in the PC archive.
+ */
+function syncMediaName(record) {
+  const safe = String(record.name || "").replace(/[\\/:*?"<>|#\s]+/g, "-");
+  const knownExt = (record.type || "").startsWith("video/") ? ".mp4"
+    : (record.type || "").startsWith("image/") ? ".jpg" : "";
+  const withExt = safe || `media${knownExt}`;
+  const ext = withExt.includes(".") ? "" : knownExt;
+  return `${record.id}-${withExt}${ext}`;
+}
+
+function friendlySyncError(error) {
+  if (error?.code === "NO_TOKEN") {
+    return "add your backup token below (one-time setup), then tap the button again.";
+  }
+  if (error?.code === "FILE_TOO_LARGE" || error?.code === "CSV_TOO_LARGE") {
+    return `${error.name || "a file"} is over the ${Math.round(SYNC_MAX_FILE_BYTES / (1024 * 1024))} MB per-file cap — use the photo viewer's "Save to device" for it, or trim it.`;
+  }
+  if (error instanceof TypeError) {
+    return "you seem to be offline — try again with a connection.";
+  }
+  if (/failed \(401\)/.test(error?.message || "") || /401/.test(error?.message || "")) {
+    return "the token was rejected (401) — check it still exists on github.com and paste a fresh one.";
+  }
+  if (/ref update failed/.test(error?.message || "")) {
+    return `the branch moved too many times (${error.message}) — wait a minute, then tap again.`;
+  }
+  return error?.message || String(error);
+}
+
+async function runSync() {
+  if (syncBusy) return;
+  if (!hasToken()) {
+    setSyncStatus("Add your backup token below (one-time setup), then tap the button again.");
+    return;
+  }
+  syncBusy = true;
+  const button = $("#sync-now-btn");
+  if (button) button.disabled = true;
+  // Reported in the catch too, so a failure still shows the pickup line.
+  let prefix = "";
+  try {
+    // Report the PREVIOUS export's pickup before starting a new one, so the
+    // loop "sent -> the PC took it" is visible without any timer.
+    const previous = await getSetting("syncLastExportId");
+    if (previous) {
+      const ack = await checkPickedUp(previous);
+      if (ack.pickedUp) {
+        prefix = `Previous backup was picked up by the PC${ack.at ? ` at ${ack.at}` : ""}. `;
+        await setSetting("syncLastExportId", "");
+      } else if (ack.checked === false) {
+        prefix = "(Could not check the previous backup's pickup just now.) ";
+      } else {
+        prefix = "(Previous backup has not been picked up yet — it will be.) ";
+      }
+    }
+    const [folders, notes, reminders] = await Promise.all([
+      getAll("folders"), getAll("notes"), getAll("reminders")
+    ]);
+    const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
+    const records = await getAll("media");
+    const media = [];
+    const skipped = [];
+    for (const record of records) {
+      const file = await opfsGet(record.id);
+      if (!file) { skipped.push(record.name || record.id); continue; }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.length > SYNC_MAX_FILE_BYTES) {
+        skipped.push(`${record.name || record.id} (over 24 MB)`);
+        continue;
+      }
+      media.push({ name: syncMediaName(record), bytes, type: record.type || "" });
+    }
+    setSyncStatus(`${prefix}Sending backup + ${media.length} photo(s)/video(s)…`);
+    const result = await syncSubmit({
+      csv,
+      media,
+      meta: {
+        counts: { folders: folders.length, notes: notes.length, reminders: reminders.length },
+        appVersion: String(APP_VERSION)
+      }
+    });
+    await setSetting("syncLastExportId", result.exportId);
+    const skipNote = skipped.length
+      ? ` Skipped on this device (still safe here): ${skipped.join(", ")}.` : "";
+    setSyncStatus(`${prefix}Sent — backup + ${result.mediaCount} photo(s)/video(s) `
+      + `(${Math.round(result.bytes / 1024)} KB). The PC picks it up within ~5 minutes `
+      + `and emails the backup as before.${skipNote}`);
+  } catch (error) {
+    setSyncStatus(`${prefix}Sync failed: ${friendlySyncError(error)}`);
+  } finally {
+    syncBusy = false;
+    if (button) button.disabled = false;
+  }
+}
+
+function saveSyncToken() {
+  const input = $("#sync-token");
+  const value = (input?.value || "").trim();
+  if (!value) {
+    setSyncStatus("Paste the token into the box first, then Save.");
+    return;
+  }
+  setToken(value);
+  if (input) {
+    input.value = "";
+    input.placeholder = "Token saved on this device";
+  }
+  setSyncStatus("Token saved on this device. Tap “Sync notes + photos to PC now”.");
+}
+
+function removeSyncToken() {
+  clearToken();
+  const input = $("#sync-token");
+  if (input) {
+    input.value = "";
+    input.placeholder = "Backup token (paste once)";
+  }
+  setSyncStatus("Token removed from this device.");
 }
 
 function showImportPanel() {
@@ -1221,6 +1365,9 @@ function wireControls() {
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
   on("#backup-email", "change", saveBackupEmail);
+  on("#sync-now-btn", "click", runSync);
+  on("#sync-token-save", "click", saveSyncToken);
+  on("#sync-token-remove", "click", removeSyncToken);
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);
   on("#delete-note-btn", "click", deleteSelectedNote);

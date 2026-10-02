@@ -178,21 +178,31 @@ device starts at the even split (50%), which is the value the chip shows until
 the first click — the four shares are the whole offer, and 50% is the fallback
 an unreadable stored value degrades to.
 
-**Export notes/reminders to email.** Enter your own address, and the app builds
-the whole database — nested folders with their parenting, notes, and reminders —
-as one text CSV under a versioned `# notes-backup v2` header, then offers it
-exactly two ways:
+**Export notes/reminders to email.** The panel builds the whole database —
+nested folders with their parenting, notes, and reminders — as one text CSV
+under a versioned `# notes-backup v2` header, and since 2026-10-03 the primary
+action is the one-tap sync:
 
-- **Share CSV for backup** puts the exact text on the clipboard (with the
-  selected text as a fallback when the browser blocks programmatic copying).
-  It is named for what the copy is *for* — the paste into the relay inbox or
-  an email is the share. This is the phone → relay-inbox path's first step.
-- **Export CSV** opens your mail app with the CSV in the message body, addressed
-  to the address you entered. `mailto:` cannot attach files, and long bodies are
-  silently truncated by some mail clients, so a backup that would exceed a
-  conservative 1800-character limit is refused outright rather than cut short —
-  the panel says so and points at Share CSV for backup instead. The app never
-  sends anything itself; you press Send.
+- **Sync notes + photos to PC now** sends the backup CSV *and every photo/video*
+  to your PC in one tap — the whole export lands in `C:\notes_backups` and the
+  CSV is emailed exactly as before, with no manual step on the phone. One-time
+  setup: create a fine-grained GitHub token (Settings → Developer settings →
+  Fine-grained tokens → *Only select repositories* → `choochatgpt/ask-ai-relay`
+  → Permissions → Contents: Read and write) and paste it into the panel's token
+  box. The token lives in this browser's localStorage only — never in the app's
+  public source (the transport is the one authorised for JScan on 2026-09-21).
+  The bytes ride a private branch of the **private** relay repo, the PC watcher
+  verifies every SHA256, archives the photos, emails the CSV, then rewrites the
+  branch so the bytes leave GitHub entirely; the next export click reports the
+  previous backup's pickup.
+- **Share CSV for backup** (fallback) puts the exact text on the clipboard,
+  for the relay-inbox paste or any email.
+- **Export CSV** (fallback) opens your mail app with the CSV in the message
+  body, addressed to the address you entered. `mailto:` cannot attach files,
+  and long bodies are silently truncated by some mail clients, so a backup that
+  would exceed a conservative 1800-character limit is refused outright rather
+  than cut short — the panel says so and points at Share CSV for backup
+  instead. The app never sends email itself; you press Send.
 
 *Download .csv* and *Share .csv* were removed on request (2026-10-01): a saved
 file still needed a manual attach step, and the phone's share sheet had already
@@ -310,22 +320,26 @@ different device simply shows notes without them. Deleting a note deletes its
 photos (the confirmation names the count first), and the browser check proves
 the bytes actually leave OPFS when they should.
 
-**Backing photos up (the GitWay media route, chosen 2026-10-02).** The
-authorised route for photo bytes is the **private** relay repo — never the
-public Pages repo. Three steps, and the last leg is automatic:
+**Backing photos up (one-tap sync, asked for 2026-10-03).** The primary route
+is no longer manual: tapping **Sync notes + photos to PC now** in the export
+panel sends every photo/video *with* the backup CSV, through the app itself
+(see the export section above — JScan's authorised transport: your own token
+in this browser, bytes on a private branch of the **private** relay repo, PC
+archives into `C:\notes_backups\media\<transfer id>\` with SHA256 manifests
+and then rewrites the branch so the bytes leave GitHub). The PC side is
+automatic via the watcher.
+
+The manual fallbacks remain for a phone with no token saved yet:
 
 1. Phone: open the note → tap the photo → **Save to device**.
 2. Phone: github.com/choochatgpt/ask-ai-relay → `gitway/transfer_inbox/notes/media/`
-   → **Add file → Upload files** → pick the saved photo(s) → Commit changes.
-3. PC: nothing — `tools/relay_pull_media.py` (run automatically by the watcher)
-   archives each upload into `C:\notes_backups\media\<transfer id>\` with a
-   SHA256 manifest, skips exact duplicates (already-archived bytes are
-   recognised and just cleared), copies each file into the GitWay transfer
-   inbox with its manifest, then removes the uploaded files from the repo in
-   one commit. A failure leaves the file in the repo and retries next cycle.
+   → **Add file → Upload files** → pick the saved photo(s) → Commit changes
+   (commit straight to main — the two mobile-web traps are written up in that
+   folder's README).
+3. PC: nothing — the watcher picks it up.
 
-Rules: private repo only; per-file cap 24 MB (GitHub's web upload refuses
-bigger anyway); the text backup CSV stays text-only and keeps its own inbox.
+Rules: private repo only; per-file cap 24 MB (the sync refuses bigger and
+names the file); the text backup CSV stays text-only in its own column.
 
 The editor's three buttons — Delete, Add photo/video, Save — are pinned to one
 line at every width: the row never wraps, and the labels compact down instead.
@@ -372,8 +386,9 @@ Notes entered in one do not appear in the other.
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 127 tests
 node tests/backup.test.mjs ../backup.js         # 76 tests
+node tests/sync.test.mjs ../sync.js             # 40 tests (stubbed GitHub API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 101 checks in real Chrome, plus 14 in a 380px phone-width frame
+python tools/browser_check.py                   # checks in real Chrome, plus a 380px phone-width frame
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

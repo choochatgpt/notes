@@ -73,7 +73,7 @@ PROBE = """<!doctype html>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
-  const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail || "" });
+  const check = (name, ok, detail) => { console.log("CHECK:", ok ? "ok" : "FAIL", name); return results.push({ name, ok: !!ok, detail: detail || "" }); };
 
   // The confirmation has to state what goes with the folder, and in the singular
   // -- "1 note", not "1 notes". The count is the entire point of the wording:
@@ -392,6 +392,51 @@ PROBE = """<!doctype html>
             /Copied to the clipboard|Copying was blocked/.test(
               sizeNote ? sizeNote.textContent : ""),
             "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
+
+      // One-tap sync (2026-10-03): the export panel's primary action, plus the
+      // one-time token row. NO network is touched in these checks: the profile
+      // starts without a token, and without one runSync() refuses before its
+      // first fetch -- which is exactly the behaviour under test.
+      const syncBtn = q("#sync-now-btn");
+      check("the sync button is present and labelled for the whole export",
+            !!syncBtn && /Sync notes \\+ photos to PC now/.test(syncBtn.textContent),
+            "label=" + (syncBtn ? syncBtn.textContent.trim() : "missing"));
+      const tokenInput = q("#sync-token");
+      check("the token field exists, is a password field, and is not prefilled",
+            !!tokenInput && tokenInput.type === "password" && !tokenInput.value,
+            "type=" + (tokenInput ? tokenInput.type : "missing"));
+      // Opening the export panel IS a sync attempt now: with no token on the
+      // device, runSync() has already refused and said so, so an empty line
+      // here would mean the auto-sync never ran.
+      check("the sync status line exists and opening export already explains the setup",
+            !!q("#sync-status") && /backup token/i.test(q("#sync-status").textContent),
+            "said=" + (q("#sync-status") ? q("#sync-status").textContent : "missing"));
+      syncBtn.click();
+      await sleep(400);
+      check("clicking sync without a token explains the setup instead of failing",
+            /backup token/i.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("...and made no network call (sync stays idle)",
+            q("#sync-now-btn").disabled === false,
+            "disabled=" + q("#sync-now-btn").disabled);
+
+      // Token round trip: saved into this frame's localStorage only, never
+      // echoed back into the page.
+      tokenInput.value = "probe-token-12345";
+      q("#sync-token-save").click();
+      await sleep(300);
+      check("saving the token stores it on the device",
+            frame.contentWindow.localStorage.getItem("notes.sync.token") === "probe-token-12345",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      check("the token box clears and never echoes the secret",
+            tokenInput.value === "" && /saved on this device/.test(tokenInput.placeholder),
+            "value=" + JSON.stringify(tokenInput.value) + " placeholder=" + tokenInput.placeholder);
+      q("#sync-token-remove").click();
+      await sleep(300);
+      check("removing the token clears the device",
+            frame.contentWindow.localStorage.getItem("notes.sync.token") === null
+            && tokenInput.placeholder.indexOf("paste once") !== -1,
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
 
       q("#settings-close").click();
       await sleep(250);
@@ -1042,7 +1087,7 @@ PROBE_NARROW = """<!doctype html>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
-  const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail: detail || "" });
+  const check = (name, ok, detail) => { console.log("CHECK:", ok ? "ok" : "FAIL", name); return results.push({ name, ok: !!ok, detail: detail || "" }); };
   async function waitFor(predicate, ms) {
     const deadline = Date.now() + (ms || 15000);
     while (Date.now() < deadline) {
@@ -1218,7 +1263,7 @@ def build_stage(name: str, app_js: Path) -> Path:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     for asset in ("index.html", "app.css", "view.js", "storage.js", "reminder.js",
-                  "backup.js", "manifest.webmanifest"):
+                  "backup.js", "sync.js", "manifest.webmanifest"):
         shutil.copyfile(REPO / asset, stage / asset)
     shutil.copyfile(app_js, stage / "app.js")
     (stage / "_probe.html").write_text(PROBE, encoding="utf-8")
@@ -1253,6 +1298,7 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
         str(browser), "--headless=new", "--disable-gpu", "--no-first-run",
         "--no-default-browser-check", "--disable-extensions",
         f"--user-data-dir={profile}",
+        "--enable-logging=stderr", "--v=0",
     ]
     if cross_origin:
         # The probe reads and clicks inside a frame served from another origin.
@@ -1262,7 +1308,9 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
         argv += ["--disable-web-security", "--disable-site-isolation-trials"]
     argv.append(f"http://127.0.0.1:{port}/{page}")
 
-    process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    chrome_log = WORK / 'probe_chrome.log'
+    log_handle = open(chrome_log, 'w', encoding='utf-8', errors='replace')
+    process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=log_handle)
     deadline = time.time() + 90
     try:
         while time.time() < deadline and HOLDER["data"] is None:
@@ -1273,6 +1321,7 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
             process.wait(timeout=15)
         except subprocess.TimeoutExpired:
             process.kill()
+        log_handle.close()
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)

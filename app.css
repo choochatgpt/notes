@@ -752,6 +752,37 @@ body {
   border-top: 1px solid var(--border-soft);
 }
 
+/* One-tap sync (2026-10-03): the token row keeps the three controls on one
+   line at dialog width, and the separator divides the primary sync route from
+   the manual CSV fallbacks below it. */
+.sync-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sync-token-row input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.sync-token-row input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 22%, transparent);
+}
+.dialog-sep {
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  margin: 12px 0;
+}
+
 /* The release number, where the user can see it (their request). It is not
    decoration: static_check.py pins the number shown here to sw.js's cache
    name, so what the dialog says is what the shell actually runs. */

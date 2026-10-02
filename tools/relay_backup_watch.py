@@ -1,24 +1,30 @@
 #!/usr/bin/env python3
-"""Watch the PRIVATE relay repo and handle each pasted notes backup automatically.
+"""Watch the PRIVATE relay repo and handle each upload automatically.
 
-The backup loop is: on the phone, Settings -> 'Share CSV for backup' -> paste
-into the relay inbox -> Commit. The last leg -- getting the backup onto this PC
-and emailed -- used to need someone to remember to run
-`python tools/relay_pull_backup.py`.
-This watcher removes the remembering: it polls the relay clone every
---every seconds, and the moment the inbox blob on origin stops being the
-placeholder it runs relay_pull_backup.py in a subprocess, so the watched path
-is exactly the tool a manual run would take -- one code path, one set of
-gates (header check, size cap, manifest, SHA256, inbox reset on success).
+Two inboxes, two handlers, one poll:
+
+  * the TEXT backup inbox (gitway/transfer_inbox/notes/inbox.csv): the phone
+    pastes a backup CSV there (Settings -> 'Share CSV for backup'); when the
+    blob on origin stops being the placeholder this runs
+    relay_pull_backup.py, which archives, emails and resets the inbox.
+  * the MEDIA inbox (gitway/transfer_inbox/notes/media/): the phone uploads
+    saved photos there ("Add file" -> "Upload files"); when any real file is
+    present this runs relay_pull_media.py, which archives them under
+    C:\\notes_backups\\media with SHA256 manifests and clears the folder.
+
+This watcher removes the remembering: it polls the relay clone every --every
+seconds and the watched path is exactly the tool a manual run would take --
+one code path, one set of gates per inbox.
 
 Design rules:
-  * The remote is read with `git fetch` + `git show FETCH_HEAD:PATH` -- no
-    checkout, no working-tree churn, and autocrlf cannot rewrite the bytes.
-  * The repo itself is only ever touched by relay_pull_backup.py's own
-    success path (it resets the inbox and pushes after a good send).
-  * Any failure is logged and retried on the next cycle; a failed send leaves
-    the payload sitting in the inbox, so nothing is ever lost to a bad config.
-  * Placeholder/garbage states are logged once per change, not once per
+  * The remote is read with `git fetch` + `git show`/`git ls-tree` on
+    FETCH_HEAD -- no checkout, no working-tree churn, and autocrlf cannot
+    rewrite the bytes.
+  * The repo itself is only ever touched by the pickup tools' own success
+    paths (each resets its inbox and pushes after a good pickup).
+  * Any failure is logged and retried on the next cycle; a failed pickup
+    leaves the payload sitting in its inbox, so nothing is ever lost.
+  * Placeholder/garbage/idle states are logged once per change, not once per
     cycle, so an idle watcher does not grow the log.
 
 Runs under pythonw.exe from a scheduled task ("Notes backup watch", at
@@ -45,6 +51,8 @@ from pathlib import Path
 REPO_DEFAULT = r"C:\python\projects\chat\ask-ai-relay"
 ARCHIVE_DEFAULT = r"C:\notes_backups"
 REPO_INBOX_PATH = "gitway/transfer_inbox/notes/inbox.csv"
+REPO_MEDIA_DIR = "gitway/transfer_inbox/notes/media"
+MEDIA_PLACEHOLDERS = {"readme.md", "readme.txt", ".gitkeep"}
 MAX_BYTES = 10 * 1024 * 1024
 BACKUP_HEADER = b"# notes-backup"
 PLACEHOLDER_FIRST_LINE = b"# NOTES TRANSFER INBOX"
@@ -79,27 +87,51 @@ def log(line: str) -> None:
         pass  # the console line still happened; a log hiccup must not kill the loop
 
 
-def remote_inbox_bytes(repo: Path, repo_path: str) -> tuple[bytes | None, str]:
-    """The inbox blob exactly as origin holds it, and the commit it came from."""
-    run_git(repo, "fetch", "origin", "--prune")
-    head = run_git(repo, "rev-parse", "--verify", "--short", "FETCH_HEAD") \
-        .decode().strip()
+def remote_blob(repo: Path, repo_path: str, head: str) -> bytes | None:
+    """The blob exactly as origin holds it (None when the path is absent)."""
     try:
-        return run_git(repo, "show", f"FETCH_HEAD:{repo_path}"), head
+        return run_git(repo, "show", f"FETCH_HEAD:{repo_path}")
     except RuntimeError as error:
         if "exists on disk, but not in" in error.args[0] \
                 or "does not exist" in error.args[0] or "fatal" in error.args[0]:
-            return None, head
+            return None
         raise
 
 
-def cycle(args: argparse.Namespace) -> str:
-    """One poll. Returns what happened; raises only on infrastructure errors."""
-    repo = Path(args.repo)
-    if not (repo / ".git").is_dir():
-        raise RuntimeError(f"{repo} is not a git clone -- check --repo")
+def media_step(args: argparse.Namespace, repo: Path, head: str) -> str | None:
+    """Run the photo pickup when any real file is waiting. None when idle."""
+    try:
+        listing = run_git(repo, "ls-tree", "--name-only",
+                          f"FETCH_HEAD:{REPO_MEDIA_DIR}").decode("utf-8", "replace")
+    except RuntimeError as error:
+        if "does not exist" in error.args[0] or "fatal" in error.args[0]:
+            return None  # the media inbox has not been created yet
+        raise
+    waiting = [
+        name.strip() for name in listing.splitlines()
+        if name.strip() and name.strip().lower() not in MEDIA_PLACEHOLDERS
+    ]
+    if not waiting:
+        return None  # an idle media inbox must not grow the log
+    log(f"media pickup: {len(waiting)} file(s) waiting (origin {head}): "
+        f"{', '.join(waiting)}")
+    done = subprocess.run(
+        [sys.executable, str(TOOLS_DIR / "relay_pull_media.py"),
+         "--repo", str(repo)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    for line in (done.stdout or "").splitlines():
+        log("  | " + line)
+    if done.stderr and done.stderr.strip():
+        log("  stderr: " + done.stderr.strip()[:400])
+    if done.returncode == 0:
+        return f"media pickup succeeded: {len(waiting)} file(s) archived, folder cleared"
+    return (f"relay_pull_media.py exited {done.returncode}; whatever stayed "
+            "behind is retried next cycle")
 
-    blob, head = remote_inbox_bytes(repo, args.repo_path)
+
+def csv_step(args: argparse.Namespace, repo: Path, head: str) -> str:
+    """The original text-backup pickup, unchanged in behavior."""
+    blob = remote_blob(repo, args.repo_path, head)
     if blob is None:
         return f"origin {head}: no inbox file on origin; nothing to do"
     if blob.startswith(PLACEHOLDER_FIRST_LINE):
@@ -129,6 +161,18 @@ def cycle(args: argparse.Namespace) -> str:
             "still in the inbox and the next cycle retries it")
 
 
+def cycle(args: argparse.Namespace) -> str:
+    """One poll: fetch once, then both inboxes. Raises only on infra errors."""
+    repo = Path(args.repo)
+    if not (repo / ".git").is_dir():
+        raise RuntimeError(f"{repo} is not a git clone -- check --repo")
+    run_git(repo, "fetch", "origin", "--prune")
+    head = run_git(repo, "rev-parse", "--verify", "--short", "FETCH_HEAD") \
+        .decode().strip()
+    results = [media_step(args, repo, head), csv_step(args, repo, head)]
+    return "; ".join(result for result in results if result)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="relay_backup_watch.py",
@@ -156,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout = sys.stderr = LOG_FILE.open("a", encoding="utf-8", buffering=1)
 
     log(f"watcher started: repo={args.repo} inbox={args.repo_path} "
-        f"archive={args.archive_dir} every={args.every:g}s")
+        f"media={REPO_MEDIA_DIR} archive={args.archive_dir} every={args.every:g}s")
     failures = 0
     while True:
         try:

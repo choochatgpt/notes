@@ -246,13 +246,16 @@ payload waits for a fixed config rather than being lost to one.
 
 **The pickup runs itself.** `tools/relay_backup_watch.py` loops in the
 background (registered as a Windows scheduled task, "Notes backup watch", at
-sign-in): every 5 minutes it fetches the relay clone, and the moment the inbox
-blob stops being the placeholder it hands the pickup to
-`relay_pull_backup.py --archive-dir C:\notes_backups` — so a paste on the phone
+sign-in): every 5 minutes it fetches the relay clone once and serves both
+inboxes — a pasted backup CSV goes to
+`relay_pull_backup.py --archive-dir C:\notes_backups` (dated copy + email),
+and photos waiting in the media inbox go to `relay_pull_media.py` (archive +
+clear). So a paste on the phone
 lands on the PC as a dated copy in `C:\notes_backups` *and* an emailed
-attachment, with no PC-side step to remember. Failures are logged to
+attachment, and a photo upload lands in `C:\notes_backups\media` — with no
+PC-side step to remember. Failures are logged to
 `C:\notes_backups\relay_backup_watch.log` and retried on a later cycle; the
-repo is only ever touched by the pickup tool's own success path. `--once`
+repo is only ever touched by the pickup tools' own success paths. `--once`
 runs a single cycle for testing.
 
 **Import notes/reminders.** Paste the CSV from your email backup into the box and
@@ -286,7 +289,10 @@ Open a note, press **Add photo/video**, and pick images or videos. The
 thumbnails appear on a strip above Delete / Add photo/video / Save, the change
 is applied immediately (no need to press Save first, and nothing is orphaned if
 you close without saving), and tapping a thumbnail opens it full-size in a
-viewer. The **×** on a thumbnail removes that one photo.
+viewer. The **×** on a thumbnail removes that one photo. The viewer's **Save to
+device** button writes a copy of the full-size bytes into the phone's
+downloads/gallery under the original file name — the one way photos leave the
+app, built for the backup route below.
 
 The storage is split so that neither half is heavier than it needs to be:
 
@@ -295,13 +301,31 @@ The storage is split so that neither half is heavier than it needs to be:
 - The full-size bytes in the browser's **OPFS** (`media/` directory, keyed by
   the same id), read only when the viewer opens.
 
-Everything is origin-scoped device storage: photos never leave the device, and
+Everything is origin-scoped device storage: photos stay on the device unless
+you deliberately save one out, and
 the text backup carries only the id list. `replaceAll` — the restore's one
 transaction — touches neither the media store nor OPFS, so a restore can never
 destroy a photo; a same-device restore reattaches them via the ids, and a
 different device simply shows notes without them. Deleting a note deletes its
 photos (the confirmation names the count first), and the browser check proves
 the bytes actually leave OPFS when they should.
+
+**Backing photos up (the GitWay media route, chosen 2026-10-02).** The
+authorised route for photo bytes is the **private** relay repo — never the
+public Pages repo. Three steps, and the last leg is automatic:
+
+1. Phone: open the note → tap the photo → **Save to device**.
+2. Phone: github.com/choochatgpt/ask-ai-relay → `gitway/transfer_inbox/notes/media/`
+   → **Add file → Upload files** → pick the saved photo(s) → Commit changes.
+3. PC: nothing — `tools/relay_pull_media.py` (run automatically by the watcher)
+   archives each upload into `C:\notes_backups\media\<transfer id>\` with a
+   SHA256 manifest, skips exact duplicates (already-archived bytes are
+   recognised and just cleared), copies each file into the GitWay transfer
+   inbox with its manifest, then removes the uploaded files from the repo in
+   one commit. A failure leaves the file in the repo and retries next cycle.
+
+Rules: private repo only; per-file cap 24 MB (GitHub's web upload refuses
+bigger anyway); the text backup CSV stays text-only and keeps its own inbox.
 
 The editor's three buttons — Delete, Add photo/video, Save — are pinned to one
 line at every width: the row never wraps, and the labels compact down instead.
@@ -349,7 +373,7 @@ node tests/recurrence.test.mjs ../reminder.js   # 23 tests
 node tests/view.test.mjs ../view.js             # 127 tests
 node tests/backup.test.mjs ../backup.js         # 76 tests
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 97 checks in real Chrome, plus 14 in a 380px phone-width frame
+python tools/browser_check.py                   # 101 checks in real Chrome, plus 14 in a 380px phone-width frame
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

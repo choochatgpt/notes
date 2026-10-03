@@ -328,6 +328,23 @@ check("newExportId: date-prefixed and unique",
   setToken("test-token-abc");
 }
 
+// A token that is valid but too narrow gets 403/404 from GitHub, not 401.
+// The branch bootstrap must surface that as TOKEN_SCOPE so the app can say
+// "permissions", not "offline".
+{
+  script = [
+    [/GET$/, /\/git\/ref\/heads\/notes-inbox$/, { status: 404, data: {} }],
+    [/POST$/, /\/git\/commits$/, { status: 404, data: { message: "Not Found" } }]
+  ];
+  let threw = null;
+  try { await submit({ csv: "# notes-backup v1", media: [] }); }
+  catch (e) { threw = e; }
+  check("token too narrow: bare-commit 404 surfaces as TOKEN_SCOPE",
+        !!threw && threw.code === "TOKEN_SCOPE"
+        && /bare commit failed \(404\)/.test(threw.message),
+        threw ? threw.code + " " + threw.message : "nothing thrown");
+}
+
 clearToken();
 globalThis.fetch = REAL_FETCH;
 

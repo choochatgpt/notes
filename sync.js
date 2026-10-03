@@ -171,7 +171,14 @@ function bareCommit(tok) {
   return api("POST", `/repos/${REPO}/git/commits`,
     { message: "notes-inbox: initialise bare intake branch", tree: EMPTY_TREE, parents: [] }, tok
   ).then(r => {
-    if (r.status !== 201) throw new Error(`bare commit failed (${r.status})`);
+    if (r.status !== 201) {
+      // GitHub answers 403/404 -- not 401 -- when a fine-grained token is
+      // valid but too narrow to touch the repo, so this failure almost
+      // always means permissions, not the token itself.
+      const error = new Error(`bare commit failed (${r.status})`);
+      error.code = "TOKEN_SCOPE";
+      throw error;
+    }
     return r.data.sha;
   });
 }

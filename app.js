@@ -1044,7 +1044,17 @@ function friendlySyncError(error) {
     return `${error.name || "a file"} is over the ${Math.round(SYNC_MAX_FILE_BYTES / (1024 * 1024))} MB per-file cap — use the photo viewer's "Save to device" for it, or trim it.`;
   }
   if (error instanceof TypeError) {
-    return "you seem to be offline — try again with a connection.";
+    // fetch rejects this way for any network-level failure: offline, DNS, or a
+    // network that blocks api.github.com even though websites load. Say what
+    // actually happened -- the raw message is the diagnosis.
+    return "couldn't reach github.com's API (" + (error.message || "network error")
+      + ") — check that you are online. If websites load but this keeps failing, "
+      + "switch between Wi-Fi and mobile data: some networks block GitHub's API.";
+  }
+  if (error?.code === "TOKEN_SCOPE") {
+    return "GitHub refused the branch setup (" + (error.message || "no access")
+      + ") — the token's permissions are too narrow. It must allow only ask-ai-relay "
+      + "with Contents: Read and write.";
   }
   if (/failed \(401\)/.test(error?.message || "") || /401/.test(error?.message || "")) {
     return "the token was rejected (401) — check it still exists on github.com and paste a fresh one.";

@@ -175,7 +175,7 @@ async function renderFolders() {
 
       rows.push(
         `<div class="folder-row ${state.selectedFolderId === folder.id ? "active" : ""}"
-              data-folder="${esc(folder.id)}" style="padding-left:${9 + depth * 14}px">
+              data-folder="${esc(folder.id)}" style="padding-left:${5 + depth * 8}px">
            <button class="folder-toggle ${open ? "open" : ""} ${hasChildren ? "" : "leaf"}"
                    type="button" data-toggle="${esc(folder.id)}"
                    aria-label="${open ? "Collapse" : "Expand"} ${esc(folder.name)}">
@@ -1139,6 +1139,10 @@ async function runSync() {
 }
 
 function saveSyncToken() {
+  if (hasToken()) {
+    setSyncStatus("A token is already saved. Tap Remove first if you want to replace it.");
+    return;
+  }
   const input = $("#sync-token");
   const value = (input?.value || "").trim();
   if (!value) {
@@ -1160,6 +1164,7 @@ function saveSyncToken() {
     input.value = "";
     input.placeholder = "Token saved on this device";
   }
+  refreshSyncTokenUi();
   setSyncStatus((removed > 0
     ? `Token saved — ${removed} stray character${removed === 1 ? "" : "s"} removed from the paste. `
     : "Token saved on this device. ")
@@ -1168,6 +1173,7 @@ function saveSyncToken() {
 
 function removeSyncToken() {
   clearToken();
+  refreshSyncTokenUi();
   const input = $("#sync-token");
   if (input) {
     input.value = "";
@@ -1434,6 +1440,31 @@ function wireControls() {
   // whole point of showing it. static_check.py pins the value to sw.js.
   const versionChip = $("#app-version");
   if (versionChip) versionChip.textContent = APP_VERSION;
+  // The home screen carries its own chip so the running release is
+  // visible without opening Settings.
+  const homeChip = $("#home-version");
+  if (homeChip) homeChip.textContent = "v" + APP_VERSION;
+  refreshSyncTokenUi();
+}
+
+/* The token field is write-once: while a token is stored the input is read
+ * only and Save is disabled, so a stray tap cannot overwrite a working
+ * credential. Replacing one is a deliberate act: Remove, then paste.
+ * Requested by the user 2026-10-05 after the token was live.
+ */
+function refreshSyncTokenUi() {
+  const input = $("#sync-token");
+  if (!input) return;
+  const stored = hasToken();
+  input.readOnly = stored;
+  input.placeholder = stored
+    ? "Token saved on this device — Remove to replace"
+    : "Backup token (paste once)";
+  const save = $("#sync-token-save");
+  if (save) {
+    save.disabled = stored;
+    save.title = stored ? "Remove the token first to paste a new one" : "";
+  }
 }
 
 /**

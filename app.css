@@ -98,14 +98,14 @@ body {
   gap: 14px;
   flex-wrap: nowrap;
   min-height: var(--topbar-h);
-  padding: 6px 10px;
-  padding-top: max(6px, env(safe-area-inset-top));
+  padding: 4px 8px;
+  padding-top: max(4px, env(safe-area-inset-top));
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--border);
 }
 
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 7px; min-width: 0; }
 
 .brand-mark {
   display: grid;
@@ -124,6 +124,19 @@ body {
   font-size: 17px;
   font-weight: 650;
   letter-spacing: -.01em;
+  white-space: nowrap;
+}
+
+.version-chip {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 15px;
   white-space: nowrap;
 }
 
@@ -147,9 +160,9 @@ body {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   flex: none;
-  padding: 8px 13px;
+  padding: 6px 11px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
@@ -217,8 +230,8 @@ body {
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, var(--pane-top, 1fr)) minmax(0, var(--pane-bottom, 1fr));
-  gap: 6px;
-  padding: 6px 8px 0;
+  gap: 4px;
+  padding: 4px 5px 0;
 }
 
 .pane {
@@ -235,9 +248,9 @@ body {
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
-  padding: 5px 8px;
+  padding: 4px 6px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border-soft);
 }
@@ -299,11 +312,12 @@ body {
 .browse { height: 100%; min-height: 0; }
 
 /* Notes browser: folder tree beside the note list, inside the upper pane.
-   Half and half, so a nested folder name has room to be read rather than
-   ellipsised down to two characters. */
+   40:60 (user request 2026-10-05): the tree needs enough room for nested
+   names, but the contents column is where reading happens, so it earns the
+   wider share. */
 .browse-notes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
   gap: 0;
 }
 
@@ -321,7 +335,7 @@ body {
   align-items: center;
   gap: 6px;
   flex: none;
-  padding: 3px 4px 3px 8px;
+  padding: 2px 3px 2px 6px;
   border-bottom: 1px solid var(--border-soft);
 }
 .col-head .panel-title { flex: 1; }
@@ -417,7 +431,7 @@ body {
 
 .count {
   flex: none;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 999px;
   background: var(--surface-3);
   color: var(--text-faint);
@@ -435,9 +449,9 @@ body {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 5px 6px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -711,7 +725,7 @@ body {
 .dialog {
   width: min(560px, calc(100vw - 28px));
   max-height: calc(100dvh - 40px);
-  padding: 14px;
+  padding: 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -882,15 +896,15 @@ body[data-fatal="true"] .pane { opacity: .55; }
 @media (max-width: 760px) {
   /* Labels collapse to icons; title/aria-label keep the meaning. */
   .topbar-actions .btn span { display: none; }
-  .topbar-actions .btn { padding: 8px; gap: 0; }
-  .topbar { gap: 10px; padding-left: 10px; padding-right: 10px; }
+  .topbar-actions .btn { padding: 7px; gap: 0; }
+  .topbar { gap: 8px; padding-left: 6px; padding-right: 6px; }
 
-  /* Half and half here too. Narrowing the folder column further is what made
+  /* 40:60 here too. Narrowing the folder column further is what made
      nested names unreadable, and the column is where the delete control lives. */
-  .app-shell { padding: 5px 6px 0; gap: 5px; }
-  .browse-notes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .editor { padding: 8px; }
-  .item-row { padding: 6px 7px; gap: 6px; }
+  .app-shell { padding: 3px 4px 0; gap: 4px; }
+  .browse-notes { grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); }
+  .editor { padding: 6px; }
+  .item-row { padding: 4px 6px; gap: 5px; }
   .folder-select { font-size: 12.5px; }
   .context-chip { max-width: 46%; }
 

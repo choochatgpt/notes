@@ -243,6 +243,16 @@ PROBE = """<!doctype html>
     q("#editor-back").click();
     await sleep(700);
 
+    // The release chip beside the title (2026-10-05): visible without
+    // opening Settings, and always showing the RUNNING version.
+    const homeChip = q("#home-version");
+    const settingsChip = q("#app-version");
+    check("the home screen shows the release beside the title",
+          !!homeChip && /^v\\d+$/.test(homeChip.textContent)
+          && (!settingsChip || homeChip.textContent === "v" + settingsChip.textContent),
+          "home=" + (homeChip ? homeChip.textContent : "missing")
+          + " settings=" + (settingsChip ? settingsChip.textContent : "missing"));
+
     // --- settings: the dialog, the ratio cycle, the export handoff ---
     // The dialog is modal, so everything driven inside it happens here and it
     // is closed again before the page-level checks below resume.
@@ -431,12 +441,18 @@ PROBE = """<!doctype html>
       check("the token box clears and never echoes the secret",
             tokenInput.value === "" && /saved on this device/.test(tokenInput.placeholder),
             "value=" + JSON.stringify(tokenInput.value) + " placeholder=" + tokenInput.placeholder);
+      check("a saved token locks the field so a tap cannot overwrite it",
+            tokenInput.readOnly === true && q("#sync-token-save").disabled === true,
+            "readOnly=" + tokenInput.readOnly + " saveDisabled=" + q("#sync-token-save").disabled);
       q("#sync-token-remove").click();
       await sleep(300);
       check("removing the token clears the device",
             frame.contentWindow.localStorage.getItem("notes.sync.token") === null
             && tokenInput.placeholder.indexOf("paste once") !== -1,
             "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      check("removing the token unlocks the field again",
+            tokenInput.readOnly === false && q("#sync-token-save").disabled === false,
+            "readOnly=" + tokenInput.readOnly + " saveDisabled=" + q("#sync-token-save").disabled);
 
       q("#settings-close").click();
       await sleep(250);
@@ -544,6 +560,17 @@ PROBE = """<!doctype html>
     check("the new folder appears in the tree", !!folderRow,
           "folders=" + doc.querySelectorAll("#folder-tree .folder-row").length);
     const targetId = folderRow ? folderRow.dataset.folder : "";
+
+    // The 40:60 folder:contents split the user asked for (2026-10-05).
+    {
+      const foldersBox = doc.querySelector(".browse-notes .folders-col").getBoundingClientRect();
+      const listBox = doc.querySelector(".browse-notes .list-col").getBoundingClientRect();
+      const share = foldersBox.width / (foldersBox.width + listBox.width);
+      check("the folder column takes 40% and the contents 60%",
+            Math.abs(share - 0.4) <= 0.05,
+            "folders=" + Math.round(foldersBox.width) + "px list=" + Math.round(listBox.width)
+            + "px share=" + share.toFixed(3));
+    }
 
     const unfiledRows = doc.querySelectorAll("#note-list .item-row");
     check("the note starts out in Unfiled", unfiledRows.length === 1,

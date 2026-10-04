@@ -20,6 +20,7 @@ const {
   checkPickedUp,
   clearToken,
   getToken,
+  hasToken,
   newExportId,
   setToken,
   sha256hex,
@@ -61,7 +62,8 @@ function installFetch() {
   globalThis.fetch = async (url, init = {}) => {
     const method = (init.method || "GET").toUpperCase();
     const path = String(url).replace("https://api.github.com", "");
-    calls.push({ method, path, body: init.body ? JSON.parse(init.body) : null });
+    calls.push({ method, path, body: init.body ? JSON.parse(init.body) : null,
+                   headers: init.headers || null });
     for (const [m, p, respond] of script) {
       if (m.test(method) && p.test(path)) {
         const fn = typeof respond === "function" ? respond : () => respond;
@@ -137,6 +139,40 @@ clearToken();
 equal("token: absent by default", getToken(), "");
 setToken("  test-token-abc  ");
 equal("token: saved trimmed", getToken(), "test-token-abc");
+
+/* The phone failure of 2026-10-04: the pasted token carried an invisible
+ * non-ASCII character and fetch refused the request with "String contains
+ * non ISO-8859-1 code point" before it ever left the device. Tokens are
+ * [A-Za-z0-9_-], so everything else is paste dirt and is stripped on both
+ * save and read. */
+{
+  const { sanitizeToken } = await import(resolved.href);
+  setToken("  Bearer github_pat_abc123  ");
+  equal("sanitize: leading Bearer + spaces stripped", getToken(), "github_pat_abc123");
+  setToken("“ghp_ABC”…");
+  equal("sanitize: curly quotes and ellipsis stripped", getToken(), "ghp_ABC");
+  setToken("​‌");
+  equal("sanitize: zero-width-only paste stores nothing", getToken(), "");
+  equal("sanitize: zero-width-only paste means no token", hasToken(), false);
+  globalThis.localStorage.setItem("notes.sync.token", "​ghp_XYZ​");
+  equal("sanitize: read heals a value stored polluted by an older build",
+        getToken(), "ghp_XYZ");
+  setToken("clean-token_for-tests");
+  installFetch(); // the real fetch is still live until the submit section installs the stub
+  calls = [];
+  script = [
+    [/GET$/, /\/git\/ref\/heads\/notes-inbox$/, { status: 200, data: { object: { sha: sha("ref") } } }],
+    [/^GET$/, /\/git\/commits\/[^/]+$/, { status: 200, data: { tree: { sha: EMPTY_TREE } } }],
+    [/POST$/, /\/git\/blobs$/, { status: 201, data: { sha: sha("blob") } }],
+    [/POST$/, /\/git\/trees$/, { status: 201, data: { sha: sha("tree") } }],
+    [/POST$/, /\/git\/commits$/, { status: 201, data: { sha: sha("land") } }],
+    [/PATCH$/, /\/git\/refs\/heads\/notes-inbox$/, { status: 200, data: {} }]
+  ];
+  await submit({ csv: "# notes-backup v1", media: [] });
+  const refCall = calls.find(c => /git\/ref/.test(c.path));
+  equal("sanitize: the Authorization header carries the cleaned token",
+        refCall.headers.Authorization, "Bearer clean-token_for-tests");
+}
 
 /* ------------------------------------------------------------------ submit */
 

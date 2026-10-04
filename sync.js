@@ -61,10 +61,30 @@ export const BUNDLE_SCHEMA = "notes.sync.bundle/1";
 /* ------------------------------------------------------------------ token */
 
 export function getToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
+  // Sanitise on read as well as on write: a token saved by an older
+  // build may already carry the stray character, and this heals it
+  // without the user having to re-paste.
+  try { return sanitizeToken(localStorage.getItem(TOKEN_KEY) || ""); }
+  catch { return ""; }
 }
+/**
+ * sanitizeToken(raw) -> the token worth storing, or "" if the paste holds
+ * no token at all. The phone proved why this exists (2026-10-04): a copy
+ * picked up an invisible non-ASCII character and fetch refused the whole
+ * request with "String contains non ISO-8859-1 code point" -- header
+ * values must be plain ASCII. GitHub tokens are [A-Za-z0-9_-] only, so
+ * anything outside that set is copy/paste dirt. A leading "Bearer" is
+ * stripped too, because copying "Bearer <token>" from instructions is
+ * the classic mistake.
+ */
+export function sanitizeToken(raw) {
+  return String(raw || "")
+    .replace(/^bearer\s*/i, "")
+    .replace(/[^A-Za-z0-9_-]/g, "");
+}
+
 export function setToken(value) {
-  try { localStorage.setItem(TOKEN_KEY, String(value || "").trim()); return true; }
+  try { localStorage.setItem(TOKEN_KEY, sanitizeToken(value)); return true; }
   catch { return false; }
 }
 export function clearToken() {

@@ -44,6 +44,7 @@ import {
   checkPickedUp,
   clearToken,
   hasToken,
+  sanitizeToken,
   setToken,
   submit as syncSubmit
 } from "./sync.js";
@@ -1043,6 +1044,12 @@ function friendlySyncError(error) {
   if (error?.code === "FILE_TOO_LARGE" || error?.code === "CSV_TOO_LARGE") {
     return `${error.name || "a file"} is over the ${Math.round(SYNC_MAX_FILE_BYTES / (1024 * 1024))} MB per-file cap — use the photo viewer's "Save to device" for it, or trim it.`;
   }
+  if (error instanceof TypeError && /ISO-8859-1|RequestInit/.test(error.message || "")) {
+    // Not a network problem: a header value (always the token) carries a
+    // non-ASCII character, so fetch refused the request before it left.
+    return "the saved token contains a stray character that can't be sent "
+      + "— tap Remove below, then paste the token again.";
+  }
   if (error instanceof TypeError) {
     // fetch rejects this way for any network-level failure: offline, DNS, or a
     // network that blocks api.github.com even though websites load. Say what
@@ -1138,12 +1145,25 @@ function saveSyncToken() {
     setSyncStatus("Paste the token into the box first, then Save.");
     return;
   }
-  setToken(value);
+  // The phone failure of 2026-10-04: an invisible stray character in the
+  // paste made fetch refuse the request before it left the device. The
+  // stored token is sanitised, and the status says what was removed.
+  const cleaned = sanitizeToken(value);
+  if (!cleaned) {
+    setSyncStatus("That paste doesn't contain a token. Copy the whole "
+      + "github_pat_… string from github.com and paste it here.");
+    return;
+  }
+  setToken(cleaned);
+  const removed = value.length - cleaned.length;
   if (input) {
     input.value = "";
     input.placeholder = "Token saved on this device";
   }
-  setSyncStatus("Token saved on this device. Tap “Sync notes + photos to PC now”.");
+  setSyncStatus((removed > 0
+    ? `Token saved — ${removed} stray character${removed === 1 ? "" : "s"} removed from the paste. `
+    : "Token saved on this device. ")
+    + "Tap “Sync notes + photos to PC now”.");
 }
 
 function removeSyncToken() {

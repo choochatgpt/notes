@@ -257,6 +257,50 @@ clearClientId();
 equal("client id: clear empties it", getClientId(), "");
 equal("client id: hasClientId false after clear", hasClientId(), false);
 
+/* ------------------------------------------------ app-config id (v29) ----- */
+
+{
+  // The shared site's shape: NO per-device paste. With neither override nor
+  // config the client id is "" (Drive unconfigured); the config.js value is
+  // the default every visitor connects with; a working device override wins;
+  // a garbage-only override falls back to the configured default.
+  idStore.delete(CLIENT_KEY);
+  globalThis.NOTES_APP_CONFIG = { driveClientId: "cfg-default.apps.googleusercontent.com" };
+  equal("client id: falls back to the config.js default when no override exists",
+    getClientId(), "cfg-default.apps.googleusercontent.com");
+  equal("client id: hasClientId agrees with the config default", hasClientId(), true);
+  setClientId("device-override.apps.googleusercontent.com");
+  equal("client id: a device override wins over the config default",
+    getClientId(), "device-override.apps.googleusercontent.com");
+  idStore.set(CLIENT_KEY, "​");
+  equal("client id: a garbage-only override falls back to config",
+    getClientId(), "cfg-default.apps.googleusercontent.com");
+  clearClientId();
+  delete globalThis.NOTES_APP_CONFIG;
+  equal("client id: neither override nor config means unconfigured", getClientId(), "");
+  equal("client id: hasClientId false with nothing configured", hasClientId(), false);
+}
+
+/* --------------------------------------------------------- config.js file - */
+
+{
+  // The shipped config.js itself must parse and expose the app config, with
+  // a driveClientId that is either "" (not configured) or a well-formed
+  // public Client ID.
+  let cfgError = null;
+  try { await import(new URL("config.js", resolved).href); }
+  catch (error) { cfgError = error; }
+  const cfg = globalThis.NOTES_APP_CONFIG;
+  check("config.js: parses and sets globalThis.NOTES_APP_CONFIG",
+    !cfgError && !!cfg && typeof cfg.driveClientId === "string",
+    cfgError ? String(cfgError) : JSON.stringify(cfg || null));
+  check("config.js: driveClientId is empty or a full Client ID",
+    cfg && (cfg.driveClientId === ""
+      || /^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$/.test(cfg.driveClientId)),
+    JSON.stringify(cfg && cfg.driveClientId));
+  delete globalThis.NOTES_APP_CONFIG;
+}
+
 /* ------------------------------------------------------- friendly errors */
 
 check("friendly: NOT_CONFIGURED names the Client ID box",
@@ -314,6 +358,9 @@ installFetch();
     && /POST.*upload/.test(order[2]) && /PUT.*session/.test(order[3]), order.join(" | "));
   check("upload: every call carries the bearer token",
     calls.every(c => c.headers.Authorization === "Bearer tok-abc"));
+  check("upload: the token rides only the Authorization header",
+    calls.every(c => c.url.indexOf("tok-abc") === -1
+      && !(typeof c.body === "string" && c.body.indexOf("tok-abc") !== -1)));
   const listUrl = calls[0].url;
   check("upload: folder list queries the pinned name, folder mime and trashed=false",
     listUrl.includes(encodeURIComponent(`name='${DRIVE_FOLDER}'`))

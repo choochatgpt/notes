@@ -1,0 +1,380 @@
+
+=== CURRENT (current index.html + the current app.js) ===
+  PASS  app shell rendered
+  PASS  app settled after startup
+          ready=true fatal=undefined
+  PASS  no fatal startup banner
+          status=
+  PASS  the footer takes no space when nothing has failed
+          display=none height=0
+  PASS  the storage and next-reminder lines are gone, not just hidden
+  PASS  a failure brings the footer back and tints it
+          height=11 display=flex bg=rgb(253, 236, 234) rest=rgb(247, 249, 252)
+  PASS  the footer goes away again once the failure is cleared
+          height=0
+  PASS  the notes pane and the agenda pane are the same height (the default 50%)
+          notes=352 agenda=352 gap=0
+  PASS  New folder button responds
+          formHidden=false
+  PASS  New note button responds
+          mode=edit editorHidden=false status=
+  PASS  Reminders tab switches the pane
+          data-kind=reminders
+  PASS  New reminder button responds
+          mode=edit kind=reminders status=
+  PASS  the home screen shows the release beside the title
+          home=v29 settings=29
+  PASS  the top bar offers Settings
+  PASS  Settings opens the dialog
+          open=true
+  PASS  the dialog shows the current app version
+          shown="29" expected=29
+  PASS  the dialog offers "Notes/Reminders panel display ratio"
+  PASS  the dialog offers "Export notes/reminders to email"
+  PASS  the dialog offers "Import notes/reminders"
+  PASS  the ratio control opens on the default 50%
+          chip=50% topShare=0.500
+  PASS  a ratio click lands on 60% and re-balances the panes
+          chip=60% topShare=0.600 expected=0.600
+  PASS  a ratio click lands on 70% and re-balances the panes
+          chip=70% topShare=0.700 expected=0.700
+  PASS  a ratio click lands on 80% and re-balances the panes
+          chip=80% topShare=0.800 expected=0.800
+  PASS  a ratio click lands on 90% and re-balances the panes
+          chip=90% topShare=0.900 expected=0.900
+  PASS  a ratio click lands on 10% and re-balances the panes
+          chip=10% topShare=0.100 expected=0.100
+  PASS  a ratio click lands on 20% and re-balances the panes
+          chip=20% topShare=0.200 expected=0.200
+  PASS  a ratio click lands on 30% and re-balances the panes
+          chip=30% topShare=0.300 expected=0.300
+  PASS  a ratio click lands on 40% and re-balances the panes
+          chip=40% topShare=0.400 expected=0.400
+  PASS  a ratio click lands on 50% and re-balances the panes
+          chip=50% topShare=0.500 expected=0.500
+  PASS  a ratio click lands on 60% and re-balances the panes
+          chip=60% topShare=0.600 expected=0.600
+  PASS  the export panel opens
+  PASS  the CSV holds the current backup under the versioned header
+          # notes-backup v2, exported 2026-10-05T16:25:15.225Z
+## folders
+id,par
+  PASS  the CSV carries all three sections
+  PASS  the export panel offers exactly Share CSV for backup + Export CSV
+          copy=Share CSV for backup export=Export CSV
+  PASS  the download and share buttons are gone, not hidden
+          download=false share=false
+  PASS  the mail link addresses the entered email
+          mailto:probe@example.com?subject=Notes%20backup&body=%23%20n
+  PASS  ...and carries the backup in the body
+          decoded=616 chars
+  PASS  the mail link is offered, since this backup fits the safe limit
+          hidden=false
+  PASS  the clipboard copy confirms or explains itself
+          said=Copying was blocked — the text is selected, copy it with Ctrl+C.
+  PASS  the backup button is present and destination-neutral
+          label=Back up notes + photos now
+  PASS  the token field exists, is a password field, and is not prefilled
+          type=password
+  PASS  the sync status line exists and opening export already explains the setup
+          said=PC relay: Not configured — add a backup token above (one-time setup) to also keep a copy on the PC.
+  PASS  TEST F: with no destination configured the overall line says so
+          said=No backup destination is configured. Google Drive needs the app's Client ID in config.js (the site owner sets it once); the PC relay needs a backup token below (one-time setup).
+  PASS  TEST F: both destination lines say Not configured
+          drive=Google Drive: Not configured — the app's Client ID is missing from config.js (the site owner sets it once; no visitor pastes anything). relay=PC relay: Not configured — add a backup token above (one-time setup) to also keep a copy on the PC.
+  PASS  clicking backup with no destination configured explains instead of failing
+          said=No backup destination is configured. Google Drive needs the app's Client ID in config.js (the site owner sets it once); the PC relay needs a backup token below (one-time setup).
+  PASS  TEST F: the empty-state tap contacted nothing at all
+          gh=0 gapi=0 gis=0
+  PASS  ...and made no network call (backup stays idle)
+          disabled=false
+  PASS  v29: the per-device Client ID paste field is gone
+          field=false save=false
+  PASS  v29: the Drive buttons are Connect/Disconnect Google Drive
+          connect=Connect Google Drive
+  PASS  v29: Connect with nothing configured is disabled and the line explains
+          disabled=true said=Google Drive: Not configured — the app's Client ID is missing from config.js (the site owner sets it once; no visitor pastes anything). gis=0
+  PASS  saving the token stores it on the device
+          stored=probe-token-12345
+  PASS  the token box clears and never echoes the secret
+          value="" placeholder=Token saved on this device — Remove to replace
+  PASS  a saved token locks the field so a tap cannot overwrite it
+          readOnly=true saveDisabled=true
+  PASS  removing the token clears the device
+          stored=null
+  PASS  removing the token unlocks the field again
+          readOnly=false saveDisabled=false
+  PASS  TEST B setup: the relay token is saved on the device
+          stored=probe-token-12345
+  PASS  TEST B: a relay-only tap still reports the PC sync
+          said=PC relay: Sent — backup + 0 photo(s)/video(s) (1 KB) are on the private GitHub branch; the PC's optional watcher picks them up when it runs.
+  PASS  TEST B: no Google endpoint was touched and no sign-in was asked
+          gapi=0 (was 0) gis=0
+  PASS  TEST B: the Drive line says how to turn it on
+          said=Google Drive: Not configured — the app's Client ID is missing from config.js (the site owner sets it once; no visitor pastes anything).
+  PASS  TEST B: the overall verdict is plain success
+          said=Backup completed.
+  PASS  TEST A setup: the relay token is off again
+          stored=null
+  PASS  TEST A: a Drive-only backup uploads the export-named zip
+          said=Google Drive: Copied notes-backup-20261005-c4ae2361.zip to your Drive.
+  PASS  TEST A: GitHub was never contacted (delta from TEST B's relay)
+          gh=8 (was 8)
+  PASS  TEST A: the relay line says Not configured, not a refusal
+          said=PC relay: Not configured — add a backup token above (one-time setup) to also keep a copy on the PC.
+  PASS  TEST A: the overall verdict is plain success
+          said=Backup completed.
+  PASS  TEST A: exactly one sign-in was requested
+          requests=1
+  PASS  TEST A: the sign-in scope is exactly drive.file
+          scope=https://www.googleapis.com/auth/drive.file
+  PASS  TEST A: the Drive folder was created exactly once (identity A)
+          created=1
+  PASS  TEST A: the upload initiation is resumable
+  PASS  TEST A: the upload is named after the export id
+          name=notes-backup-20261005-c4ae2361.zip
+  PASS  TEST A: the upload carries the zip mime hints
+          headers={"Authorization":"Bearer probe-drive-token-A","Content-Type":"application/json; charset=UTF-8","X-Upload-Content-Type":"application/zip","X-Upload-Content-Length":"692"}
+  PASS  TEST A: the session PUT carries a real zip
+          put=object
+  PASS  TEST A: the zip carries the backup CSV
+          head=PK    )�E]����>  >  
+   backup.csv# notes-backup v2, exported 2026-10-05T1
+  PASS  TEST A: the zip ends with a central directory and EOCD
+          tail=80,75,5,6
+  PASS  TEST A: the PUT went to the scripted session URI
+          https://www.googleapis.com/upload/session/probe
+  PASS  TEST C: both destinations are configured
+          stored=probe-token-12345 / probe-client-id.apps.googleusercontent.com
+  PASS  TEST C: the PC relay reports success
+          said=PC relay: (Previous backup has not been picked up yet — it will be.) Sent — backup + 0 photo(s)/video(s) (1 KB) are on the private GitHub branch; the PC's optional watcher picks them up when it runs.
+  PASS  TEST C: the Drive copy reports success
+          said=Google Drive: Copied notes-backup-20261005-41c68234.zip to your Drive.
+  PASS  TEST C: one bundle -- relay commit and zip share the export id
+          relay=20261005-41c68234 drive=20261005-41c68234
+  PASS  TEST C: the folder is reused, not created again (identity A)
+          created=1
+  PASS  TEST C: the still-live token signs nothing new in
+          requests=1
+  PASS  v29: Disconnect reports it on the Drive line
+          said=Google Drive: disconnected on this device — the notes, reminders and photos here are unchanged. To cut the app's access off everywhere too, remove it at Google's own permissions page.
+  PASS  v29: Disconnect touched no local data -- the backup CSV is byte-identical
+          same=true
+  PASS  v29: Disconnect leaves the relay token alone
+          stored=probe-token-12345
+  PASS  v29: Disconnect cleared the in-memory token (A's store sits still)
+          aFiles=2 (was 2)
+  PASS  v29: with Drive configured, Connect is usable after a reopen
+          disabled=false
+  PASS  v29: B's connect signs B in -- a second, different identity
+          tokens=probe-drive-token-A | probe-drive-token-B
+  PASS  v29: the connect reports itself and names the Back up path
+          said=Google Drive: connected — tap “Back up notes + photos now” to copy everything to your Drive.
+  PASS  v29: B's tap reports both destinations
+          drive=Google Drive: Copied notes-backup-20261005-ba39632a.zip to your Drive.
+  PASS  v29: B's tap created B's OWN folder in B's own store
+          created=1
+  PASS  v29: A's store is untouched by B's run -- no overwrite, no echo
+          aFiles=2 (was 2) aCalls=7 (was 7)
+  PASS  v29: each identity holds only its own, differently-named backup
+          A=notes-backup-20261005-c4ae2361.zip B=notes-backup-20261005-ba39632a.zip
+  PASS  v29: no request embeds a token outside its Authorization header
+  PASS  v29: no request carries a user or account marker at all
+  PASS  TEST E: the PC sync still reports success
+          said=PC relay: (Previous backup has not been picked up yet — it will be.) Sent — backup + 0 photo(s)/video(s) (1 KB) are on the private GitHub branch; the PC's optional watcher picks them up when it runs.
+  PASS  TEST E: the Drive line says why it failed
+          said=Google Drive: backup failed: Google Drive refused the request (upload failed (500)) — tap the sync button to try again.
+  PASS  TEST E: the overall verdict warns and names Drive
+          said=Backup completed with a warning — Google Drive failed; the other destination's backup still succeeded.
+  PASS  TEST E: the refused upload created no file in B's own store
+          bFiles=1
+  PASS  TEST D: the Drive copy still succeeds
+          said=Google Drive: Copied notes-backup-20261005-de4aec4b.zip to your Drive.
+  PASS  TEST D: the relay line reports its own failure
+          said=PC relay: (Could not check the previous backup's pickup just now.) Sync failed: cannot read branch (500)
+  PASS  TEST D: the overall verdict warns and names the relay
+          said=Backup completed with a warning — the PC relay failed; the other destination's backup still succeeded.
+  PASS  both destinations fail: the verdict is a plain failure
+          said=Backup failed — the PC relay and Google Drive failed.
+  PASS  expired sign-in: the PC sync still succeeds
+          said=PC relay: (Previous backup has not been picked up yet — it will be.) Sent — backup + 0 photo(s)/video(s) (1 KB) are on the private GitHub branch; the PC's optional watcher picks them up when it runs.
+  PASS  expired sign-in: asks for one more tap and never auto-pops
+          said=Google Drive: backup failed: Google sign-in expired — tap the sync button again to reconnect. requests=2
+  PASS  blocked popup: the connect button reports it and nothing retries
+          said=Google Drive: Google's sign-in window was blocked — allow popups for this site, then tap the sync button again. requests=3
+  PASS  waits-only auto-run touches no destination
+          gis=3 gapi=23 (was 23) gh=67 (was 67)
+  PASS  waits-only auto-run says the sign-in waits for a tap
+          said=Google Drive: not signed in — the sign-in window will open on your next tap of the Back up button. connectDisabled=false
+  PASS  waits-only auto-run: the relay line stays honest
+          said=PC relay: Not configured — add a backup token above (one-time setup) to also keep a copy on the PC.
+  PASS  waits-only auto-run: the overall line says nothing ran
+          said=Nothing was backed up just now — Google Drive signs in on your next tap of the Back up button.
+  PASS  v29 cleanup: the override is gone and the frame is signed out
+          stored=null
+  PASS  the dialog closes
+  PASS  reopening the dialog keeps the entered email
+          value=probe@example.com
+  PASS  agenda pane rendered
+          children=1
+  PASS  the agenda shows a reminder row
+          rows=1
+  PASS  the row states how often it repeats, period included
+          chip="Weekly · Tue, Thu"
+  PASS  the row is a single line tall
+          height=33 line=21
+  PASS  the recurrence and the due time sit on the row beside the title
+          item-title | chip accent | item-when
+  PASS  the due block lies along the row rather than stacking
+          flex-direction=row
+  PASS  the row carries the date of the next occurrence
+          abs="Tue, Jan 5, 09:00 AM"
+  PASS  at desktop width both the relative time and the date show
+          rel=block abs=block
+  PASS  tapping a note opens the editor in place
+          mode=edit
+  PASS  back arrow is offered while editing
+  PASS  the new folder appears in the tree
+          folders=2
+  PASS  the folder column takes 40% and the contents 60%
+          folders=355px list=533px share=0.400
+  PASS  the note starts out in Unfiled
+          unfiled rows=1
+  PASS  the note editor offers a folder picker
+  PASS  the picker lists the folder as a destination
+          options=2
+  PASS  the note has left Unfiled
+          unfiled rows=0
+  PASS  the note is now in the folder it moved to
+          destination rows=1
+  PASS  the folder row offers a delete control
+          row=true
+  PASS  the delete control is on screen without hovering
+          w=20 opacity=1 pointerEvents=auto
+  PASS  cancelling the confirmation keeps the folder
+          row=true
+  PASS  the confirmation names the folder
+          said=Delete "Probe Folder"? This also deletes 1 note. This cannot be undone.
+  PASS  the confirmation counts the notes that go with it
+          said=Delete "Probe Folder"? This also deletes 1 note. This cannot be undone.
+  PASS  confirming removes the folder from the tree
+  PASS  its notes go with it
+          rows=0
+  PASS  attaching two photos puts two thumbnails on the strip
+          thumbs=2
+  PASS  the thumbnails carry the note's media ids
+          ids=4ffcbaad-b6fa-4706-b78b-8ed55df85eee,6b34139c-2596-4b31-8b8e-f5c4c19e7a95
+  PASS  the full-size bytes landed in OPFS
+          files=2
+  PASS  the media records landed in IndexedDB
+          rows=2
+  PASS  removing a photo takes it off the strip
+          thumbs=1
+  PASS  ...and its bytes out of OPFS
+          files=1
+  PASS  the photo survives save + reopen
+          img=true
+  PASS  tapping a thumbnail opens the viewer on the OPFS bytes
+          open=true src=blob:
+  PASS  the viewer offers Save to device
+          save=Save to device
+  PASS  saving does not close or break the viewer
+          open=true
+  PASS  closing the viewer clears the picture
+          open=false
+  PASS  deleting a photo note warns about the photos
+          said=Delete “Photo Note”? Its 1 attached photo will be removed too. This cannot be undone.
+  PASS  the photo note is gone from the list
+  PASS  ...and its remaining bytes are gone from OPFS
+          files=0
+  PASS  ...and its media records are gone from IndexedDB
+          rows=0
+  PASS  the keeper row exists to preview
+  PASS  the preview keeps the note's line breaks
+          "first line\nsecond line\nthird line"
+  PASS  the preview paints about three line boxes, not one
+          subH=61 titleH=21
+  PASS  the browser resolved .item-sub to pre-line
+          pre-line
+  PASS  the export's root folder is created
+          rows=2
+  PASS  the export picks up the folders and the keeper note
+          len=844
+  PASS  the import panel opens
+  PASS  a non-backup is refused with an explanation
+          said=This is not a notes backup — it does not start with "# notes-backup v2".
+  PASS  ...and the restore button stays disabled
+  PASS  the preview counts what the backup holds
+          Backup holds 2 folders, 1 note, 1 reminder (exported 2026-10-05T16:25:54.583Z).This device currently holds 2 folders, 2 notes, 1 reminder.Re
+  PASS  ...and what the device currently holds
+          Backup holds 2 folders, 1 note, 1 reminder (exported 2026-10-05T16:25:54.583Z).This device currently holds 2 folders, 2 notes, 1 reminder.Restoring deletes everything on this device first. Photos are not included in a backup. Your settings are kept.
+  PASS  a previewed backup arms the restore button
+  PASS  editing after the preview revokes it
+          said=The pasted text changed after it was previewed — press Preview import again.
+  PASS  ...without ever asking for confirmation
+          confirms=3
+  PASS  cancelling the restore keeps every note
+          rows=2
+  PASS  the confirmation states the counts and what is kept
+          said=Replace everything? This permanently deletes all 2 folders, 2 notes, 1 reminder on this device and restores 2 folders, 1 note, 1 reminder from the backup (exported 2026-10-05T16:25:54.583Z). Photos are not included in a backup. Your settings are kept. This cannot be undone.
+  PASS  confirming restores the backup
+          said=Restored 2 folders, 1 note, 1 reminder.
+  PASS  the folders came back
+          rows=Probe Root | Probe Sub
+  PASS  the subfolder is still nested under the root
+          root=5px sub=13px
+  PASS  the keeper note survived and the doomed note did not
+          rows=Keeper Note
+        first line
+  PASS  the restored root folder is empty, as the backup recorded
+          rows=0
+  PASS  the reminder came back to the agenda
+          agenda=Probe Standup
+    Weekly · Tue, Thu
+    
+         in 3 month
+  PASS  the restore did not touch the pane ratio (settings survive)
+          chip=60% topShare=0.600
+  PASS  the app restarts after a reload
+          ready=true fatal=undefined
+  PASS  the pane ratio comes back on restart
+          chip=60%
+  PASS  ...and is applied to the layout
+          topShare=0.600
+  PASS  the saved email address comes back
+          value=probe@example.com
+  PASS  the restored data is still there after the restart
+          rows=Probe Root | Probe Sub
+  -> 179/179 passed
+
+=== phone-width frame (380px) ===
+  PASS  narrow: app shell rendered
+  PASS  narrow: app settled ready
+          ready=true fatal=undefined
+  PASS  narrow: the probe note is in the list
+  PASS  narrow: four Enters make exactly four painted lines -- spaces make none
+          rects=4 width=103
+  PASS  narrow: the preview column keeps a real share of the row
+          width=103
+  PASS  narrow: the preview still resolves to pre-line
+          pre-line
+  PASS  narrow: the reminder row exists
+  PASS  narrow: the reminder row shows the date
+          abs="Tue, Jan 5, 09:00 AM" display=block
+  PASS  narrow: the relative time stands down to make room
+          rel=none
+  PASS  narrow: the date carries no leftover separator
+          before=none
+  PASS  narrow: the reminder row is still a single line
+          rowH=31 line=21
+  PASS  narrow: Delete, Add photo/video and Save sit on one line
+          tops=354,354,354
+  PASS  narrow: the action row is one button tall, not two
+          rowH=35 btnH=33
+  PASS  narrow: no photo strip shows on a note without photos
+          stripVisible=false
+  -> 14/14 passed
+
+=== verdict ===
+
+the current build responds on all 193 checks

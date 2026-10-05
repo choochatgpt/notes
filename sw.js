@@ -1,10 +1,11 @@
 // Bump CACHE_NAME on every release. The activate handler deletes any cache that
 // is not the current name, so a new version cannot be masked by an old one.
-const CACHE_NAME = "notes-shell-v28";
+const CACHE_NAME = "notes-shell-v29";
 
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./config.js",
   "./app.css",
   "./app.js",
   "./view.js",

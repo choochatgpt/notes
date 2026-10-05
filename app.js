@@ -51,14 +51,11 @@ import {
 } from "./sync.js";
 import {
   buildZip,
-  clearClientId,
   ensureBackupFolder,
   friendlyDriveError,
   getClientId,
   hasClientId,
   requestToken,
-  sanitizeClientId,
-  setClientId,
   uploadBackup,
   utf8
 } from "./drive.js";
@@ -1022,6 +1019,9 @@ async function refreshExportCsv() {
 
 async function showExportPanel() {
   showPanel("export");
+  // The Connect button's enabled state tracks configuration at open time
+  // (a mid-run config change lands on the next open, never mid-flight).
+  refreshDriveUi();
   await refreshExportCsv();
   // The user asked (2026-10-03) for the export click itself to back up
   // everything: with a destination configured this button runs it on its own.
@@ -1093,8 +1093,8 @@ function friendlySyncError(error) {
  * Drive failure can never be mistaken for a relay failure and one
  * destination's outcome is never reported inside the other's sentence. */
 const DRIVE_NOT_CONFIGURED =
-  "Google Drive: Not configured — paste a Client ID above to back up notes, "
-  + "photos and videos to Drive on every tap.";
+  "Google Drive: Not configured — the app's Client ID is missing from config.js "
+  + "(the site owner sets it once; no visitor pastes anything).";
 const RELAY_NOT_CONFIGURED =
   "PC relay: Not configured — add a backup token above (one-time setup) to "
   + "also keep a copy on the PC.";
@@ -1181,8 +1181,9 @@ async function runRelayBackup(bundle) {
 
 /**
  * One tap = one backup to every configured destination, independently (v28).
- * Google Drive is the primary full backup and needs nothing but a saved
- * Client ID: no GitHub token, no PC, no watcher, no GitHub at all. The PC
+ * Google Drive is the primary full backup and needs nothing but a connected
+ * Google account (v29: one Client ID in config.js, each user connects their
+ * own account) — no GitHub token, no PC, no watcher, no GitHub at all. The PC
  * relay runs only when its own token is saved. Neither destination can block
  * or mask the other: both run side by side, each returns its own verdict,
  * and only a bundle that cannot be collected stops both.
@@ -1241,8 +1242,9 @@ function renderBackupStatus(results, configured) {
   const overall = $("#backup-overall");
   if (!overall) return;
   if (!configured.drive && !configured.relay) {
-    overall.textContent = "No backup destination is configured. Add a Google "
-      + "Client ID (Google Drive) or a backup token (PC relay) below.";
+    overall.textContent = "No backup destination is configured. Google Drive "
+      + "needs the app's Client ID in config.js (the site owner sets it once); "
+      + "the PC relay needs a backup token below (one-time setup).";
     return;
   }
   const failed = results.filter(result => result.state === "failed");
@@ -1312,20 +1314,25 @@ function removeSyncToken() {
   setSyncStatus("Token removed from this device.");
 }
 
-/* ---- Google Drive destination (primary backup since v28) ---------------- */
-/* The user's own Google Drive (drive.js) receives one ZIP per backup — the
- * backup CSV plus every photo/video — into a "Notes Backup" folder. v28 made
- * this the PRIMARY destination, independent of the PC relay: it runs on a
- * saved Client ID alone, with no GitHub token, no PC, and no watcher. There
- * is no Google ID or password anywhere in this flow — the user consents on
- * Google's own window and the app holds a short-lived access token IN MEMORY
- * ONLY (never persisted; page reload forgets it by design). The Client ID the
- * user pastes once is public by design, so unlike the relay token it may live
- * in localStorage. */
+/* ---- Google Drive destination (primary v28; per-user since v29) ---------- */
+/* The connecting user's own Google Drive (drive.js) receives one ZIP per
+ * backup — the backup CSV plus every photo/video — into a "Notes Backup"
+ * folder. v29 made the destination MULTI-USER: the app ships ONE public
+ * Client ID in config.js and every visitor just taps "Connect Google Drive"
+ * and picks THEIR OWN account in Google's window. The token that comes back
+ * belongs to that account only, so each user's Drive gets its own folder and
+ * backups — one user can never see or overwrite another user's. There is no
+ * Google ID or password anywhere in this flow; the access token stays IN
+ * MEMORY ONLY (never persisted; page reload forgets it by design), and
+ * Disconnect clears only this browser's token state — notes, reminders,
+ * photos, settings and the relay token are untouched. */
 
 let driveToken = "";
 let driveTokenAt = 0;
 let driveTokenPromise = null;
+// Disconnect bumps this; anything that resolves AFTER a disconnect must not
+// resurrect the cleared token — "clear only that browser's state" is exact.
+let driveGen = 0;
 
 function setDriveStatus(message) {
   const el = $("#drive-status");
@@ -1360,11 +1367,16 @@ function kickOffDriveToken() {
  * a popup.
  */
 async function runDriveBackup(bundle, { allowSignIn }) {
+  const gen = driveGen;
   try {
-    if (!driveTokenLive()) {
+    // Work on a local token: if the user disconnects while this backup is in
+    // flight, the upload still finishes with the token it already had, but
+    // the cleared device state is never resurrected afterwards.
+    let token = driveTokenLive() ? driveToken : "";
+    if (!token) {
       const pending = driveTokenPromise;
       driveTokenPromise = null;
-      const token = pending ? await pending : null;
+      token = pending ? await pending : null;
       if (!token) {
         if (!allowSignIn) {
           return { dest: "drive", state: "waits",
@@ -1375,16 +1387,15 @@ async function runDriveBackup(bundle, { allowSignIn }) {
         error.code = "NOT_SIGNED_IN";
         throw error;
       }
-      driveToken = token;
-      driveTokenAt = Date.now();
+      if (gen === driveGen) { driveToken = token; driveTokenAt = Date.now(); }
     }
     setDriveStatus("Google Drive: copying the same backup…");
     const entries = [{ name: "backup.csv", bytes: utf8(bundle.csv) }].concat(
       bundle.media.map(item => ({ name: `media/${item.name}`, bytes: item.bytes })));
     const zipBytes = buildZip(entries);
-    const folderId = await ensureBackupFolder(driveToken);
+    const folderId = await ensureBackupFolder(token);
     const file = await uploadBackup({
-      token: driveToken,
+      token,
       zipBytes,
       folderId,
       name: `notes-backup-${bundle.exportId}.zip`
@@ -1394,7 +1405,7 @@ async function runDriveBackup(bundle, { allowSignIn }) {
   } catch (error) {
     // The app never renews the sign-in on its own: on expiry the token is
     // dropped and the next tap reconnects. No popup without a tap, ever.
-    if (error?.code === "TOKEN_EXPIRED") driveToken = "";
+    if (error?.code === "TOKEN_EXPIRED" && gen === driveGen) driveToken = "";
     if (error?.code === "NOT_SIGNED_IN") {
       return { dest: "drive", state: "failed",
         text: "Google Drive: backup failed — no sign-in came back. Tap the "
@@ -1405,62 +1416,79 @@ async function runDriveBackup(bundle, { allowSignIn }) {
   }
 }
 
-function saveDriveClientId() {
-  if (hasDriveClientId()) {
-    setDriveStatus("A Client ID is already saved. Tap Remove first if you want to replace it.");
+/**
+ * Connect Google Drive (v29): the ONE button every visitor uses. The app's
+ * public Client ID already ships in config.js — nobody pastes anything — so
+ * this just runs the sign-in inside this tap and waits for it: Google's own
+ * window lets the current user pick their own account, and the token that
+ * comes back is that account's alone, so backups land in that user's Drive
+ * only (drive.js holds the client id resolution and the token flow).
+ */
+async function connectDrive() {
+  if (!hasDriveClientId()) {
+    setDriveStatus(DRIVE_NOT_CONFIGURED);
     return;
   }
-  const input = $("#drive-client-id");
-  const value = (input?.value || "").trim();
-  if (!value) {
-    setDriveStatus("Paste the Client ID into the box first, then Save.");
+  if (driveTokenLive()) {
+    setDriveStatus("Google Drive: connected — the Back up button copies "
+      + "notes, photos and videos to your Drive.");
     return;
   }
-  const cleaned = sanitizeClientId(value);
-  if (!cleaned || !cleaned.includes(".")) {
-    setDriveStatus("That paste doesn't look like a Client ID — it should end in "
-      + ".apps.googleusercontent.com. Copy the whole string from Google's console "
-      + "(steps below) and paste it here.");
-    return;
+  // Marks this sign-in. Disconnect bumps the counter, so a window that
+  // finishes after a disconnect cannot restore the token behind it.
+  const gen = ++driveGen;
+  kickOffDriveToken();
+  const pending = driveTokenPromise;
+  // Consumed here; a later sign-in must start a fresh one, not re-await an
+  // already-resolved promise (that is how a stale reconnect could beat the
+  // 401-clear and report "connected" without Google being asked anything).
+  driveTokenPromise = null;
+  if (!pending) return;
+  setDriveStatus("Google Drive: Google's sign-in window is opening — choose "
+    + "your own Google account.");
+  try {
+    const token = await pending;
+    if (gen !== driveGen) return;
+    driveToken = token;
+    driveTokenAt = Date.now();
+    setDriveStatus("Google Drive: connected — tap “Back up notes + photos "
+      + "now” to copy everything to your Drive.");
+  } catch (error) {
+    if (gen !== driveGen) return;
+    setDriveStatus(`Google Drive: ${friendlyDriveError(error)}`);
   }
-  setClientId(cleaned);
-  if (input) {
-    input.value = "";
-    input.placeholder = "Client ID saved on this device";
-  }
-  refreshDriveUi();
-  setDriveStatus("Client ID saved — Google Drive is the primary backup and "
-    + "runs on every Back up tap. Google will ask once, on its own sign-in "
-    + "window, to allow it.");
 }
 
-function removeDriveClientId() {
-  clearClientId();
+/**
+ * Disconnect (v29): clears ONLY this browser's Google sign-in state — the
+ * memory token, its timestamp, and any sign-in window still opening. It
+ * never revokes the grant on Google's side (that would be every device at
+ * once) and it touches no local data: notes, reminders, photos, settings
+ * and the relay token all stay exactly as they were.
+ */
+function disconnectDrive() {
+  driveGen += 1;
+  driveToken = "";
+  driveTokenAt = 0;
+  driveTokenPromise = null;
+  setDriveStatus("Google Drive: disconnected on this device — the notes, "
+    + "reminders and photos here are unchanged. To cut the app's access off "
+    + "everywhere too, remove it at Google's own permissions page.");
   refreshDriveUi();
-  const input = $("#drive-client-id");
-  if (input) {
-    input.value = "";
-    input.placeholder = "Google Client ID (optional)";
-  }
-  setDriveStatus("Client ID removed — Google Drive backup is off on this device.");
 }
 
-/* The Client ID field is write-once like the backup token's, for the same
- * reason: a stray tap must not be able to replace a working value.
+/* Connect is exactly as usable as the configuration allows: with no Client
+ * ID anywhere (config.js empty, no device override) the button renders
+ * disabled — a tap on a dead button teaches nothing; the status line is the
+ * explanation. States are re-read on every panel open via showExportPanel.
  */
 function refreshDriveUi() {
-  const input = $("#drive-client-id");
-  if (!input) return;
-  const stored = hasDriveClientId();
-  input.readOnly = stored;
-  input.placeholder = stored
-    ? "Client ID saved on this device — Remove to replace"
-    : "Google Client ID (paste once)";
-  const save = $("#drive-id-save");
-  if (save) {
-    save.disabled = stored;
-    save.title = stored ? "Remove the Client ID first to paste a new one" : "";
-  }
+  const connect = $("#drive-connect");
+  if (!connect) return;
+  const ready = hasDriveClientId();
+  connect.disabled = !ready;
+  connect.title = ready ? ""
+    : "Connect works once the app's Client ID is set in config.js";
 }
 
 function showImportPanel() {
@@ -1685,8 +1713,8 @@ function wireControls() {
   on("#sync-now-btn", "click", runSync);
   on("#sync-token-save", "click", saveSyncToken);
   on("#sync-token-remove", "click", removeSyncToken);
-  on("#drive-id-save", "click", saveDriveClientId);
-  on("#drive-id-remove", "click", removeDriveClientId);
+  on("#drive-connect", "click", connectDrive);
+  on("#drive-disconnect", "click", disconnectDrive);
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);
   on("#delete-note-btn", "click", deleteSelectedNote);

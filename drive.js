@@ -12,12 +12,18 @@
  * short-lived access token (about an hour) that stays in memory only and is
  * never persisted. No password ever reaches this code path.
  *
- * THE CLIENT ID. Google requires an OAuth "client" naming the app; the user
- * creates their own in console.cloud.google.com and pastes the Client ID
- * here. A Client ID is public by design (it ships in every page's HTML), so
- * unlike the relay token it may live in localStorage: notes.drive.client.
- * The scope is exactly drive.file, so Google only shows this app the files
- * this app itself created — nothing else in the Drive is reachable.
+ * THE CLIENT ID (v29). Google requires an OAuth "client" naming the app. There
+ * is exactly ONE for this application and it ships in config.js (a Client ID
+ * is public by design — it names the app, not any user, so it lives in the
+ * public page code). The backup is PER USER: each visitor taps "Connect
+ * Google Drive", picks their own account in GOOGLE's window, and the token
+ * that comes back is theirs alone — so every account gets its own private
+ * "Notes Backup" folder in its own My Drive and users can never see or
+ * overwrite each other's backups. A device may still override the configured
+ * id in localStorage: notes.drive.client — useful for trying a new client id
+ * before a redeploy; it always wins, and absent/garbage reads fall back to
+ * config.js. The scope is exactly drive.file, so Google only shows this app
+ * the files it created in the connected account's Drive — nothing else.
  *
  * THE UPLOAD is resumable, not multipart: Drive documents a hard 5 MB cap on
  * multipart requests, and a real bundle of phone photos sails past that. The
@@ -55,9 +61,21 @@ export function sanitizeClientId(raw) {
   return String(raw || "").replace(/[^A-Za-z0-9._-]/g, "");
 }
 
+/** The app-config default from config.js ("" there = Drive not configured). */
+function configClientId() {
+  const cfg = globalThis.NOTES_APP_CONFIG;
+  return cfg && typeof cfg.driveClientId === "string" ? cfg.driveClientId : "";
+}
+
 export function getClientId() {
-  try { return sanitizeClientId(localStorage.getItem(CLIENT_KEY) || ""); }
-  catch { return ""; }
+  // A device override wins (set via console for testing a new client id); a
+  // stored value that sanitizes to nothing is treated as absent so paste dirt
+  // cannot hide a working configured default.
+  try {
+    const stored = sanitizeClientId(localStorage.getItem(CLIENT_KEY) || "");
+    if (stored) return stored;
+  } catch { }
+  return sanitizeClientId(configClientId());
 }
 
 export function setClientId(value) {

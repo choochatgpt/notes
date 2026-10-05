@@ -526,14 +526,15 @@ if "APP_VERSION" not in app or "app-version" not in app:
 # itself is pinned so the exception cannot quietly widen.
 network_clean = True
 for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js",
-               "sync.js", "drive.js"):
+               "sync.js", "drive.js", "config.js"):
     source = read(module)
     for banned in ("XMLHttpRequest", "sendBeacon", "navigator.share", "canShare"):
         if banned in source:
             network_clean = False
             fails.append(f"{module} contains {banned}; the app must never send "
                          "anything from the device")
-for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js"):
+for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js",
+               "config.js"):
     source = read(module)
     if "fetch(" in source:
         network_clean = False
@@ -583,6 +584,47 @@ if drive_source:
         network_clean = False
         fails.append("drive.js must keep its Client ID in localStorage "
                      "(notes.drive.client)")
+
+# config.js (v29): the ONE application-config file and the only place the
+# public Client ID may ship. It must carry the config drive.js reads; it
+# must never carry a secret or an identity. Client ID, when present, is
+# public by design (it names the app, not any user).
+config = read("config.js")
+if "NOTES_APP_CONFIG" not in config or "driveClientId" not in config:
+    fails.append("config.js must set globalThis.NOTES_APP_CONFIG.driveClientId "
+                 "-- the configured Client ID every visitor's Connect uses")
+else:
+    cfg_value = re.search(r'driveClientId\s*:\s*"([^"]*)"', config)
+    if not cfg_value:
+        fails.append('config.js has no quoted driveClientId value')
+    elif cfg_value.group(1) and not cfg_value.group(1).endswith(
+            ".apps.googleusercontent.com"):
+        fails.append('config.js driveClientId is neither "" nor a Client ID '
+                     'ending in .apps.googleusercontent.com')
+if re.search(r"GOCSPX-[A-Za-z0-9_-]{10,}|refresh_token|ya29\.", config):
+    network_clean = False
+    fails.append("config.js carries a secret-shaped value (client-secret "
+                 "prefix, refresh token or access token) -- only the public "
+                 "Client ID may ship")
+# The per-user identity must never hardcode: no Client ID literal outside
+# config.js, no access-token literal (Google's implicit-flow tokens start
+# "ya29."), no account-id-shaped 21-digit number in any shipped file.
+for module in ("app.js", "view.js", "sw.js", "sync.js", "drive.js",
+               "storage.js", "reminder.js", "backup.js", "index.html"):
+    source = read(module)
+    if "apps.googleusercontent.com" in source:
+        network_clean = False
+        fails.append(f"{module} names a Client ID literal -- config.js is the "
+                     "only place the app's Client ID may live")
+    if re.search(r"ya29\.", source):
+        network_clean = False
+        fails.append(f"{module} contains an access-token literal (ya29...) -- "
+                     "tokens are per user, memory-only, never in code")
+    if re.search(r"(?<![\w-])\d{21}(?![\w-])", source):
+        network_clean = False
+        fails.append(f"{module} contains a 21-digit literal shaped like a "
+                     "Google account id -- backups are per user; no account "
+                     "id may be baked into the source")
 if "accounts.google.com" in app:
     network_clean = False
     fails.append("app.js mentions accounts.google.com -- Google is reached "
@@ -733,29 +775,43 @@ else:
     print("sync: backup button + both destination rows wired; relay gated on "
           "the device token only")
 
-# 15g. Google Drive destination (v27 optional copy; PRIMARY since v28): it
-# must never depend on the relay token -- with only a Client ID saved, a tap
-# must reach Google and nothing else. The consent popup is allowed only on
-# the explicit tap -- never on the export panel's auto-run. Transport pins
-# live in section 14; this pins the UI, the independence shape and the
-# no-popup-on-auto-run rule.
-for required in ('id="drive-client-id"', 'id="drive-id-save"',
-                 'id="drive-id-remove"', 'id="drive-status"'):
+# 15g. Google Drive destination (PRIMARY since v28; PER-USER since v29): the
+# app ships ONE public Client ID in config.js and every visitor connects their
+# OWN Google account with a Connect button -- no per-device paste, no client
+# secret, token in memory only. With only the configured Client ID present a
+# tap must reach Google and nothing else. The consent popup is allowed only
+# on the explicit tap -- never on the export panel's auto-run. Transport pins
+# live in section 14; this pins the UI, the per-user Connect/Disconnect flow,
+# the destination independence shape and the no-popup-on-auto-run rule.
+for required in ('id="drive-connect"', 'id="drive-disconnect"',
+                 'id="drive-status"'):
     if required not in html:
         fails.append(f"index.html lost {required} -- the Drive backup has no UI")
-drive_tag = re.search(r'<input[^>]*id="drive-client-id"[^>]*>', html)
-if not drive_tag or 'type="password"' in drive_tag.group(0):
-    fails.append('#drive-client-id must be type=text -- a Client ID is public '
-                 "by design and must not pretend to be a secret")
-for handler in ("saveDriveClientId", "removeDriveClientId", "refreshDriveUi",
+for gone in ('id="drive-client-id"', 'id="drive-id-save"',
+             'id="drive-id-remove"'):
+    if gone in html:
+        fails.append(f"index.html still has {gone} -- v29 replaced per-device "
+                     "Client-ID pasting with the Connect/Disconnect buttons")
+if ">Connect Google Drive</button>" not in html:
+    fails.append('the Drive button is no longer labelled "Connect Google Drive"')
+if ">Disconnect Google Drive</button>" not in html:
+    fails.append('index.html lost the "Disconnect Google Drive" button')
+for handler in ("connectDrive", "disconnectDrive", "refreshDriveUi",
                 "runDriveBackup", "collectBackupBundle", "runRelayBackup",
                 "runBackupAll", "renderBackupStatus", "kickOffDriveToken"):
     if f"function {handler}(" not in app:
         fails.append(f"app.js lost {handler}() -- the backup flow is incomplete")
-if 'on("#drive-id-save"' not in app or 'on("#drive-id-remove"' not in app:
-    fails.append("app.js does not wire the Drive buttons -- dead controls")
+if 'on("#drive-connect"' not in app or 'on("#drive-disconnect"' not in app:
+    fails.append("app.js does not wire the Connect/Disconnect buttons -- dead controls")
 if "hasClientId(" not in app:
-    fails.append("app.js does not gate the Drive backup on a saved Client ID")
+    fails.append("app.js does not gate the Drive backup on the configured Client ID")
+if "NOTES_APP_CONFIG" not in read("drive.js"):
+    fails.append("drive.js no longer reads the app-config Client ID "
+                 "(globalThis.NOTES_APP_CONFIG) -- every device would need "
+                 "its own paste again")
+if "NOTES_APP_CONFIG" in app:
+    fails.append("app.js consults the app config directly -- the configured "
+                 "Client ID is resolved in drive.js only")
 if "friendlyDriveError(" not in app:
     fails.append("app.js no longer maps Drive failures through "
                  "friendlyDriveError")
@@ -784,7 +840,8 @@ if "requestAccessToken" not in drive_source:
     fails.append("drive.js lost requestAccessToken() -- the GIS sign-in flow "
                  "is incomplete")
 else:
-    print("drive: Client ID row wired; destinations independent; "
+    print("drive: Connect/Disconnect wired; Client ID ships in app config only "
+          "(config.js); backup identity is per user; destinations independent; "
           "auto-run pinned to driveAllowed:false; sign-in confined to drive.js")
 
 print()

@@ -186,26 +186,42 @@ it to every configured destination independently (since v28) — each
 destination reports its own status line, one destination's failure never
 blocks or masks the other, and with nothing configured the panel says so.
 
-- **Google Drive — the primary full backup.** Every tap places one ZIP — the
-  backup CSV plus every photo/video — in a `Notes Backup` folder in your
-  Google Drive, as `notes-backup-<exportId>.zip`, a fresh file per backup. It
-  needs nothing but the saved Client ID: no GitHub token, no home PC, no
-  watcher, no GitHub at all. If the Google answer has expired by the next
-  tap, the app says one line and that tap signs in again; it never opens a
-  popup on its own.
+- **Google Drive — the primary full backup, per user.** Every tap places one
+  ZIP — the backup CSV plus every photo/video — in a `Notes Backup` folder in
+  the connected user's own Google Drive, as `notes-backup-<exportId>.zip`, a
+  fresh file per backup. Since v29 the backup is **per person**, not per
+  device: the app ships ONE public OAuth Client ID in `config.js`, and each
+  visitor taps **Connect Google Drive** and picks their own account in
+  Google's window. The token that comes back belongs to that account only, so
+  every account gets its own `My Drive/Notes Backup/` and no user can ever
+  see or overwrite another user's backup — the isolation is Google's own
+  Drive-per-account semantics behind a per-user token, not an app-side flag.
+  No GitHub token, no home PC, no watcher, no GitHub at all. If the token has
+  expired by the next tap, the app says one line and that tap signs in again;
+  it never opens a popup on its own. **Disconnect** clears only this
+  browser's sign-in state (token in memory; nothing persisted) — notes,
+  reminders, photos and the relay token are untouched, and the other device
+  stays connected; to withdraw access everywhere, remove the app at Google's
+  permissions page. Power users can override the configured Client ID per
+  device via `localStorage.setItem("notes.drive.client", "<client id>")`
+  (useful for testing a new one before a redeploy).
 
-  One-time setup: in [console.cloud.google.com](https://console.cloud.google.com)
+  Site-owner setup (once): in [console.cloud.google.com](https://console.cloud.google.com)
   create a project, add the **OAuth consent screen** (External, yourself as a
   test user), then **Credentials → OAuth client ID → Web application** with
-  authorised JavaScript origin `https://choochatgpt.github.io`, and paste the
-  Client ID into the panel's Drive box. No password is ever involved: when the
-  backup first runs, the app opens **Google's own sign-in window** (the
-  browser's OAuth popup), you sign in there, and the app receives only a
-  short-lived access token (`drive.file` scope — it can touch just the files
-  this app created). The token lives in memory for under an hour and is never
-  written anywhere; the Client ID, by contrast, is public by design — it is not
-  a secret. Duplicate `Notes Backup` folders are possible if two of your
-  devices create one at the same moment — harmless; both still work.
+  authorised JavaScript origin `https://choochatgpt.github.io`, and paste that
+  Client ID into `config.js` (`driveClientId`) — it ships with the app, so
+  nobody who uses your shared URL pastes anything. While your project is in
+  **Testing mode**, only the accounts you listed as test users can connect;
+  move the consent screen to **Production** and any Google user who opens the
+  shared URL can connect their own Drive. No password is ever involved: the
+  app opens **Google's own sign-in window**, the current user signs in there,
+  and the app receives only a short-lived access token (`drive.file` scope —
+  it can touch just the files this app created in that one account's Drive).
+  The token lives in memory for under an hour and is never written anywhere;
+  the Client ID, by contrast, is public by design — it is not a secret.
+  Duplicate `Notes Backup` folders are possible if two of a user's devices
+  create one at the same moment — harmless; both still work.
 - **PC relay — optional legacy.** The 2026-10-03 route: the same tap pushes
   the backup CSV *and every photo/video* to the PC — the whole export lands
   in `C:\notes_backups` and the CSV is emailed as before, with no manual step
@@ -423,7 +439,7 @@ node tests/backup.test.mjs ../backup.js         # 76 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 69 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 182 checks in real Chrome (168 desktop + 14 at 380px)
+python tools/browser_check.py                   # 193 checks in real Chrome (179 desktop + 14 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

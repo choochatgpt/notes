@@ -244,8 +244,11 @@
          the device. The one tap backs the data up to every configured
          destination independently (v28). GOOGLE DRIVE is the primary full
          backup — notes, reminders and every photo/video, one ZIP per tap — and
-         never needs a GitHub token, the home PC, or any watcher; it runs on a
-         saved Client ID alone (drive.js, OAuth on Google's own window only).
+         never needs a GitHub token, the home PC, or any watcher; since v29 it
+         is PER USER: the app's own public Client ID ships in config.js, each
+         visitor taps "Connect Google Drive" and picks their own Google
+         account, and the token that comes back is theirs alone (drive.js,
+         OAuth on Google's own window only).
          The PC relay (the 2026-10-03 route: backup CSV + photos pushed to the
          PRIVATE relay repo's notes-inbox branch through api.github.com with the
          user's own fine-grained PAT in localStorage, sync.js) is now an
@@ -259,30 +262,29 @@
         <button id="sync-now-btn" class="btn primary" type="button">Back up notes + photos now</button>
       </div>
       <p id="backup-overall" class="muted" role="status"></p>
-      <!-- Google Drive (v28): the primary backup destination. The Client ID
-           below is public by design — it names the app to Google, it is not a
-           secret. The sign-in itself happens on Google's own window; the app
-           never sees the Google password and never stores the resulting token
-           (it lives in memory for under an hour). -->
-      <div class="dialog-row sync-token-row">
-        <input id="drive-client-id" type="text" placeholder="Google Client ID (paste once)"
-               autocomplete="off" aria-label="Google OAuth client ID">
-        <button id="drive-id-save" class="btn small" type="button">Save</button>
-        <button id="drive-id-remove" class="btn small" type="button">Remove</button>
+      <!-- Google Drive (v29, multi-user): the primary backup destination. The
+           app's ONE Client ID ships in config.js — public by design, it names
+           the app to Google, never a user. Every visitor's "Connect Google
+           Drive" runs Google's own sign-in window, the current user picks
+           their own account, and the token that comes back is theirs alone:
+           backups land in THAT user's My Drive, and users cannot see or
+           overwrite each other's backups. The app never sees a Google
+           password and never stores the token (memory, under an hour).
+           Disconnect clears only this browser's sign-in state. -->
+      <div class="dialog-actions">
+        <button id="drive-connect" class="btn small" type="button">Connect Google Drive</button>
+        <button id="drive-disconnect" class="btn small" type="button">Disconnect Google Drive</button>
       </div>
       <p id="drive-status" class="muted" role="status"></p>
       <p class="muted">Primary full backup: notes, reminders and every photo/video go to
-        a &ldquo;Notes Backup&rdquo; folder in your Google Drive as one ZIP. One-time
-        setup: console.cloud.google.com &rarr; new project &rarr; APIs &amp; Services &rarr;
-        OAuth consent screen (External, add yourself as a test user) &rarr; Credentials
-        &rarr; Create credentials &rarr; OAuth client ID &rarr; Web application &rarr;
-        Authorised JavaScript origins: https://choochatgpt.github.io &rarr; copy the
-        Client ID (ends in .apps.googleusercontent.com) and paste it above. The Client ID
-        only names this app to Google &mdash; it is not a secret. The app never sees your
-        Google password: Google's own sign-in window asks for it, and the app receives
-        only a short-lived ticket that is forgotten when you close the page and can only
-        touch files this app created. No GitHub token, PC or watcher is needed for
-        this backup.</p>
+        a &ldquo;Notes Backup&rdquo; folder in YOUR OWN Google Drive as one ZIP. The
+        app's Client ID is configured once in config.js (public by design, it is
+        not a secret and never per visitor) &mdash; so nobody pastes anything here.
+        Connecting opens Google's window once for the current user to choose their
+        account; the app never sees a password and gets only a short-lived ticket
+        that is forgotten when you close the page and can only touch files this app
+        created in your Drive. Disconnect forgets this browser's sign-in only.
+        No GitHub token, PC or watcher is needed for this backup.</p>
       <hr class="dialog-sep">
       <!-- Optional legacy PC relay (sync.js): it only runs when its own token
            is saved and never gates the Google Drive backup above. -->
@@ -302,10 +304,6 @@
         it only adds the old PC copy (a folder plus an emailed CSV) when the
         optional watcher is running.</p>
       <hr class="dialog-sep">
-      <label class="dialog-field">
-        Email address
-        <input id="backup-email" type="email" placeholder="you@example.com" autocomplete="off">
-      </label>
       <label class="dialog-field">
         Email address
         <input id="backup-email" type="email" placeholder="you@example.com" autocomplete="off">

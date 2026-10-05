@@ -137,21 +137,25 @@ PROBE = """<!doctype html>
       return confirmAnswer;
     };
 
-    // Fake both network transports (v27): the Drive copy's GIS token client
-    // is stubbed on the frame's window, and a selective fetch wrapper scripts
-    // api.github.com (the relay happy path) and www.googleapis.com (folder
-    // find-or-create, resumable initiation, session PUT). Everything else
-    // falls through to the real fetch, so the probe still reads sw.js itself.
-    // Result: the entire sync + Drive flow below is exercised with ZERO real
-    // network -- the same discipline as the no-token sync checks.
+    // Fake both network transports (v27; per-identity stores since v29): the
+    // Drive copy's GIS token client is stubbed on the frame's window so each
+    // mocked identity ("A"/"B") gets its own token, and a selective fetch
+    // wrapper scripts api.github.com (the relay happy path) and
+    // www.googleapis.com (folder find-or-create, resumable initiation,
+    // session PUT) with ONE fake Drive per bearer token -- so every identity
+    // exercises its own store and the probe can prove the two users' runs
+    // never touch each other's Drive. Everything else falls through to the
+    // real fetch, so the probe still reads sw.js itself. Result: the entire
+    // sync + Drive flow below is exercised with ZERO real network -- the
+    // same discipline as the no-token sync checks.
     let ghMode = "ok";
     const ghCalls = [];
     const gapiCalls = [];
-    let folderCreated = 0;
-    let folderListHasFolder = false;
+    let probeAccount = "A";
+    const gapiStores = {};   // bearer token -> that account's fake Drive
+    frame.contentWindow.__gapiStores = gapiStores;
     let driveUploadStatus = 201;
-    let lastUploadName = "";
-    const gisCalls = { init: 0, request: 0, lastConfig: null, mode: "ok" };
+    const gisCalls = { init: 0, request: 0, lastConfig: null, mode: "ok", tokens: [] };
 
     function fakeResponse(status, data, headers) {
       return {
@@ -191,28 +195,52 @@ PROBE = """<!doctype html>
       }
       return fakeResponse(999, { message: "unscripted github " + method + " " + path });
     }
+    function storeFor(token) {
+      if (!gapiStores[token]) {
+        gapiStores[token] = {
+          folderCreated: 0,
+          folderListHasFolder: false,
+          folderId: "",
+          files: [],
+          lastUploadName: ""
+        };
+      }
+      return gapiStores[token];
+    }
     function gapiFake(u, init) {
       const method = (init.method || "GET").toUpperCase();
+      const bearer = /Bearer (\\S+)/.exec((init.headers && init.headers.Authorization) || "");
+      const store = storeFor(bearer ? bearer[1] : "(unauthenticated)");
       if (method === "GET" && u.indexOf("/drive/v3/files?") !== -1) {
-        return fakeResponse(200, { files: folderListHasFolder
-          ? [{ id: "fld-probe", name: "Notes Backup" }] : [] });
+        return fakeResponse(200, { files: store.folderListHasFolder
+          ? [{ id: store.folderId, name: "Notes Backup" }] : [] });
       }
       if (method === "POST" && u.indexOf("/upload/") !== -1) {
         // Real Drive behaves this way too: the PUT's final response echoes the
         // file resource with the name the initiation's metadata carried, which
         // is what the app prints ("Google Drive: Copied <name> to your Drive.").
-        try { lastUploadName = JSON.parse(init.body).name || lastUploadName; } catch (e) {}
+        try { store.lastUploadName = JSON.parse(init.body).name || store.lastUploadName; } catch (e) {}
         return fakeResponse(200, {},
           { location: "https://www.googleapis.com/upload/session/probe" });
       }
       if (method === "POST") {
-        folderCreated++;
-        folderListHasFolder = true;
-        return fakeResponse(200, { id: "fld-probe", name: "Notes Backup" });
+        store.folderCreated++;
+        store.folderListHasFolder = true;
+        store.folderId = "fld-" + (bearer ? bearer[1].slice(-1) : "?");
+        return fakeResponse(200, { id: store.folderId, name: "Notes Backup" });
       }
       if (method === "PUT") {
+        if (driveUploadStatus !== 200 && driveUploadStatus !== 201) {
+          // A refused upload must not create a file in the store either.
+          return fakeResponse(driveUploadStatus,
+            { message: "probe upload refused" });
+        }
+        store.files.push({
+          id: "zipfile-" + store.files.length,
+          name: store.lastUploadName || "notes-backup-probe.zip"
+        });
         return fakeResponse(driveUploadStatus,
-          { id: "zipfile1", name: lastUploadName || "notes-backup-probe.zip" });
+          { id: "zipfile-" + (store.files.length - 1), name: store.lastUploadName });
       }
       return fakeResponse(999, { message: "unscripted gapi " + method + " " + u });
     }
@@ -222,6 +250,11 @@ PROBE = """<!doctype html>
         gisCalls.lastConfig = cfg;
         return { requestAccessToken: () => {
           gisCalls.request++;
+          // Each "account" the probe selects gets its own token, the way two
+          // real Google accounts would; every googleapis call below routes by
+          // this token so identity separation is provable end to end.
+          const token = "probe-drive-token-" + probeAccount;
+          gisCalls.tokens.push(token);
           setTimeout(() => {
             if (gisCalls.mode === "popup") {
               if (cfg.error_callback) {
@@ -230,7 +263,7 @@ PROBE = """<!doctype html>
               return;
             }
             if (cfg.callback) {
-              cfg.callback({ access_token: "probe-drive-token", expires_in: 3599 });
+              cfg.callback({ access_token: token, expires_in: 3599 });
             }
           }, 30);
         } };
@@ -578,6 +611,25 @@ PROBE = """<!doctype html>
       check("...and made no network call (backup stays idle)",
             q("#sync-now-btn").disabled === false,
             "disabled=" + q("#sync-now-btn").disabled);
+      // v29: the per-device Client ID paste flow is gone from the shared app.
+      // Every visitor connects with a button; with nothing configured that
+      // button is inert and the status line is the explanation.
+      check("v29: the per-device Client ID paste field is gone",
+            !q("#drive-client-id") && !q("#drive-id-save") && !q("#drive-id-remove"),
+            "field=" + !!q("#drive-client-id") + " save=" + !!q("#drive-id-save"));
+      check("v29: the Drive buttons are Connect/Disconnect Google Drive",
+            !!q("#drive-connect")
+              && /Connect Google Drive/.test(q("#drive-connect").textContent)
+              && !!q("#drive-disconnect")
+              && /Disconnect Google Drive/.test(q("#drive-disconnect").textContent),
+            "connect=" + (q("#drive-connect") ? q("#drive-connect").textContent : "missing"));
+      check("v29: Connect with nothing configured is disabled and the line explains",
+            q("#drive-connect").disabled === true
+              && /Not configured/.test(q("#drive-status").textContent)
+              && gisCalls.request === 0,
+            "disabled=" + (q("#drive-connect") ? q("#drive-connect").disabled : "missing")
+              + " said=" + q("#drive-status").textContent
+              + " gis=" + gisCalls.request);
 
       // Token round trip: saved into this frame's localStorage only, never
       // echoed back into the page.
@@ -603,47 +655,72 @@ PROBE = """<!doctype html>
             tokenInput.readOnly === false && q("#sync-token-save").disabled === false,
             "readOnly=" + tokenInput.readOnly + " saveDisabled=" + q("#sync-token-save").disabled);
 
-      // --- destinations, independently (v28) ------------------------------
+      // --- destinations, independently (v28; per-user v29) ----------------
       // Both transports are the fakes installed above; nothing here touches
-      // the real GitHub or Google. Sequence: TEST A Drive-only (NO token --
-      // the acceptance case) -> token saved + Client ID removed: TEST B
-      // relay-only -> both on: TEST C one shared bundle -> TEST E Drive 500
-      // -> TEST D relay outage -> both fail -> 401 expiry -> blocked popup
-      // -> waits-only auto-run -> cleanup.
-      const driveId = q("#drive-client-id");
-      check("the Drive client-id field exists, plain text, not prefilled",
-            !!driveId && driveId.type === "text" && !driveId.value,
-            "type=" + (driveId ? driveId.type : "missing"));
-      check("the Drive status line exists", !!q("#drive-status"),
-            "missing #drive-status");
+      // the real GitHub or Google. Sequence: TEST F (above, neither
+      // destination configured) -> relay round trip + TEST B relay-only
+      // (Drive has no id anywhere) -> the v29 device override turns Drive ON
+      // (same lookup the config.js value answers; the token comes off again
+      // so TEST A is Drive-ONLY) -> TEST C one shared bundle, identity "A"
+      // -> v29 identity switch: Disconnect clears only the browser's Google
+      // state, "B" connects and backs up into B's OWN fake store -> TEST E
+      // Drive 500 -> TEST D relay outage -> both fail -> 401 expiry ->
+      // blocked popup (via Connect) -> waits-only auto-run -> cleanup.
 
-      // Client ID round trip (write-once, like the token). The GitHub token
-      // is deliberately absent for the first tap below.
-      driveId.value = "probe-client-id.apps.googleusercontent.com";
-      q("#drive-id-save").click();
+      // Relay round trip (write-once, unchanged in v29). Drive stays
+      // UNCONFIGURED here so TEST B is relay-only.
+      tokenInput.value = "probe-token-12345";
+      q("#sync-token-save").click();
       await sleep(300);
-      check("saving the Client ID stores it on the device",
-            frame.contentWindow.localStorage.getItem("notes.drive.client")
-              === "probe-client-id.apps.googleusercontent.com",
-            "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
-      check("the Client ID box clears and never echoes",
-            driveId.value === "" && /saved on this device/.test(driveId.placeholder),
-            "value=" + JSON.stringify(driveId.value));
-      check("a saved Client ID locks the field so a tap cannot overwrite it",
-            driveId.readOnly === true && q("#drive-id-save").disabled === true,
-            "readOnly=" + driveId.readOnly + " saveDisabled=" + q("#drive-id-save").disabled);
+      check("TEST B setup: the relay token is saved on the device",
+            frame.contentWindow.localStorage.getItem("notes.sync.token")
+              === "probe-token-12345",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      const gapiBeforeRelay = gapiCalls.length;
+      syncBtn.click();
+      await sleep(700);
+      check("TEST B: a relay-only tap still reports the PC sync",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("TEST B: no Google endpoint was touched and no sign-in was asked",
+            gapiCalls.length === gapiBeforeRelay && gisCalls.request === 0,
+            "gapi=" + gapiCalls.length + " (was " + gapiBeforeRelay + ")"
+              + " gis=" + gisCalls.request);
+      check("TEST B: the Drive line says how to turn it on",
+            /Not configured/.test(q("#drive-status").textContent)
+              && /Client ID/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      check("TEST B: the overall verdict is plain success",
+            /Backup completed/.test(q("#backup-overall").textContent)
+              && !/warning|failed/i.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+
+      // Drive turns ON the v29 way: a device override in localStorage, which
+      // getClientId() re-reads at every tap -- no reload, and the same call
+      // the shipped config.js value answers through hasClientId(). The relay
+      // token comes off again first, so TEST A stays Drive-ONLY (the
+      // acceptance case: no token, PC off, watcher disabled).
+      q("#sync-token-remove").click();
+      await sleep(300);
+      check("TEST A setup: the relay token is off again",
+            frame.contentWindow.localStorage.getItem("notes.sync.token") === null,
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      frame.contentWindow.localStorage.setItem("notes.drive.client",
+        "probe-client-id.apps.googleusercontent.com");
 
       // TEST A: Drive configured, NO GitHub token, home PC off, watcher
       // disabled. The tap must reach Google and nothing else, and no relay
       // blocker may stop it.
+      const ghBeforeA = ghCalls.length;
       syncBtn.click();
       await sleep(1000);
       check("TEST A: a Drive-only backup uploads the export-named zip",
             /Copied notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
               .test(q("#drive-status").textContent),
             "said=" + q("#drive-status").textContent);
-      check("TEST A: GitHub was never contacted",
-            ghCalls.length === 0, "gh=" + ghCalls.length);
+      check("TEST A: GitHub was never contacted (delta from TEST B's relay)",
+            ghCalls.length === ghBeforeA, "gh=" + ghCalls.length
+              + " (was " + ghBeforeA + ")");
       check("TEST A: the relay line says Not configured, not a refusal",
             /Not configured/.test(q("#sync-status").textContent)
               && /backup token/i.test(q("#sync-status").textContent),
@@ -658,8 +735,12 @@ PROBE = """<!doctype html>
             !!gisCalls.lastConfig
               && gisCalls.lastConfig.scope === "https://www.googleapis.com/auth/drive.file",
             "scope=" + (gisCalls.lastConfig ? gisCalls.lastConfig.scope : "none"));
-      check("TEST A: the Drive folder was created exactly once",
-            folderCreated === 1, "created=" + folderCreated);
+      check("TEST A: the Drive folder was created exactly once (identity A)",
+            !!frame.contentWindow.__gapiStores["probe-drive-token-A"]
+              && frame.contentWindow.__gapiStores["probe-drive-token-A"].folderCreated === 1,
+            "created=" + (frame.contentWindow.__gapiStores["probe-drive-token-A"]
+              ? frame.contentWindow.__gapiStores["probe-drive-token-A"].folderCreated
+              : "none"));
       const initCall = gapiCalls.filter(c =>
         (c.init.method || "").toUpperCase() === "POST"
         && c.u.indexOf("uploadType=resumable") !== -1)[0];
@@ -694,44 +775,18 @@ PROBE = """<!doctype html>
               putCall.u === "https://www.googleapis.com/upload/session/probe", putCall.u);
       }
 
-      // The relay token is configured here -- its own eligibility, nothing
-      // more. TEST B follows: relay-only, Drive's Client ID comes off, so
-      // the tap must reach GitHub alone.
+      // Both destinations for the joint scenarios: the override stays on,
+      // and the relay token comes back.
       tokenInput.value = "probe-token-12345";
       q("#sync-token-save").click();
       await sleep(300);
-      check("TEST B: the relay token is saved on the device",
+      check("TEST C: both destinations are configured",
             frame.contentWindow.localStorage.getItem("notes.sync.token")
-              === "probe-token-12345",
-            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
-      q("#drive-id-remove").click();
-      await sleep(300);
-      const gapiBeforeRelay = gapiCalls.length;
-      syncBtn.click();
-      await sleep(700);
-      check("TEST B: a relay-only tap still reports the PC sync",
-            /Sent/.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("TEST B: no Google endpoint was touched",
-            gapiCalls.length === gapiBeforeRelay && gisCalls.request === 1,
-            "gapi=" + gapiCalls.length + " (was " + gapiBeforeRelay + ")");
-      check("TEST B: the Drive line says how to turn it on",
-            /Not configured/.test(q("#drive-status").textContent)
-              && /Client ID/.test(q("#drive-status").textContent),
-            "said=" + q("#drive-status").textContent);
-      check("TEST B: the overall verdict is plain success",
-            /Backup completed/.test(q("#backup-overall").textContent)
-              && !/warning|failed/i.test(q("#backup-overall").textContent),
-            "said=" + q("#backup-overall").textContent);
-
-      // Drive goes back on for the joint scenarios.
-      driveId.value = "probe-client-id.apps.googleusercontent.com";
-      q("#drive-id-save").click();
-      await sleep(300);
-      check("TEST C: the Client ID is saved again",
-            frame.contentWindow.localStorage.getItem("notes.drive.client")
-              === "probe-client-id.apps.googleusercontent.com",
-            "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
+              === "probe-token-12345"
+              && frame.contentWindow.localStorage.getItem("notes.drive.client")
+                === "probe-client-id.apps.googleusercontent.com",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token")
+              + " / " + frame.contentWindow.localStorage.getItem("notes.drive.client"));
 
       // TEST C: both destinations in one tap -- and one SHARED bundle. The
       // relay commit message names the export id; so does the zip name.
@@ -756,10 +811,99 @@ PROBE = """<!doctype html>
       check("TEST C: one bundle -- relay commit and zip share the export id",
             !!commitId && !!zipIdMatch && commitId === zipIdMatch[1],
             "relay=" + commitId + " drive=" + (zipIdMatch ? zipIdMatch[1] : "none"));
-      check("TEST C: the folder is reused, not created again",
-            folderCreated === 1, "created=" + folderCreated);
+      check("TEST C: the folder is reused, not created again (identity A)",
+            !!frame.contentWindow.__gapiStores["probe-drive-token-A"]
+              && frame.contentWindow.__gapiStores["probe-drive-token-A"].folderCreated === 1,
+            "created=" + (frame.contentWindow.__gapiStores["probe-drive-token-A"]
+              ? frame.contentWindow.__gapiStores["probe-drive-token-A"].folderCreated
+              : "none"));
       check("TEST C: the still-live token signs nothing new in",
             gisCalls.request === 1, "requests=" + gisCalls.request);
+
+      // --- v29: two mocked identities, two independent Drives -------------
+      // Identity "A" has just backed up (TEST C). Disconnect must clear ONLY
+      // this browser's Google sign-in state; then identity "B" connects and
+      // backs up into B's OWN fake store, never touching A's.
+      const storeA = () => frame.contentWindow.__gapiStores["probe-drive-token-A"]
+        || { folderCreated: 0, files: [] };
+      const storeB = () => frame.contentWindow.__gapiStores["probe-drive-token-B"]
+        || { folderCreated: 0, files: [] };
+      const callsFor = token => gapiCalls.filter(c =>
+        ((c.init || {}).headers || {}).Authorization === "Bearer " + token);
+      const csvBeforeSwitch = q("#export-csv").value;
+      const aCallsBefore = callsFor("probe-drive-token-A").length;
+      // A already backs up twice before here (TEST A + TEST C): what matters
+      // is that its store never changes again after the B steps.
+      const aFilesBefore = storeA().files.length;
+      q("#drive-disconnect").click();
+      await sleep(400);
+      check("v29: Disconnect reports it on the Drive line",
+            /disconnected on this device/.test(q("#drive-status").textContent)
+              && /unchanged/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      check("v29: Disconnect touched no local data -- the backup CSV is byte-identical",
+            q("#export-csv").value === csvBeforeSwitch,
+            "same=" + (q("#export-csv").value === csvBeforeSwitch));
+      check("v29: Disconnect leaves the relay token alone",
+            frame.contentWindow.localStorage.getItem("notes.sync.token")
+              === "probe-token-12345",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      check("v29: Disconnect cleared the in-memory token (A's store sits still)",
+            storeA().files.length === aFilesBefore,
+            "aFiles=" + storeA().files.length + " (was " + aFilesBefore + ")");
+
+      // B connects. The Connect button became usable when this panel opened
+      // (refreshDriveUi re-reads the configuration), and the sign-in stub now
+      // issues B's token -- a second, DIFFERENT identity.
+      q("#settings-close").click();
+      await sleep(250);
+      settingsBtn.click();
+      await sleep(250);
+      q("#export-btn").click();
+      await sleep(600);
+      const gisBeforeConnect = gisCalls.request;
+      probeAccount = "B";
+      check("v29: with Drive configured, Connect is usable after a reopen",
+            q("#drive-connect").disabled === false,
+            "disabled=" + q("#drive-connect").disabled);
+      q("#drive-connect").click();
+      await sleep(900);
+      check("v29: B's connect signs B in -- a second, different identity",
+            gisCalls.request === gisBeforeConnect + 1
+              && gisCalls.tokens.join("|")
+                === "probe-drive-token-A|probe-drive-token-B",
+            "tokens=" + gisCalls.tokens.join(" | "));
+      check("v29: the connect reports itself and names the Back up path",
+            /connected/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      syncBtn.click();
+      await sleep(1000);
+      check("v29: B's tap reports both destinations",
+            /Sent/.test(q("#sync-status").textContent)
+              && /Copied notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
+                .test(q("#drive-status").textContent),
+            "drive=" + q("#drive-status").textContent);
+      check("v29: B's tap created B's OWN folder in B's own store",
+            storeB().folderCreated === 1 && storeB().folderId === "fld-B",
+            "created=" + storeB().folderCreated);
+      check("v29: A's store is untouched by B's run -- no overwrite, no echo",
+            storeA().files.length === aFilesBefore && storeA().folderCreated === 1
+              && callsFor("probe-drive-token-A").length === aCallsBefore,
+            "aFiles=" + storeA().files.length + " (was " + aFilesBefore + ")"
+              + " aCalls=" + callsFor("probe-drive-token-A").length
+              + " (was " + aCallsBefore + ")");
+      check("v29: each identity holds only its own, differently-named backup",
+            storeA().files[0] && storeB().files[0]
+              && storeA().files[0].name !== storeB().files[0].name
+              && /^notes-backup-\\d{8}-[0-9a-f]{8}\\.zip$/.test(storeA().files[0].name)
+              && /^notes-backup-\\d{8}-[0-9a-f]{8}\\.zip$/.test(storeB().files[0].name),
+            "A=" + storeA().files[0].name + " B=" + storeB().files[0].name);
+      const googleText = () => gapiCalls.map(c =>
+        c.u + "|" + (typeof c.init.body === "string" ? c.init.body : "")).join("\\n");
+      check("v29: no request embeds a token outside its Authorization header",
+            googleText().indexOf("probe-drive-token") === -1);
+      check("v29: no request carries a user or account marker at all",
+            !/account|user_|\"sub\"|'sub'/.test(googleText()));
 
       // TEST E: Google refuses the upload (500). The relay's success line
       // must survive untouched and the overall verdict must be a warning
@@ -777,6 +921,8 @@ PROBE = """<!doctype html>
             /warning/i.test(q("#backup-overall").textContent)
               && /Google Drive/.test(q("#backup-overall").textContent),
             "said=" + q("#backup-overall").textContent);
+      check("TEST E: the refused upload created no file in B's own store",
+            storeB().files.length === 1, "bFiles=" + storeB().files.length);
 
       // TEST D: the relay fails (scripted GitHub outage). Google Drive must
       // still succeed on the same tap, and the warning must name the relay.
@@ -816,19 +962,18 @@ PROBE = """<!doctype html>
             /Sent/.test(q("#sync-status").textContent),
             "said=" + q("#sync-status").textContent);
       check("expired sign-in: asks for one more tap and never auto-pops",
-            /expired/.test(q("#drive-status").textContent) && gisCalls.request === 1,
+            /expired/.test(q("#drive-status").textContent) && gisCalls.request === 2,
             "said=" + q("#drive-status").textContent + " requests=" + gisCalls.request);
 
-      // Popup blocked: the failure is named, not swallowed.
+      // Popup blocked: requested by the CONNECT BUTTON -- a failed sign-in
+      // from the button itself is named, not swallowed, and nothing retries
+      // on its own.
       gisCalls.mode = "popup";
       driveUploadStatus = 201;
-      syncBtn.click();
+      q("#drive-connect").click();
       await sleep(1000);
-      check("blocked popup: the PC sync still succeeds",
-            /Sent/.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("blocked popup: the status names popups and no auto-retry happened",
-            /popup/i.test(q("#drive-status").textContent) && gisCalls.request === 2,
+      check("blocked popup: the connect button reports it and nothing retries",
+            /popup/i.test(q("#drive-status").textContent) && gisCalls.request === 3,
             "said=" + q("#drive-status").textContent + " requests=" + gisCalls.request);
       gisCalls.mode = "ok";
 
@@ -846,14 +991,16 @@ PROBE = """<!doctype html>
       q("#export-btn").click();
       await sleep(1500);
       check("waits-only auto-run touches no destination",
-            gisCalls.request === 2 && gapiCalls.length === gapiBeforeWaits
+            gisCalls.request === 3 && gapiCalls.length === gapiBeforeWaits
               && ghCalls.length === ghBeforeWaits,
             "gis=" + gisCalls.request + " gapi=" + gapiCalls.length
               + " (was " + gapiBeforeWaits + ") gh=" + ghCalls.length
               + " (was " + ghBeforeWaits + ")");
       check("waits-only auto-run says the sign-in waits for a tap",
-            /next tap/.test(q("#drive-status").textContent),
-            "said=" + q("#drive-status").textContent);
+            /next tap/.test(q("#drive-status").textContent)
+              && q("#drive-connect").disabled === false,
+            "said=" + q("#drive-status").textContent
+              + " connectDisabled=" + q("#drive-connect").disabled);
       check("waits-only auto-run: the relay line stays honest",
             /Not configured/.test(q("#sync-status").textContent),
             "said=" + q("#sync-status").textContent);
@@ -861,15 +1008,15 @@ PROBE = """<!doctype html>
             /Nothing was backed up/.test(q("#backup-overall").textContent),
             "said=" + q("#backup-overall").textContent);
 
-      // Leave the profile as the sync checks left it: no token, no client id.
-      q("#drive-id-remove").click();
+      // Leave the profile as the v29 checks leave it: no override, no relay
+      // token, and no Google sign-in state in this frame.
+      frame.contentWindow.localStorage.removeItem("notes.drive.client");
+      q("#drive-disconnect").click();
       await sleep(300);
-      check("removing the Client ID clears the device",
-            frame.contentWindow.localStorage.getItem("notes.drive.client") === null,
+      check("v29 cleanup: the override is gone and the frame is signed out",
+            frame.contentWindow.localStorage.getItem("notes.drive.client") === null
+              && /disconnected on this device/.test(q("#drive-status").textContent),
             "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
-      check("removing the Client ID unlocks the field",
-            driveId.readOnly === false && q("#drive-id-save").disabled === false,
-            "readOnly=" + driveId.readOnly + " saveDisabled=" + q("#drive-id-save").disabled);
       q("#sync-token-remove").click();
       await sleep(250);
 
@@ -1716,8 +1863,9 @@ def build_stage(name: str, app_js: Path) -> Path:
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
-    for asset in ("index.html", "app.css", "view.js", "storage.js", "reminder.js",
-                  "backup.js", "sync.js", "drive.js", "manifest.webmanifest"):
+    for asset in ("index.html", "config.js", "app.css", "view.js", "storage.js",
+                  "reminder.js", "backup.js", "sync.js", "drive.js",
+                  "manifest.webmanifest"):
         shutil.copyfile(REPO / asset, stage / asset)
     shutil.copyfile(app_js, stage / "app.js")
     (stage / "_probe.html").write_text(PROBE, encoding="utf-8")

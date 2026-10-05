@@ -180,42 +180,50 @@ an unreadable stored value degrades to.
 
 **Export notes/reminders to email.** The panel builds the whole database —
 nested folders with their parenting, notes, and reminders — as one text CSV
-under a versioned `# notes-backup v2` header, and since 2026-10-03 the primary
-action is the one-tap sync:
+under a versioned `# notes-backup v2` header, and the primary action is the
+one-tap **Back up notes + photos now**: it collects the bundle once and hands
+it to every configured destination independently (since v28) — each
+destination reports its own status line, one destination's failure never
+blocks or masks the other, and with nothing configured the panel says so.
 
-- **Sync notes + photos to PC now** sends the backup CSV *and every photo/video*
-  to your PC in one tap — the whole export lands in `C:\notes_backups` and the
-  CSV is emailed exactly as before, with no manual step on the phone. One-time
-  setup: create a fine-grained GitHub token (Settings → Developer settings →
-  Fine-grained tokens → *Only select repositories* → `choochatgpt/ask-ai-relay`
-  → Permissions → Contents: Read and write) and paste it into the panel's token
-  box. The token lives in this browser's localStorage only — never in the app's
-  public source (the transport is the one authorised for JScan on 2026-09-21).
-  The bytes ride a private branch of the **private** relay repo, the PC watcher
-  verifies every SHA256, archives the photos, emails the CSV, then rewrites the
-  branch so the bytes leave GitHub entirely; the next export click reports the
-  previous backup's pickup.
-- **Google Drive second copy** (optional, since v27): the same tap places one
-  ZIP — the backup CSV plus every photo/video — in a `Notes Backup` folder in
-  your Google Drive, as `notes-backup-<exportId>.zip`, a fresh file per sync.
+- **Google Drive — the primary full backup.** Every tap places one ZIP — the
+  backup CSV plus every photo/video — in a `Notes Backup` folder in your
+  Google Drive, as `notes-backup-<exportId>.zip`, a fresh file per backup. It
+  needs nothing but the saved Client ID: no GitHub token, no home PC, no
+  watcher, no GitHub at all. If the Google answer has expired by the next
+  tap, the app says one line and that tap signs in again; it never opens a
+  popup on its own.
 
   One-time setup: in [console.cloud.google.com](https://console.cloud.google.com)
   create a project, add the **OAuth consent screen** (External, yourself as a
   test user), then **Credentials → OAuth client ID → Web application** with
   authorised JavaScript origin `https://choochatgpt.github.io`, and paste the
   Client ID into the panel's Drive box. No password is ever involved: when the
-  Drive copy first runs, the app opens **Google's own sign-in window** (the
+  backup first runs, the app opens **Google's own sign-in window** (the
   browser's OAuth popup), you sign in there, and the app receives only a
   short-lived access token (`drive.file` scope — it can touch just the files
   this app created). The token lives in memory for under an hour and is never
   written anywhere; the Client ID, by contrast, is public by design — it is not
-  a secret. If Google's answer has expired by the next sync, the app says one
-  line and the next tap of the sync button signs in again; it never opens a
-  popup on its own. Duplicate `Notes Backup` folders are possible if two of
-  your devices create one at the same moment — harmless; both still work.
+  a secret. Duplicate `Notes Backup` folders are possible if two of your
+  devices create one at the same moment — harmless; both still work.
+- **PC relay — optional legacy.** The 2026-10-03 route: the same tap pushes
+  the backup CSV *and every photo/video* to the PC — the whole export lands
+  in `C:\notes_backups` and the CSV is emailed as before, with no manual step
+  on the phone — but only when its own token is saved, and never at the cost
+  of the Google Drive backup. One-time setup: create a fine-grained GitHub
+  token (Settings → Developer settings → Fine-grained tokens → *Only select
+  repositories* → `choochatgpt/ask-ai-relay` → Permissions → Contents: Read
+  and write) and paste it into the panel's token box. The token lives in this
+  browser's localStorage only — never in the app's public source (the
+  transport is the one authorised for JScan on 2026-09-21). The bytes ride a
+  private branch of the **private** relay repo, the PC watcher verifies every
+  SHA256, archives the photos, emails the CSV, then rewrites the branch so
+  the bytes leave GitHub entirely; the next backup reports the previous
+  bundle's pickup. The relay is NOT needed for the Google Drive backup
+  above; with the watcher off, nothing on the PC expects it.
 - **Share CSV for backup** (fallback) puts the exact text on the clipboard,
   for the relay-inbox paste or any email.
-- **Export CSV** (fallback) opens your mail app with the CSV in the message
+- **Export CSV** (fallback — the emergency text backup) opens your mail app with the CSV in the message
   body, addressed to the address you entered. `mailto:` cannot attach files,
   and long bodies are silently truncated by some mail clients, so a backup that
   would exceed a conservative 1800-character limit is refused outright rather
@@ -272,9 +280,10 @@ emails it through `email_backup.py`, and on send success resets the inbox to
 its placeholder and pushes. A failed send leaves the repo untouched — the
 payload waits for a fixed config rather than being lost to one.
 
-**The pickup runs itself.** `tools/relay_backup_watch.py` loops in the
-background (registered as a Windows scheduled task, "Notes backup watch", at
-sign-in): every 5 minutes it fetches the relay clone once and serves both
+**The pickup watcher (optional legacy — currently disabled).**
+`tools/relay_backup_watch.py` loops in the background (it was registered as a
+Windows scheduled task, "Notes backup watch", at sign-in): every 5 minutes it
+fetches the relay clone once and serves both
 inboxes — a pasted backup CSV goes to
 `relay_pull_backup.py --archive-dir C:\notes_backups` (dated copy + email),
 and photos waiting in the media inbox go to `relay_pull_media.py` (archive +
@@ -284,7 +293,12 @@ attachment, and a photo upload lands in `C:\notes_backups\media` — with no
 PC-side step to remember. Failures are logged to
 `C:\notes_backups\relay_backup_watch.log` and retried on a later cycle; the
 repo is only ever touched by the pickup tools' own success paths. `--once`
-runs a single cycle for testing.
+runs a single cycle for testing. **Status since 2026-10-05: disabled on this
+PC.** Its every-5-minute git cycle repeatedly spawned visible console
+windows, and the Google Drive backup above has removed the need for it —
+Drive is the primary backup and needs no PC at all. Re-enabling is a manual
+decision (re-register the scheduled task); nothing in the app depends on it,
+and relay syncs still work with the token saved.
 
 **Import notes/reminders.** Paste the CSV from your email backup into the box and
 press **Preview import**. The preview states what the backup holds against what
@@ -338,14 +352,16 @@ different device simply shows notes without them. Deleting a note deletes its
 photos (the confirmation names the count first), and the browser check proves
 the bytes actually leave OPFS when they should.
 
-**Backing photos up (one-tap sync, asked for 2026-10-03).** The primary route
-is no longer manual: tapping **Sync notes + photos to PC now** in the export
-panel sends every photo/video *with* the backup CSV, through the app itself
-(see the export section above — JScan's authorised transport: your own token
-in this browser, bytes on a private branch of the **private** relay repo, PC
-archives into `C:\notes_backups\media\<transfer id>\` with SHA256 manifests
-and then rewrites the branch so the bytes leave GitHub). The PC side is
-automatic via the watcher.
+**Backing photos up (one-tap backup, asked for 2026-10-03).** The primary
+route is no longer manual: tapping **Back up notes + photos now** in the
+export panel sends every photo/video *with* the backup CSV. Since v28 the
+Google Drive ZIP is the primary destination and always available; the PC
+route (see the export section above — JScan's authorised transport: your own
+token in this browser, bytes on a private branch of the **private** relay
+repo, PC archives into `C:\notes_backups\media\<transfer id>\` with SHA256
+manifests and then rewrites the branch so the bytes leave GitHub) runs only
+when its token is saved. The PC side is automatic via the optional watcher
+when it is enabled.
 
 The manual fallbacks remain for a phone with no token saved yet:
 
@@ -407,7 +423,7 @@ node tests/backup.test.mjs ../backup.js         # 76 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 69 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 163 checks in real Chrome (149 desktop + 14 at 380px)
+python tools/browser_check.py                   # 182 checks in real Chrome (168 desktop + 14 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

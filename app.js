@@ -44,6 +44,7 @@ import {
   checkPickedUp,
   clearToken,
   hasToken,
+  newExportId,
   sanitizeToken,
   setToken,
   submit as syncSubmit
@@ -1022,14 +1023,15 @@ async function refreshExportCsv() {
 async function showExportPanel() {
   showPanel("export");
   await refreshExportCsv();
-  // The user asked (2026-10-03) for the export click itself to sync everything:
-  // with a token saved this button now sends the CSV + every photo on its own.
+  // The user asked (2026-10-03) for the export click itself to back up
+  // everything: with a destination configured this button runs it on its own.
   // driveAllowed:false — an auto-run must never pop Google's sign-in window;
-  // it copies to Drive only while the sign-in from an earlier tap still lives.
-  await runSyncCore({ driveAllowed: false });
+  // it backs up to Drive only while the sign-in from an earlier tap still
+  // lives, and says "next tap" otherwise.
+  await runBackupAll({ driveAllowed: false });
 }
 
-/* ---- one-tap sync (sync.js) ------------------------------------------- */
+/* ---- one-tap backup: independent destinations (sync.js, drive.js) ------- */
 
 let syncBusy = false;
 
@@ -1087,18 +1089,56 @@ function friendlySyncError(error) {
   return error?.message || String(error);
 }
 
-async function runSyncCore({ driveAllowed }) {
-  if (syncBusy) return;
-  if (!hasToken()) {
-    setSyncStatus("Add your backup token below (one-time setup), then tap the button again.");
-    return;
+/* Destination status lines. Every line names its destination first, so a
+ * Drive failure can never be mistaken for a relay failure and one
+ * destination's outcome is never reported inside the other's sentence. */
+const DRIVE_NOT_CONFIGURED =
+  "Google Drive: Not configured — paste a Client ID above to back up notes, "
+  + "photos and videos to Drive on every tap.";
+const RELAY_NOT_CONFIGURED =
+  "PC relay: Not configured — add a backup token above (one-time setup) to "
+  + "also keep a copy on the PC.";
+
+/**
+ * The bundle is built exactly once per tap and handed to every configured
+ * destination, so all of them carry the same exportId and the same bytes.
+ * The export id lives here (not inside the relay submission) so that the
+ * Drive ZIP's name no longer depends on the relay having succeeded.
+ */
+async function collectBackupBundle() {
+  const [folders, notes, reminders] = await Promise.all([
+    getAll("folders"), getAll("notes"), getAll("reminders")
+  ]);
+  const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
+  const records = await getAll("media");
+  const media = [];
+  const skipped = [];
+  for (const record of records) {
+    const file = await opfsGet(record.id);
+    if (!file) { skipped.push(record.name || record.id); continue; }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length > SYNC_MAX_FILE_BYTES) {
+      skipped.push(`${record.name || record.id} (over 24 MB)`);
+      continue;
+    }
+    media.push({ name: syncMediaName(record), bytes, type: record.type || "" });
   }
-  // The Google consent window must open inside the tap's user-activation
-  // window: once the click has crossed an await, browsers refuse the popup.
-  if (driveAllowed) kickOffDriveToken();
-  syncBusy = true;
-  const button = $("#sync-now-btn");
-  if (button) button.disabled = true;
+  return {
+    csv,
+    media,
+    skipped,
+    counts: { folders: folders.length, notes: notes.length, reminders: reminders.length },
+    exportId: newExportId()
+  };
+}
+
+/**
+ * The PC relay destination (optional legacy since v28): runs only when the
+ * user has saved a GitHub backup token, and talks to nothing but GitHub.
+ * Its verdict is returned, never thrown, so it cannot mask or block the
+ * Google Drive destination.
+ */
+async function runRelayBackup(bundle) {
   // Reported in the catch too, so a failure still shows the pickup line.
   let prefix = "";
   try {
@@ -1116,65 +1156,116 @@ async function runSyncCore({ driveAllowed }) {
         prefix = "(Previous backup has not been picked up yet — it will be.) ";
       }
     }
-    const [folders, notes, reminders] = await Promise.all([
-      getAll("folders"), getAll("notes"), getAll("reminders")
-    ]);
-    const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
-    const records = await getAll("media");
-    const media = [];
-    const skipped = [];
-    for (const record of records) {
-      const file = await opfsGet(record.id);
-      if (!file) { skipped.push(record.name || record.id); continue; }
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (bytes.length > SYNC_MAX_FILE_BYTES) {
-        skipped.push(`${record.name || record.id} (over 24 MB)`);
-        continue;
-      }
-      media.push({ name: syncMediaName(record), bytes, type: record.type || "" });
-    }
-    setSyncStatus(`${prefix}Sending backup + ${media.length} photo(s)/video(s)…`);
+    setSyncStatus(`PC relay: ${prefix}sending backup + ${bundle.media.length} photo(s)/video(s)…`);
     const result = await syncSubmit({
-      csv,
-      media,
+      csv: bundle.csv,
+      media: bundle.media,
       meta: {
-        counts: { folders: folders.length, notes: notes.length, reminders: reminders.length },
+        counts: bundle.counts,
+        exportId: bundle.exportId,
         appVersion: String(APP_VERSION)
       }
     });
     await setSetting("syncLastExportId", result.exportId);
-    const skipNote = skipped.length
-      ? ` Skipped on this device (still safe here): ${skipped.join(", ")}.` : "";
-    setSyncStatus(`${prefix}Sent — backup + ${result.mediaCount} photo(s)/video(s) `
-      + `(${Math.round(result.bytes / 1024)} KB). The PC picks it up within ~5 minutes `
-      + `and emails the backup as before.${skipNote}`);
-    // The PC verdict is out; the Drive second copy (v27) runs after it and
-    // never on top of it — fire-and-forget, so an open Google consent window
-    // cannot hold syncBusy or this success message hostage.
-    if (driveAllowed) {
-      if (hasDriveClientId()) {
-        driveCopyStep({ csv, media, exportId: result.exportId });
-      } else {
-        setDriveStatus("Google Drive copy is off — paste your Client ID above to turn it on.");
-      }
-    } else if (hasDriveClientId()) {
-      if (driveTokenLive()) {
-        driveCopyStep({ csv, media, exportId: result.exportId });
-      } else {
-        setDriveStatus("(Google Drive sign-in will happen on your next tap of the sync button.)");
-      }
-    }
+    const skipNote = bundle.skipped.length
+      ? ` Skipped on this device (still safe here): ${bundle.skipped.join(", ")}.` : "";
+    return { dest: "relay", state: "success",
+      text: `PC relay: ${prefix}Sent — backup + ${result.mediaCount} photo(s)/video(s) `
+        + `(${Math.round(result.bytes / 1024)} KB) are on the private GitHub branch; `
+        + `the PC's optional watcher picks them up when it runs.${skipNote}` };
   } catch (error) {
-    setSyncStatus(`${prefix}Sync failed: ${friendlySyncError(error)}`);
+    return { dest: "relay", state: "failed",
+      text: `PC relay: ${prefix}Sync failed: ${friendlySyncError(error)}` };
+  }
+}
+
+/**
+ * One tap = one backup to every configured destination, independently (v28).
+ * Google Drive is the primary full backup and needs nothing but a saved
+ * Client ID: no GitHub token, no PC, no watcher, no GitHub at all. The PC
+ * relay runs only when its own token is saved. Neither destination can block
+ * or mask the other: both run side by side, each returns its own verdict,
+ * and only a bundle that cannot be collected stops both.
+ *
+ * driveAllowed:false is the auto-run path (the panel just opened): Google's
+ * sign-in window may not open on its own, so the Drive copy then waits for
+ * a tap.
+ */
+async function runBackupAll({ driveAllowed }) {
+  if (syncBusy) return;
+  const driveOn = hasDriveClientId();
+  const relayOn = hasToken();
+  if (!driveOn && !relayOn) {
+    renderBackupStatus([], { drive: false, relay: false });
+    return;
+  }
+  // Google's consent window must open inside the tap's user-activation
+  // window: once the click has crossed an await, browsers refuse the popup.
+  if (driveAllowed && driveOn) kickOffDriveToken();
+  syncBusy = true;
+  const button = $("#sync-now-btn");
+  if (button) button.disabled = true;
+  try {
+    const bundle = await collectBackupBundle();
+    const jobs = [];
+    if (relayOn) jobs.push(runRelayBackup(bundle));
+    if (driveOn) jobs.push(runDriveBackup(bundle, { allowSignIn: Boolean(driveAllowed) }));
+    // Both destinations catch their own failures and settle on their own, so
+    // Promise.all cannot reject and neither verdict can mask the other's.
+    renderBackupStatus(await Promise.all(jobs), { drive: driveOn, relay: relayOn });
+  } catch (error) {
+    // Collection itself failed (e.g. storage unavailable) — no destination
+    // was reached, so both lines say the same plain thing.
+    const text = "Backup could not collect the data on this device: "
+      + `${error?.message || String(error)}`;
+    setDriveStatus(text);
+    setSyncStatus(text);
+    const overall = $("#backup-overall");
+    if (overall) overall.textContent = "Backup failed — nothing reached any destination.";
   } finally {
     syncBusy = false;
     if (button) button.disabled = false;
   }
 }
 
+/**
+ * Writes each destination's own line and one aggregate verdict. The verdict
+ * can only fail when every configured destination failed, and can never
+ * blame Google Drive for a PC relay failure or the other way round.
+ */
+function renderBackupStatus(results, configured) {
+  const outcome = { drive: null, relay: null };
+  for (const result of results) outcome[result.dest] = result;
+  setDriveStatus(outcome.drive ? outcome.drive.text : DRIVE_NOT_CONFIGURED);
+  setSyncStatus(outcome.relay ? outcome.relay.text : RELAY_NOT_CONFIGURED);
+  const overall = $("#backup-overall");
+  if (!overall) return;
+  if (!configured.drive && !configured.relay) {
+    overall.textContent = "No backup destination is configured. Add a Google "
+      + "Client ID (Google Drive) or a backup token (PC relay) below.";
+    return;
+  }
+  const failed = results.filter(result => result.state === "failed");
+  const succeeded = results.filter(result => result.state === "success").length;
+  const destName = dest => (dest === "drive" ? "Google Drive" : "the PC relay");
+  if (failed.length && !succeeded) {
+    overall.textContent = "Backup failed — "
+      + failed.map(result => destName(result.dest)).join(" and ") + " failed.";
+  } else if (failed.length) {
+    overall.textContent = "Backup completed with a warning — "
+      + failed.map(result => destName(result.dest)).join(" and ")
+      + " failed; the other destination's backup still succeeded.";
+  } else if (succeeded) {
+    overall.textContent = "Backup completed.";
+  } else {
+    overall.textContent = "Nothing was backed up just now — Google Drive "
+      + "signs in on your next tap of the Back up button.";
+  }
+}
+
 /** The sync button: the only path allowed to open Google's consent window. */
 function runSync() {
-  return runSyncCore({ driveAllowed: true });
+  return runBackupAll({ driveAllowed: true });
 }
 
 function saveSyncToken() {
@@ -1207,7 +1298,7 @@ function saveSyncToken() {
   setSyncStatus((removed > 0
     ? `Token saved — ${removed} stray character${removed === 1 ? "" : "s"} removed from the paste. `
     : "Token saved on this device. ")
-    + "Tap “Sync notes + photos to PC now”.");
+    + "Tap “Back up notes + photos now”.");
 }
 
 function removeSyncToken() {
@@ -1216,21 +1307,21 @@ function removeSyncToken() {
   const input = $("#sync-token");
   if (input) {
     input.value = "";
-    input.placeholder = "Backup token (paste once)";
+    input.placeholder = "GitHub backup token (optional, paste once)";
   }
   setSyncStatus("Token removed from this device.");
 }
 
-/* ---- Google Drive second copy (v27) ------------------------------------ */
-/* After a successful PC sync, the same bundle is zipped and copied to the
- * user's own Google Drive (drive.js). The user asked for cloud saves on
- * 2026-10-05; the design they chose: one ZIP per backup into a "Notes Backup"
- * folder, uploaded on the same tap as the PC sync. There is no Google ID or
- * password anywhere in this flow — the user consents on Google's own window
- * and the app holds a short-lived access token IN MEMORY ONLY (never
- * persisted; page reload forgets it by design). The Client ID the user pastes
- * once is public by design, so unlike the relay token it may live in
- * localStorage. */
+/* ---- Google Drive destination (primary backup since v28) ---------------- */
+/* The user's own Google Drive (drive.js) receives one ZIP per backup — the
+ * backup CSV plus every photo/video — into a "Notes Backup" folder. v28 made
+ * this the PRIMARY destination, independent of the PC relay: it runs on a
+ * saved Client ID alone, with no GitHub token, no PC, and no watcher. There
+ * is no Google ID or password anywhere in this flow — the user consents on
+ * Google's own window and the app holds a short-lived access token IN MEMORY
+ * ONLY (never persisted; page reload forgets it by design). The Client ID the
+ * user pastes once is public by design, so unlike the relay token it may live
+ * in localStorage. */
 
 let driveToken = "";
 let driveTokenAt = 0;
@@ -1249,7 +1340,7 @@ const driveTokenLive = () => Boolean(driveToken)
   && (Date.now() - driveTokenAt) < 50 * 60 * 1000;
 
 /**
- * Called only from the tap path, synchronously, before runSyncCore's first
+ * Called only from the tap path, synchronously, before runBackupAll's first
  * await — browsers only permit the sign-in popup inside the click's
  * user-activation window.
  */
@@ -1262,17 +1353,24 @@ function kickOffDriveToken() {
 }
 
 /**
- * Fire-and-forget second copy: never fails or masks the PC sync (that
- * already succeeded) and writes only #drive-status. Reuses the exact csv and
- * media the relay upload just delivered — no second collection pass.
+ * The Drive destination (primary since v28). Takes the SAME bundle the relay
+ * got — no second collection pass — opens the sign-in only when allowSignIn
+ * is true (a real tap), and returns its own verdict without ever touching the
+ * relay's status line. On the auto-run path a dead token means "waits", never
+ * a popup.
  */
-async function driveCopyStep({ csv, media, exportId }) {
+async function runDriveBackup(bundle, { allowSignIn }) {
   try {
     if (!driveTokenLive()) {
       const pending = driveTokenPromise;
       driveTokenPromise = null;
       const token = pending ? await pending : null;
       if (!token) {
+        if (!allowSignIn) {
+          return { dest: "drive", state: "waits",
+            text: "Google Drive: not signed in — the sign-in window will open "
+              + "on your next tap of the Back up button." };
+        }
         const error = new Error("no google sign-in yet");
         error.code = "NOT_SIGNED_IN";
         throw error;
@@ -1280,27 +1378,30 @@ async function driveCopyStep({ csv, media, exportId }) {
       driveToken = token;
       driveTokenAt = Date.now();
     }
-    setDriveStatus("Copying the same backup to Google Drive…");
-    const entries = [{ name: "backup.csv", bytes: utf8(csv) }].concat(
-      media.map(item => ({ name: `media/${item.name}`, bytes: item.bytes })));
+    setDriveStatus("Google Drive: copying the same backup…");
+    const entries = [{ name: "backup.csv", bytes: utf8(bundle.csv) }].concat(
+      bundle.media.map(item => ({ name: `media/${item.name}`, bytes: item.bytes })));
     const zipBytes = buildZip(entries);
     const folderId = await ensureBackupFolder(driveToken);
     const file = await uploadBackup({
       token: driveToken,
       zipBytes,
       folderId,
-      name: `notes-backup-${exportId}.zip`
+      name: `notes-backup-${bundle.exportId}.zip`
     });
-    setDriveStatus(`Copied to Google Drive: ${file.name}`);
+    return { dest: "drive", state: "success",
+      text: `Google Drive: Copied ${file.name} to your Drive.` };
   } catch (error) {
     // The app never renews the sign-in on its own: on expiry the token is
     // dropped and the next tap reconnects. No popup without a tap, ever.
     if (error?.code === "TOKEN_EXPIRED") driveToken = "";
     if (error?.code === "NOT_SIGNED_IN") {
-      setDriveStatus("(Google Drive sign-in will happen on your next tap of the sync button.)");
-    } else {
-      setDriveStatus(`Google Drive copy failed: ${friendlyDriveError(error)}`);
+      return { dest: "drive", state: "failed",
+        text: "Google Drive: backup failed — no sign-in came back. Tap the "
+          + "Back up button again and complete Google's window." };
     }
+    return { dest: "drive", state: "failed",
+      text: `Google Drive: backup failed: ${friendlyDriveError(error)}` };
   }
 }
 
@@ -1328,8 +1429,9 @@ function saveDriveClientId() {
     input.placeholder = "Client ID saved on this device";
   }
   refreshDriveUi();
-  setDriveStatus("Google Drive copy is on — it runs right after each PC sync. "
-    + "Google will ask once, on its own sign-in window, to allow it.");
+  setDriveStatus("Client ID saved — Google Drive is the primary backup and "
+    + "runs on every Back up tap. Google will ask once, on its own sign-in "
+    + "window, to allow it.");
 }
 
 function removeDriveClientId() {
@@ -1340,7 +1442,7 @@ function removeDriveClientId() {
     input.value = "";
     input.placeholder = "Google Client ID (optional)";
   }
-  setDriveStatus("Google Drive copy is off.");
+  setDriveStatus("Client ID removed — Google Drive backup is off on this device.");
 }
 
 /* The Client ID field is write-once like the backup token's, for the same
@@ -1353,7 +1455,7 @@ function refreshDriveUi() {
   input.readOnly = stored;
   input.placeholder = stored
     ? "Client ID saved on this device — Remove to replace"
-    : "Google Client ID (optional)";
+    : "Google Client ID (paste once)";
   const save = $("#drive-id-save");
   if (save) {
     save.disabled = stored;

@@ -144,6 +144,7 @@ PROBE = """<!doctype html>
     // falls through to the real fetch, so the probe still reads sw.js itself.
     // Result: the entire sync + Drive flow below is exercised with ZERO real
     // network -- the same discipline as the no-token sync checks.
+    let ghMode = "ok";
     const ghCalls = [];
     const gapiCalls = [];
     let folderCreated = 0;
@@ -162,6 +163,11 @@ PROBE = """<!doctype html>
     function ghFake(u, init) {
       const method = (init.method || "GET").toUpperCase();
       const path = u.replace("https://api.github.com", "");
+      if (ghMode === "fail") {
+        // Scripted whole-provider outage (v28): used to prove a relay
+        // failure cannot mask a Google Drive success.
+        return fakeResponse(500, { message: "probe github outage" });
+      }
       if (method === "GET" && /\\/git\\/ref\\/heads\\/notes-inbox$/.test(path)) {
         return fakeResponse(200, { object: { sha: "parentsha1" } });
       }
@@ -194,7 +200,7 @@ PROBE = """<!doctype html>
       if (method === "POST" && u.indexOf("/upload/") !== -1) {
         // Real Drive behaves this way too: the PUT's final response echoes the
         // file resource with the name the initiation's metadata carried, which
-        // is what the app prints ("Copied to Google Drive: <name>").
+        // is what the app prints ("Google Drive: Copied <name> to your Drive.").
         try { lastUploadName = JSON.parse(init.body).name || lastUploadName; } catch (e) {}
         return fakeResponse(200, {},
           { location: "https://www.googleapis.com/upload/session/probe" });
@@ -529,30 +535,47 @@ PROBE = """<!doctype html>
               sizeNote ? sizeNote.textContent : ""),
             "said=" + (sizeNote ? sizeNote.textContent : "n/a"));
 
-      // One-tap sync (2026-10-03): the export panel's primary action, plus the
-      // one-time token row. NO network is touched in these checks: the profile
-      // starts without a token, and without one runSync() refuses before its
-      // first fetch -- which is exactly the behaviour under test.
+      // One-tap backup (2026-10-03; destination-independent since v28): the
+      // export panel's primary action runs every configured destination, and
+      // each destination gates itself. NO network is touched in these first
+      // checks: the profile starts with no token and no Client ID, so
+      // runBackupAll must end before its first fetch.
       const syncBtn = q("#sync-now-btn");
-      check("the sync button is present and labelled for the whole export",
-            !!syncBtn && /Sync notes \\+ photos to PC now/.test(syncBtn.textContent),
+      check("the backup button is present and destination-neutral",
+            !!syncBtn && /Back up notes \\+ photos now/.test(syncBtn.textContent),
             "label=" + (syncBtn ? syncBtn.textContent.trim() : "missing"));
       const tokenInput = q("#sync-token");
       check("the token field exists, is a password field, and is not prefilled",
             !!tokenInput && tokenInput.type === "password" && !tokenInput.value,
             "type=" + (tokenInput ? tokenInput.type : "missing"));
-      // Opening the export panel IS a sync attempt now: with no token on the
-      // device, runSync() has already refused and said so, so an empty line
-      // here would mean the auto-sync never ran.
+      // Opening the export panel IS a backup attempt now: with no destination
+      // configured it says so plainly, so an empty line here would mean the
+      // auto-run never happened.
       check("the sync status line exists and opening export already explains the setup",
             !!q("#sync-status") && /backup token/i.test(q("#sync-status").textContent),
             "said=" + (q("#sync-status") ? q("#sync-status").textContent : "missing"));
+      // TEST F of the v28 matrix: NEITHER destination configured -- the
+      // overall verdict must name the empty state and nothing may be
+      // contacted.
+      check("TEST F: with no destination configured the overall line says so",
+            !!q("#backup-overall")
+              && /No backup destination is configured/.test(q("#backup-overall").textContent),
+            "said=" + (q("#backup-overall") ? q("#backup-overall").textContent : "missing"));
+      check("TEST F: both destination lines say Not configured",
+            /Not configured/.test(q("#drive-status").textContent)
+              && /Not configured/.test(q("#sync-status").textContent),
+            "drive=" + q("#drive-status").textContent
+              + " relay=" + q("#sync-status").textContent);
       syncBtn.click();
       await sleep(400);
-      check("clicking sync without a token explains the setup instead of failing",
-            /backup token/i.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("...and made no network call (sync stays idle)",
+      check("clicking backup with no destination configured explains instead of failing",
+            /No backup destination is configured/.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+      check("TEST F: the empty-state tap contacted nothing at all",
+            ghCalls.length === 0 && gapiCalls.length === 0 && gisCalls.request === 0,
+            "gh=" + ghCalls.length + " gapi=" + gapiCalls.length
+              + " gis=" + gisCalls.request);
+      check("...and made no network call (backup stays idle)",
             q("#sync-now-btn").disabled === false,
             "disabled=" + q("#sync-now-btn").disabled);
 
@@ -580,15 +603,13 @@ PROBE = """<!doctype html>
             tokenInput.readOnly === false && q("#sync-token-save").disabled === false,
             "readOnly=" + tokenInput.readOnly + " saveDisabled=" + q("#sync-token-save").disabled);
 
-      // --- Google Drive second copy (v27) --------------------------------
+      // --- destinations, independently (v28) ------------------------------
       // Both transports are the fakes installed above; nothing here touches
-      // the real GitHub or Google. Sequence: PC-only tap (Drive off) ->
-      // Client ID round trip -> full tap (sign-in + zip upload) -> upload 500
-      // -> upload 401 (sign-in expiry) -> blocked popup -> panel reopen
-      // (auto-run must stay silent about Google).
-      tokenInput.value = "probe-token-12345";
-      q("#sync-token-save").click();
-      await sleep(300);
+      // the real GitHub or Google. Sequence: TEST A Drive-only (NO token --
+      // the acceptance case) -> token saved + Client ID removed: TEST B
+      // relay-only -> both on: TEST C one shared bundle -> TEST E Drive 500
+      // -> TEST D relay outage -> both fail -> 401 expiry -> blocked popup
+      // -> waits-only auto-run -> cleanup.
       const driveId = q("#drive-client-id");
       check("the Drive client-id field exists, plain text, not prefilled",
             !!driveId && driveId.type === "text" && !driveId.value,
@@ -596,21 +617,8 @@ PROBE = """<!doctype html>
       check("the Drive status line exists", !!q("#drive-status"),
             "missing #drive-status");
 
-      // Drive not configured: a tap still syncs the PC and says how to turn
-      // the Drive copy on, without touching a single Google endpoint.
-      syncBtn.click();
-      await sleep(700);
-      check("Drive off: the tap still syncs the PC",
-            /Sent/.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("Drive off: no Google endpoint was touched",
-            gapiCalls.length === 0 && gisCalls.request === 0,
-            "gapi=" + gapiCalls.length + " gis=" + gisCalls.request);
-      check("Drive off: the Drive status says how to turn it on",
-            /Client ID/.test(q("#drive-status").textContent),
-            "said=" + q("#drive-status").textContent);
-
-      // Client ID round trip (write-once, like the token).
+      // Client ID round trip (write-once, like the token). The GitHub token
+      // is deliberately absent for the first tap below.
       driveId.value = "probe-client-id.apps.googleusercontent.com";
       q("#drive-id-save").click();
       await sleep(300);
@@ -625,40 +633,49 @@ PROBE = """<!doctype html>
             driveId.readOnly === true && q("#drive-id-save").disabled === true,
             "readOnly=" + driveId.readOnly + " saveDisabled=" + q("#drive-id-save").disabled);
 
-      // The full tap: PC sync, then sign-in, then the zip upload.
+      // TEST A: Drive configured, NO GitHub token, home PC off, watcher
+      // disabled. The tap must reach Google and nothing else, and no relay
+      // blocker may stop it.
       syncBtn.click();
       await sleep(1000);
-      check("full tap: the PC sync still reports success",
-            /Sent/.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("full tap: the Drive copy completes with the export-named zip",
-            /Copied to Google Drive: notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
+      check("TEST A: a Drive-only backup uploads the export-named zip",
+            /Copied notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
               .test(q("#drive-status").textContent),
             "said=" + q("#drive-status").textContent);
-      check("full tap: exactly one sign-in was requested",
+      check("TEST A: GitHub was never contacted",
+            ghCalls.length === 0, "gh=" + ghCalls.length);
+      check("TEST A: the relay line says Not configured, not a refusal",
+            /Not configured/.test(q("#sync-status").textContent)
+              && /backup token/i.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("TEST A: the overall verdict is plain success",
+            /Backup completed/.test(q("#backup-overall").textContent)
+              && !/warning|failed/i.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+      check("TEST A: exactly one sign-in was requested",
             gisCalls.request === 1, "requests=" + gisCalls.request);
-      check("full tap: the sign-in scope is exactly drive.file",
+      check("TEST A: the sign-in scope is exactly drive.file",
             !!gisCalls.lastConfig
               && gisCalls.lastConfig.scope === "https://www.googleapis.com/auth/drive.file",
             "scope=" + (gisCalls.lastConfig ? gisCalls.lastConfig.scope : "none"));
-      check("full tap: the Drive folder was created exactly once",
+      check("TEST A: the Drive folder was created exactly once",
             folderCreated === 1, "created=" + folderCreated);
       const initCall = gapiCalls.filter(c =>
         (c.init.method || "").toUpperCase() === "POST"
         && c.u.indexOf("uploadType=resumable") !== -1)[0];
-      check("full tap: the upload initiation is resumable",
+      check("TEST A: the upload initiation is resumable",
             !!initCall, initCall ? "" : "initiate call not found");
       if (initCall) {
         const meta = JSON.parse(initCall.init.body);
-        check("full tap: the upload is named after the export id",
+        check("TEST A: the upload is named after the export id",
               /^notes-backup-\\d{8}-[0-9a-f]{8}\\.zip$/.test(meta.name), "name=" + meta.name);
-        check("full tap: the upload carries the zip mime hints",
+        check("TEST A: the upload carries the zip mime hints",
               initCall.init.headers["X-Upload-Content-Type"] === "application/zip",
               "headers=" + JSON.stringify(initCall.init.headers));
       }
       const putCall = gapiCalls.filter(c =>
         (c.init.method || "").toUpperCase() === "PUT")[0];
-      check("full tap: the session PUT carries a real zip",
+      check("TEST A: the session PUT carries a real zip",
             !!putCall && putCall.init.body instanceof frame.contentWindow.Uint8Array
               && putCall.init.body[0] === 0x50 && putCall.init.body[1] === 0x4b,
             "put=" + (putCall ? typeof putCall.init.body : "missing"));
@@ -667,26 +684,129 @@ PROBE = """<!doctype html>
         const head = new frame.contentWindow.TextDecoder()
           .decode(zipBody.subarray(0, Math.min(2048, zipBody.length)));
         const n = zipBody.length;
-        check("full tap: the zip carries the backup CSV",
+        check("TEST A: the zip carries the backup CSV",
               head.indexOf("backup.csv") !== -1, "head=" + head.slice(0, 80));
-        check("full tap: the zip ends with a central directory and EOCD",
+        check("TEST A: the zip ends with a central directory and EOCD",
               zipBody[n - 22] === 0x50 && zipBody[n - 21] === 0x4b
                 && zipBody[n - 20] === 0x05 && zipBody[n - 19] === 0x06,
               "tail=" + [zipBody[n - 22], zipBody[n - 21], zipBody[n - 20], zipBody[n - 19]]);
-        check("full tap: the PUT went to the scripted session URI",
+        check("TEST A: the PUT went to the scripted session URI",
               putCall.u === "https://www.googleapis.com/upload/session/probe", putCall.u);
       }
 
-      // Upload refuses (500): the PC verdict must survive untouched.
+      // The relay token is configured here -- its own eligibility, nothing
+      // more. TEST B follows: relay-only, Drive's Client ID comes off, so
+      // the tap must reach GitHub alone.
+      tokenInput.value = "probe-token-12345";
+      q("#sync-token-save").click();
+      await sleep(300);
+      check("TEST B: the relay token is saved on the device",
+            frame.contentWindow.localStorage.getItem("notes.sync.token")
+              === "probe-token-12345",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.sync.token"));
+      q("#drive-id-remove").click();
+      await sleep(300);
+      const gapiBeforeRelay = gapiCalls.length;
+      syncBtn.click();
+      await sleep(700);
+      check("TEST B: a relay-only tap still reports the PC sync",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("TEST B: no Google endpoint was touched",
+            gapiCalls.length === gapiBeforeRelay && gisCalls.request === 1,
+            "gapi=" + gapiCalls.length + " (was " + gapiBeforeRelay + ")");
+      check("TEST B: the Drive line says how to turn it on",
+            /Not configured/.test(q("#drive-status").textContent)
+              && /Client ID/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      check("TEST B: the overall verdict is plain success",
+            /Backup completed/.test(q("#backup-overall").textContent)
+              && !/warning|failed/i.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+
+      // Drive goes back on for the joint scenarios.
+      driveId.value = "probe-client-id.apps.googleusercontent.com";
+      q("#drive-id-save").click();
+      await sleep(300);
+      check("TEST C: the Client ID is saved again",
+            frame.contentWindow.localStorage.getItem("notes.drive.client")
+              === "probe-client-id.apps.googleusercontent.com",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
+
+      // TEST C: both destinations in one tap -- and one SHARED bundle. The
+      // relay commit message names the export id; so does the zip name.
+      syncBtn.click();
+      await sleep(1000);
+      const commitCall = ghCalls.filter(c =>
+        (c.init.method || "").toUpperCase() === "POST"
+        && c.u.indexOf("/git/commits") !== -1
+        && c.u.indexOf("/git/commits/") === -1).pop();
+      const commitId = commitCall
+        ? ((JSON.parse(commitCall.init.body).message || "")
+            .match(/\\d{8}-[0-9a-f]{8}/) || [""])[0]
+        : "";
+      const driveName = q("#drive-status").textContent;
+      const zipIdMatch = driveName.match(/notes-backup-(\\d{8}-[0-9a-f]{8})\\.zip/);
+      check("TEST C: the PC relay reports success",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("TEST C: the Drive copy reports success",
+            /Copied notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/.test(driveName),
+            "said=" + driveName);
+      check("TEST C: one bundle -- relay commit and zip share the export id",
+            !!commitId && !!zipIdMatch && commitId === zipIdMatch[1],
+            "relay=" + commitId + " drive=" + (zipIdMatch ? zipIdMatch[1] : "none"));
+      check("TEST C: the folder is reused, not created again",
+            folderCreated === 1, "created=" + folderCreated);
+      check("TEST C: the still-live token signs nothing new in",
+            gisCalls.request === 1, "requests=" + gisCalls.request);
+
+      // TEST E: Google refuses the upload (500). The relay's success line
+      // must survive untouched and the overall verdict must be a warning
+      // that names Drive -- never a plain failure, never a mixed sentence.
       driveUploadStatus = 500;
       syncBtn.click();
       await sleep(1000);
-      check("Drive failure: the PC sync still reports success",
+      check("TEST E: the PC sync still reports success",
             /Sent/.test(q("#sync-status").textContent),
             "said=" + q("#sync-status").textContent);
-      check("Drive failure: the status explains it in the app's voice",
-            /Google Drive copy failed/.test(q("#drive-status").textContent),
+      check("TEST E: the Drive line says why it failed",
+            /Google Drive: backup failed/.test(q("#drive-status").textContent),
             "said=" + q("#drive-status").textContent);
+      check("TEST E: the overall verdict warns and names Drive",
+            /warning/i.test(q("#backup-overall").textContent)
+              && /Google Drive/.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+
+      // TEST D: the relay fails (scripted GitHub outage). Google Drive must
+      // still succeed on the same tap, and the warning must name the relay.
+      driveUploadStatus = 201;
+      ghMode = "fail";
+      syncBtn.click();
+      await sleep(1000);
+      check("TEST D: the Drive copy still succeeds",
+            /Copied notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
+              .test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      check("TEST D: the relay line reports its own failure",
+            /Sync failed/.test(q("#sync-status").textContent)
+              && /PC relay:/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("TEST D: the overall verdict warns and names the relay",
+            /warning/i.test(q("#backup-overall").textContent)
+              && /PC relay/.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+
+      // Both configured and both failing: a plain failure, no masking either
+      // way and no false success.
+      driveUploadStatus = 500;
+      syncBtn.click();
+      await sleep(1000);
+      check("both destinations fail: the verdict is a plain failure",
+            /Backup failed/.test(q("#backup-overall").textContent)
+              && !/warning/i.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
+      ghMode = "ok";
 
       // Upload answers 401: the in-memory token dies; NO automatic re-sign-in.
       driveUploadStatus = 401;
@@ -712,24 +832,34 @@ PROBE = """<!doctype html>
             "said=" + q("#drive-status").textContent + " requests=" + gisCalls.request);
       gisCalls.mode = "ok";
 
-      // Panel reopen: the auto-run syncs the PC, never Google.
-      const gapiBeforeReopen = gapiCalls.length;
+      // Waits-only auto-run: token removed, Drive's token dead after the
+      // popup failure. The auto-run signs in at NOTHING, runs no relay, and
+      // both lines explain themselves.
+      q("#sync-token-remove").click();
+      await sleep(300);
+      const gapiBeforeWaits = gapiCalls.length;
+      const ghBeforeWaits = ghCalls.length;
       q("#settings-close").click();
       await sleep(250);
       settingsBtn.click();
       await sleep(250);
       q("#export-btn").click();
       await sleep(1500);
-      check("auto-run on reopen still syncs the PC",
-            /Sent/.test(q("#sync-status").textContent),
-            "said=" + q("#sync-status").textContent);
-      check("auto-run never opens Google's sign-in or its API",
-            gisCalls.request === 2 && gapiCalls.length === gapiBeforeReopen,
+      check("waits-only auto-run touches no destination",
+            gisCalls.request === 2 && gapiCalls.length === gapiBeforeWaits
+              && ghCalls.length === ghBeforeWaits,
             "gis=" + gisCalls.request + " gapi=" + gapiCalls.length
-              + " (was " + gapiBeforeReopen + ")");
-      check("auto-run says the Drive copy waits for a tap",
+              + " (was " + gapiBeforeWaits + ") gh=" + ghCalls.length
+              + " (was " + ghBeforeWaits + ")");
+      check("waits-only auto-run says the sign-in waits for a tap",
             /next tap/.test(q("#drive-status").textContent),
             "said=" + q("#drive-status").textContent);
+      check("waits-only auto-run: the relay line stays honest",
+            /Not configured/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("waits-only auto-run: the overall line says nothing ran",
+            /Nothing was backed up/.test(q("#backup-overall").textContent),
+            "said=" + q("#backup-overall").textContent);
 
       // Leave the profile as the sync checks left it: no token, no client id.
       q("#drive-id-remove").click();

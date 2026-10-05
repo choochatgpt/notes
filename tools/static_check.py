@@ -702,15 +702,17 @@ else:
     print("backup: v2 with a mediaIds column; v1 files still parse; the photo "
           "exclusion is stated in the restore confirmation")
 
-# 15f. One-tap sync (2026-10-03): the export panel's primary action is the
-# sync button, backed by the one-time token row. The transport pins live in
-# the section 14 network rules; this pins the UI so the promise is reachable.
+# 15f. One-tap backup (2026-10-03; destination-independent since v28): the
+# export panel's primary action runs every configured destination. The relay
+# token gates ONLY the relay; the transport pins live in the section 14
+# network rules; this pins the UI so the promise is reachable.
 for required in ('id="sync-now-btn"', 'id="sync-status"', 'id="sync-token"',
-                 'id="sync-token-save"', 'id="sync-token-remove"'):
+                 'id="sync-token-save"', 'id="sync-token-remove"',
+                 'id="backup-overall"'):
     if required not in html:
-        fails.append(f"index.html lost {required} -- the one-tap sync has no UI")
-if ">Sync notes + photos to PC now</button>" not in html:
-    fails.append('the sync button is no longer labelled "Sync notes + photos to PC now"')
+        fails.append(f"index.html lost {required} -- the one-tap backup has no UI")
+if ">Back up notes + photos now</button>" not in html:
+    fails.append('the backup button is no longer labelled "Back up notes + photos now"')
 sync_token_tag = re.search(r'<input[^>]*id="sync-token"[^>]*>', html)
 if not sync_token_tag or 'type="password"' not in sync_token_tag.group(0):
     fails.append("#sync-token is not type=password -- the token must never "
@@ -718,46 +720,62 @@ if not sync_token_tag or 'type="password"' not in sync_token_tag.group(0):
 for handler in ("runSync", "saveSyncToken", "removeSyncToken", "syncMediaName",
                 "friendlySyncError"):
     if f"function {handler}(" not in app:
-        fails.append(f"app.js lost {handler}() -- the sync flow is incomplete")
+        fails.append(f"app.js lost {handler}() -- the backup flow is incomplete")
 if 'on("#sync-now-btn"' not in app or 'on("#sync-token-save"' not in app \
         or 'on("#sync-token-remove"' not in app:
-    fails.append("app.js does not wire the sync buttons -- dead controls")
+    fails.append("app.js does not wire the backup buttons -- dead controls")
 if "checkPickedUp(" not in app or "syncSubmit(" not in app:
     fails.append("app.js no longer reports pickups or calls the sync transport")
 if "hasToken()" not in app:
-    fails.append("app.js does not gate the sync on a saved token -- it would "
-                 "start an export that can only fail")
+    fails.append("app.js no longer gates the PC relay on a saved token -- "
+                 "it would start a relay run that can only fail")
 else:
-    print("sync: button + token row wired; transport gated on the device token")
+    print("sync: backup button + both destination rows wired; relay gated on "
+          "the device token only")
 
-# 15g. Google Drive second copy (2026-10-05): an optional Client ID row next to
-# the token row; the copy itself runs only after a successful sync, and the
-# consent popup is allowed only on the explicit tap -- never on the export
-# panel's auto-run. Transport pins live in section 14; this pins the UI and
-# the no-popup-on-auto-run rule.
+# 15g. Google Drive destination (v27 optional copy; PRIMARY since v28): it
+# must never depend on the relay token -- with only a Client ID saved, a tap
+# must reach Google and nothing else. The consent popup is allowed only on
+# the explicit tap -- never on the export panel's auto-run. Transport pins
+# live in section 14; this pins the UI, the independence shape and the
+# no-popup-on-auto-run rule.
 for required in ('id="drive-client-id"', 'id="drive-id-save"',
                  'id="drive-id-remove"', 'id="drive-status"'):
     if required not in html:
-        fails.append(f"index.html lost {required} -- the Drive copy has no UI")
+        fails.append(f"index.html lost {required} -- the Drive backup has no UI")
 drive_tag = re.search(r'<input[^>]*id="drive-client-id"[^>]*>', html)
 if not drive_tag or 'type="password"' in drive_tag.group(0):
     fails.append('#drive-client-id must be type=text -- a Client ID is public '
                  "by design and must not pretend to be a secret")
 for handler in ("saveDriveClientId", "removeDriveClientId", "refreshDriveUi",
-                "driveCopyStep", "runSyncCore", "kickOffDriveToken"):
+                "runDriveBackup", "collectBackupBundle", "runRelayBackup",
+                "runBackupAll", "renderBackupStatus", "kickOffDriveToken"):
     if f"function {handler}(" not in app:
-        fails.append(f"app.js lost {handler}() -- the Drive flow is incomplete")
+        fails.append(f"app.js lost {handler}() -- the backup flow is incomplete")
 if 'on("#drive-id-save"' not in app or 'on("#drive-id-remove"' not in app:
     fails.append("app.js does not wire the Drive buttons -- dead controls")
 if "hasClientId(" not in app:
-    fails.append("app.js does not gate the Drive copy on a saved Client ID")
+    fails.append("app.js does not gate the Drive backup on a saved Client ID")
 if "friendlyDriveError(" not in app:
     fails.append("app.js no longer maps Drive failures through "
                  "friendlyDriveError")
+backup_body = re.search(r"async function runBackupAll\(\{ driveAllowed \}\) \{"
+                        r"([\s\S]*?)\n\}", app)
+if not backup_body or "collectBackupBundle(" not in backup_body.group(1) \
+        or "runDriveBackup(" not in backup_body.group(1) \
+        or "runRelayBackup(" not in backup_body.group(1):
+    fails.append("runBackupAll must collect the bundle once and hand it to "
+                 "both destination runners -- the v28 independence shape")
+if "No backup destination is configured." not in app:
+    fails.append('app.js lost the "No backup destination is configured." '
+                 "verdict -- a tap with nothing configured must say so")
+if "Add your backup token below" in app:
+    fails.append("app.js still gates everything on the relay token -- v28 "
+                 "requires the Drive destination to run with no token at all")
 panel_body = re.search(r"async function showExportPanel\(\) \{([^}]*)\}", app)
-if not panel_body or "runSyncCore" not in panel_body.group(1) \
+if not panel_body or "runBackupAll" not in panel_body.group(1) \
         or "driveAllowed: false" not in panel_body.group(1):
-    fails.append("showExportPanel must run runSyncCore({driveAllowed: false}) "
+    fails.append("showExportPanel must run runBackupAll({driveAllowed: false}) "
                  "-- the auto-run may never open Google's sign-in window")
 if "requestAccessToken" in app:
     fails.append("app.js touches the GIS token client directly -- sign-in "
@@ -766,8 +784,8 @@ if "requestAccessToken" not in drive_source:
     fails.append("drive.js lost requestAccessToken() -- the GIS sign-in flow "
                  "is incomplete")
 else:
-    print("drive: Client ID row wired; auto-run pinned to driveAllowed:false; "
-          "sign-in confined to drive.js")
+    print("drive: Client ID row wired; destinations independent; "
+          "auto-run pinned to driveAllowed:false; sign-in confined to drive.js")
 
 print()
 if notes:

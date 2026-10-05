@@ -526,7 +526,7 @@ if "APP_VERSION" not in app or "app-version" not in app:
 # itself is pinned so the exception cannot quietly widen.
 network_clean = True
 for module in ("app.js", "view.js", "backup.js", "storage.js", "reminder.js",
-               "sync.js"):
+               "sync.js", "drive.js"):
     source = read(module)
     for banned in ("XMLHttpRequest", "sendBeacon", "navigator.share", "canShare"):
         if banned in source:
@@ -556,9 +556,45 @@ if sync_source:
         fails.append("sync.js contains what looks like a hardcoded GitHub "
                      "token -- tokens live in the user's localStorage, never "
                      "in the public source")
+# drive.js (2026-10-05): the second sanctioned speaker, scoped to exactly one
+# origin (Google's), one scope (drive.file), a public-by-design Client ID from
+# localStorage, and a memory-only access token. Deliberate widening of the
+# 2026-10-03 exception; everything else keeps the old ban.
+drive_source = read("drive.js")
+if drive_source:
+    if "https://www.googleapis.com" not in drive_source:
+        network_clean = False
+        fails.append("drive.js calls fetch but is not pinned to "
+                     "https://www.googleapis.com -- the exception is scoped to "
+                     "exactly one origin")
+    if "https://www.googleapis.com/auth/drive.file" not in drive_source:
+        network_clean = False
+        fails.append("drive.js must request exactly the drive.file scope -- "
+                     "nothing wider may ship")
+    if "refresh_token" in drive_source:
+        network_clean = False
+        fails.append("drive.js must never hold a refresh token -- the access "
+                     "token stays in memory only and expires")
+    if re.search(r"GOCSPX-[A-Za-z0-9_-]{10,}", drive_source):
+        network_clean = False
+        fails.append("drive.js contains what looks like a client secret -- "
+                     "only the public Client ID may exist")
+    if "notes.drive.client" not in drive_source:
+        network_clean = False
+        fails.append("drive.js must keep its Client ID in localStorage "
+                     "(notes.drive.client)")
+if "accounts.google.com" in app:
+    network_clean = False
+    fails.append("app.js mentions accounts.google.com -- Google is reached "
+                 "only through drive.js")
+if re.search(r"<script[^>]*gsi", html):
+    network_clean = False
+    fails.append("index.html loads the GIS script tag up front -- drive.js "
+                 "must inject it on demand, so nothing touches Google until "
+                 "the user opts in")
 if network_clean:
-    print("network: app modules stay silent except sync.js, which may fetch "
-          "https://api.github.com only, with the user's own localStorage token")
+    print("network: app modules stay silent except sync.js (api.github.com) "
+          "and drive.js (googleapis.com, drive.file scope), each pinned")
 
 # --- 15. The v19 pair: two export buttons, one-line editor actions, ----------
 #        the visible reminder date, and real photo attachments.
@@ -693,6 +729,45 @@ if "hasToken()" not in app:
                  "start an export that can only fail")
 else:
     print("sync: button + token row wired; transport gated on the device token")
+
+# 15g. Google Drive second copy (2026-10-05): an optional Client ID row next to
+# the token row; the copy itself runs only after a successful sync, and the
+# consent popup is allowed only on the explicit tap -- never on the export
+# panel's auto-run. Transport pins live in section 14; this pins the UI and
+# the no-popup-on-auto-run rule.
+for required in ('id="drive-client-id"', 'id="drive-id-save"',
+                 'id="drive-id-remove"', 'id="drive-status"'):
+    if required not in html:
+        fails.append(f"index.html lost {required} -- the Drive copy has no UI")
+drive_tag = re.search(r'<input[^>]*id="drive-client-id"[^>]*>', html)
+if not drive_tag or 'type="password"' in drive_tag.group(0):
+    fails.append('#drive-client-id must be type=text -- a Client ID is public '
+                 "by design and must not pretend to be a secret")
+for handler in ("saveDriveClientId", "removeDriveClientId", "refreshDriveUi",
+                "driveCopyStep", "runSyncCore", "kickOffDriveToken"):
+    if f"function {handler}(" not in app:
+        fails.append(f"app.js lost {handler}() -- the Drive flow is incomplete")
+if 'on("#drive-id-save"' not in app or 'on("#drive-id-remove"' not in app:
+    fails.append("app.js does not wire the Drive buttons -- dead controls")
+if "hasClientId(" not in app:
+    fails.append("app.js does not gate the Drive copy on a saved Client ID")
+if "friendlyDriveError(" not in app:
+    fails.append("app.js no longer maps Drive failures through "
+                 "friendlyDriveError")
+panel_body = re.search(r"async function showExportPanel\(\) \{([^}]*)\}", app)
+if not panel_body or "runSyncCore" not in panel_body.group(1) \
+        or "driveAllowed: false" not in panel_body.group(1):
+    fails.append("showExportPanel must run runSyncCore({driveAllowed: false}) "
+                 "-- the auto-run may never open Google's sign-in window")
+if "requestAccessToken" in app:
+    fails.append("app.js touches the GIS token client directly -- sign-in "
+                 "goes through drive.js only")
+if "requestAccessToken" not in drive_source:
+    fails.append("drive.js lost requestAccessToken() -- the GIS sign-in flow "
+                 "is incomplete")
+else:
+    print("drive: Client ID row wired; auto-run pinned to driveAllowed:false; "
+          "sign-in confined to drive.js")
 
 print()
 if notes:

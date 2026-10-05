@@ -195,6 +195,24 @@ action is the one-tap sync:
   verifies every SHA256, archives the photos, emails the CSV, then rewrites the
   branch so the bytes leave GitHub entirely; the next export click reports the
   previous backup's pickup.
+- **Google Drive second copy** (optional, since v27): the same tap places one
+  ZIP — the backup CSV plus every photo/video — in a `Notes Backup` folder in
+  your Google Drive, as `notes-backup-<exportId>.zip`, a fresh file per sync.
+
+  One-time setup: in [console.cloud.google.com](https://console.cloud.google.com)
+  create a project, add the **OAuth consent screen** (External, yourself as a
+  test user), then **Credentials → OAuth client ID → Web application** with
+  authorised JavaScript origin `https://choochatgpt.github.io`, and paste the
+  Client ID into the panel's Drive box. No password is ever involved: when the
+  Drive copy first runs, the app opens **Google's own sign-in window** (the
+  browser's OAuth popup), you sign in there, and the app receives only a
+  short-lived access token (`drive.file` scope — it can touch just the files
+  this app created). The token lives in memory for under an hour and is never
+  written anywhere; the Client ID, by contrast, is public by design — it is not
+  a secret. If Google's answer has expired by the next sync, the app says one
+  line and the next tap of the sync button signs in again; it never opens a
+  popup on its own. Duplicate `Notes Backup` folders are possible if two of
+  your devices create one at the same moment — harmless; both still work.
 - **Share CSV for backup** (fallback) puts the exact text on the clipboard,
   for the relay-inbox paste or any email.
 - **Export CSV** (fallback) opens your mail app with the CSV in the message
@@ -384,11 +402,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 127 tests
+node tests/view.test.mjs ../view.js             # 128 tests
 node tests/backup.test.mjs ../backup.js         # 76 tests
-node tests/sync.test.mjs ../sync.js             # 40 tests (stubbed GitHub API)
+node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
+node tests/drive.test.mjs ../drive.js           # 69 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # checks in real Chrome, plus a 380px phone-width frame
+python tools/browser_check.py                   # 163 checks in real Chrome (149 desktop + 14 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -411,7 +430,7 @@ repaired *and reported*, the confirmation wording's counts and its
 photos-not-included clause, **a v1 file still parsing** (only a file newer than
 the app is refused), and the mailto ceiling refusing rather than truncating.
 
-All three take the module path as an argument and default to the `../source/` layout.
+All five take the module path as an argument and default to the `../source/` layout.
 
 `tools/static_check.py` proves names line up: every icon reference resolves,
 every `$("#id")` has an element, no emitted class is unstyled, the service worker
@@ -471,8 +490,19 @@ line; and Delete / Add photo/video / Save sit on one line at phone width.
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path
 can be cancelled and then taken, and the wording it showed can be inspected.
+The sync + Drive network never leaves the machine either: the probe installs a
+selective `fetch` wrapper inside the frame that answers `api.github.com` (the
+relay happy path) and `www.googleapis.com` (folder find-or-create, resumable
+initiation, session PUT) from scripts, stubs the Google Identity Services token
+client, and passes everything else to the real fetch — so even the sync and the
+Drive upload run at zero real network.
 Every run wipes the browser profile first: IndexedDB lives in the profile, and a
 leftover one would carry notes into the next run and make every count meaningless.
+The harness also sweeps any Chrome process still using the run's profile before
+launching and after terminating — the Windows launcher chrome.exe exits the
+instant it spawns the real browser, so `terminate()` used to orphan the browser
+and the leaked singleton lock silently swallowed later runs' launches (the
+2026-10-05 incident: three runs in a row "never reported back").
 
 ```sh
 python tools/browser_check.py --compare-stale <commit>

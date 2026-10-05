@@ -47,6 +47,7 @@ import re
 import shutil
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -54,6 +55,16 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 WORK = Path(tempfile.gettempdir()) / "notes_browser_check"
+
+# The app's own copy carries characters the Windows console codepage (cp1252 on
+# this machine) cannot encode -- an accent or an en dash printed inside a status
+# line would kill the report after every check had already passed. Print in
+# UTF-8 and never let the console encoding decide whether a run can be read.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 CHROME_CANDIDATES = [
     Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
@@ -73,7 +84,14 @@ PROBE = """<!doctype html>
 (async () => {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
-  const check = (name, ok, detail) => { console.log("CHECK:", ok ? "ok" : "FAIL", name); return results.push({ name, ok: !!ok, detail: detail || "" }); };
+  // v27 debug instrument: beats name the last check executed, so a hang is
+  // reported as "last check before the stall" instead of a bare deadline.
+  let lastCheck = "boot";
+  setInterval(() => {
+    fetch("/__beat", { method: "POST", body: JSON.stringify({ last: lastCheck }) })
+      .catch(() => {});
+  }, 1500);
+  const check = (name, ok, detail) => { lastCheck = name; console.log("CHECK:", ok ? "ok" : "FAIL", name); return results.push({ name, ok: !!ok, detail: detail || "" }); };
 
   // The confirmation has to state what goes with the folder, and in the singular
   // -- "1 note", not "1 notes". The count is the entire point of the wording:
@@ -117,6 +135,113 @@ PROBE = """<!doctype html>
     frame.contentWindow.confirm = message => {
       confirms.push(String(message));
       return confirmAnswer;
+    };
+
+    // Fake both network transports (v27): the Drive copy's GIS token client
+    // is stubbed on the frame's window, and a selective fetch wrapper scripts
+    // api.github.com (the relay happy path) and www.googleapis.com (folder
+    // find-or-create, resumable initiation, session PUT). Everything else
+    // falls through to the real fetch, so the probe still reads sw.js itself.
+    // Result: the entire sync + Drive flow below is exercised with ZERO real
+    // network -- the same discipline as the no-token sync checks.
+    const ghCalls = [];
+    const gapiCalls = [];
+    let folderCreated = 0;
+    let folderListHasFolder = false;
+    let driveUploadStatus = 201;
+    let lastUploadName = "";
+    const gisCalls = { init: 0, request: 0, lastConfig: null, mode: "ok" };
+
+    function fakeResponse(status, data, headers) {
+      return {
+        status,
+        text: async () => JSON.stringify(data),
+        headers: { get: name => (headers && headers[String(name).toLowerCase()]) || null }
+      };
+    }
+    function ghFake(u, init) {
+      const method = (init.method || "GET").toUpperCase();
+      const path = u.replace("https://api.github.com", "");
+      if (method === "GET" && /\\/git\\/ref\\/heads\\/notes-inbox$/.test(path)) {
+        return fakeResponse(200, { object: { sha: "parentsha1" } });
+      }
+      if (method === "GET" && /\\/git\\/commits\\/parentsha1$/.test(path)) {
+        return fakeResponse(200, { tree: { sha: "treesha1" } });
+      }
+      if (method === "GET" && /\\/git\\/trees\\//.test(path)) {
+        return fakeResponse(200, { tree: [] });
+      }
+      if (method === "POST" && /\\/git\\/blobs$/.test(path)) {
+        return fakeResponse(201, { sha: "blobsha" + Math.random().toString(16).slice(2, 8) });
+      }
+      if (method === "POST" && /\\/git\\/trees$/.test(path)) {
+        return fakeResponse(201, { sha: "newtreesha" });
+      }
+      if (method === "POST" && /\\/git\\/commits$/.test(path)) {
+        return fakeResponse(201, { sha: "newcommitsha" });
+      }
+      if (method === "PATCH" && /\\/git\\/refs/.test(path)) {
+        return fakeResponse(200, { object: { sha: "newcommitsha" } });
+      }
+      return fakeResponse(999, { message: "unscripted github " + method + " " + path });
+    }
+    function gapiFake(u, init) {
+      const method = (init.method || "GET").toUpperCase();
+      if (method === "GET" && u.indexOf("/drive/v3/files?") !== -1) {
+        return fakeResponse(200, { files: folderListHasFolder
+          ? [{ id: "fld-probe", name: "Notes Backup" }] : [] });
+      }
+      if (method === "POST" && u.indexOf("/upload/") !== -1) {
+        // Real Drive behaves this way too: the PUT's final response echoes the
+        // file resource with the name the initiation's metadata carried, which
+        // is what the app prints ("Copied to Google Drive: <name>").
+        try { lastUploadName = JSON.parse(init.body).name || lastUploadName; } catch (e) {}
+        return fakeResponse(200, {},
+          { location: "https://www.googleapis.com/upload/session/probe" });
+      }
+      if (method === "POST") {
+        folderCreated++;
+        folderListHasFolder = true;
+        return fakeResponse(200, { id: "fld-probe", name: "Notes Backup" });
+      }
+      if (method === "PUT") {
+        return fakeResponse(driveUploadStatus,
+          { id: "zipfile1", name: lastUploadName || "notes-backup-probe.zip" });
+      }
+      return fakeResponse(999, { message: "unscripted gapi " + method + " " + u });
+    }
+    frame.contentWindow.google = { accounts: { oauth2: {
+      initTokenClient: cfg => {
+        gisCalls.init++;
+        gisCalls.lastConfig = cfg;
+        return { requestAccessToken: () => {
+          gisCalls.request++;
+          setTimeout(() => {
+            if (gisCalls.mode === "popup") {
+              if (cfg.error_callback) {
+                cfg.error_callback({ type: "popup_failed_to_open", message: "blocked" });
+              }
+              return;
+            }
+            if (cfg.callback) {
+              cfg.callback({ access_token: "probe-drive-token", expires_in: 3599 });
+            }
+          }, 30);
+        } };
+      }
+    } } };
+    const realFrameFetch = frame.contentWindow.fetch.bind(frame.contentWindow);
+    frame.contentWindow.fetch = (url, init = {}) => {
+      const u = String(url);
+      if (u.indexOf("https://api.github.com") === 0) {
+        ghCalls.push({ u, init });
+        return Promise.resolve(ghFake(u, init));
+      }
+      if (u.indexOf("www.googleapis.com") !== -1) {
+        gapiCalls.push({ u, init });
+        return Promise.resolve(gapiFake(u, init));
+      }
+      return realFrameFetch(url, init);
     };
 
     // Wait for the app to settle on an explicit signal, never on a string the
@@ -454,6 +579,169 @@ PROBE = """<!doctype html>
       check("removing the token unlocks the field again",
             tokenInput.readOnly === false && q("#sync-token-save").disabled === false,
             "readOnly=" + tokenInput.readOnly + " saveDisabled=" + q("#sync-token-save").disabled);
+
+      // --- Google Drive second copy (v27) --------------------------------
+      // Both transports are the fakes installed above; nothing here touches
+      // the real GitHub or Google. Sequence: PC-only tap (Drive off) ->
+      // Client ID round trip -> full tap (sign-in + zip upload) -> upload 500
+      // -> upload 401 (sign-in expiry) -> blocked popup -> panel reopen
+      // (auto-run must stay silent about Google).
+      tokenInput.value = "probe-token-12345";
+      q("#sync-token-save").click();
+      await sleep(300);
+      const driveId = q("#drive-client-id");
+      check("the Drive client-id field exists, plain text, not prefilled",
+            !!driveId && driveId.type === "text" && !driveId.value,
+            "type=" + (driveId ? driveId.type : "missing"));
+      check("the Drive status line exists", !!q("#drive-status"),
+            "missing #drive-status");
+
+      // Drive not configured: a tap still syncs the PC and says how to turn
+      // the Drive copy on, without touching a single Google endpoint.
+      syncBtn.click();
+      await sleep(700);
+      check("Drive off: the tap still syncs the PC",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("Drive off: no Google endpoint was touched",
+            gapiCalls.length === 0 && gisCalls.request === 0,
+            "gapi=" + gapiCalls.length + " gis=" + gisCalls.request);
+      check("Drive off: the Drive status says how to turn it on",
+            /Client ID/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+
+      // Client ID round trip (write-once, like the token).
+      driveId.value = "probe-client-id.apps.googleusercontent.com";
+      q("#drive-id-save").click();
+      await sleep(300);
+      check("saving the Client ID stores it on the device",
+            frame.contentWindow.localStorage.getItem("notes.drive.client")
+              === "probe-client-id.apps.googleusercontent.com",
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
+      check("the Client ID box clears and never echoes",
+            driveId.value === "" && /saved on this device/.test(driveId.placeholder),
+            "value=" + JSON.stringify(driveId.value));
+      check("a saved Client ID locks the field so a tap cannot overwrite it",
+            driveId.readOnly === true && q("#drive-id-save").disabled === true,
+            "readOnly=" + driveId.readOnly + " saveDisabled=" + q("#drive-id-save").disabled);
+
+      // The full tap: PC sync, then sign-in, then the zip upload.
+      syncBtn.click();
+      await sleep(1000);
+      check("full tap: the PC sync still reports success",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("full tap: the Drive copy completes with the export-named zip",
+            /Copied to Google Drive: notes-backup-\\d{8}-[0-9a-f]{8}\\.zip/
+              .test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+      check("full tap: exactly one sign-in was requested",
+            gisCalls.request === 1, "requests=" + gisCalls.request);
+      check("full tap: the sign-in scope is exactly drive.file",
+            !!gisCalls.lastConfig
+              && gisCalls.lastConfig.scope === "https://www.googleapis.com/auth/drive.file",
+            "scope=" + (gisCalls.lastConfig ? gisCalls.lastConfig.scope : "none"));
+      check("full tap: the Drive folder was created exactly once",
+            folderCreated === 1, "created=" + folderCreated);
+      const initCall = gapiCalls.filter(c =>
+        (c.init.method || "").toUpperCase() === "POST"
+        && c.u.indexOf("uploadType=resumable") !== -1)[0];
+      check("full tap: the upload initiation is resumable",
+            !!initCall, initCall ? "" : "initiate call not found");
+      if (initCall) {
+        const meta = JSON.parse(initCall.init.body);
+        check("full tap: the upload is named after the export id",
+              /^notes-backup-\\d{8}-[0-9a-f]{8}\\.zip$/.test(meta.name), "name=" + meta.name);
+        check("full tap: the upload carries the zip mime hints",
+              initCall.init.headers["X-Upload-Content-Type"] === "application/zip",
+              "headers=" + JSON.stringify(initCall.init.headers));
+      }
+      const putCall = gapiCalls.filter(c =>
+        (c.init.method || "").toUpperCase() === "PUT")[0];
+      check("full tap: the session PUT carries a real zip",
+            !!putCall && putCall.init.body instanceof frame.contentWindow.Uint8Array
+              && putCall.init.body[0] === 0x50 && putCall.init.body[1] === 0x4b,
+            "put=" + (putCall ? typeof putCall.init.body : "missing"));
+      if (putCall) {
+        const zipBody = putCall.init.body;
+        const head = new frame.contentWindow.TextDecoder()
+          .decode(zipBody.subarray(0, Math.min(2048, zipBody.length)));
+        const n = zipBody.length;
+        check("full tap: the zip carries the backup CSV",
+              head.indexOf("backup.csv") !== -1, "head=" + head.slice(0, 80));
+        check("full tap: the zip ends with a central directory and EOCD",
+              zipBody[n - 22] === 0x50 && zipBody[n - 21] === 0x4b
+                && zipBody[n - 20] === 0x05 && zipBody[n - 19] === 0x06,
+              "tail=" + [zipBody[n - 22], zipBody[n - 21], zipBody[n - 20], zipBody[n - 19]]);
+        check("full tap: the PUT went to the scripted session URI",
+              putCall.u === "https://www.googleapis.com/upload/session/probe", putCall.u);
+      }
+
+      // Upload refuses (500): the PC verdict must survive untouched.
+      driveUploadStatus = 500;
+      syncBtn.click();
+      await sleep(1000);
+      check("Drive failure: the PC sync still reports success",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("Drive failure: the status explains it in the app's voice",
+            /Google Drive copy failed/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+
+      // Upload answers 401: the in-memory token dies; NO automatic re-sign-in.
+      driveUploadStatus = 401;
+      syncBtn.click();
+      await sleep(1000);
+      check("expired sign-in: the PC sync still succeeds",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("expired sign-in: asks for one more tap and never auto-pops",
+            /expired/.test(q("#drive-status").textContent) && gisCalls.request === 1,
+            "said=" + q("#drive-status").textContent + " requests=" + gisCalls.request);
+
+      // Popup blocked: the failure is named, not swallowed.
+      gisCalls.mode = "popup";
+      driveUploadStatus = 201;
+      syncBtn.click();
+      await sleep(1000);
+      check("blocked popup: the PC sync still succeeds",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("blocked popup: the status names popups and no auto-retry happened",
+            /popup/i.test(q("#drive-status").textContent) && gisCalls.request === 2,
+            "said=" + q("#drive-status").textContent + " requests=" + gisCalls.request);
+      gisCalls.mode = "ok";
+
+      // Panel reopen: the auto-run syncs the PC, never Google.
+      const gapiBeforeReopen = gapiCalls.length;
+      q("#settings-close").click();
+      await sleep(250);
+      settingsBtn.click();
+      await sleep(250);
+      q("#export-btn").click();
+      await sleep(1500);
+      check("auto-run on reopen still syncs the PC",
+            /Sent/.test(q("#sync-status").textContent),
+            "said=" + q("#sync-status").textContent);
+      check("auto-run never opens Google's sign-in or its API",
+            gisCalls.request === 2 && gapiCalls.length === gapiBeforeReopen,
+            "gis=" + gisCalls.request + " gapi=" + gapiCalls.length
+              + " (was " + gapiBeforeReopen + ")");
+      check("auto-run says the Drive copy waits for a tap",
+            /next tap/.test(q("#drive-status").textContent),
+            "said=" + q("#drive-status").textContent);
+
+      // Leave the profile as the sync checks left it: no token, no client id.
+      q("#drive-id-remove").click();
+      await sleep(300);
+      check("removing the Client ID clears the device",
+            frame.contentWindow.localStorage.getItem("notes.drive.client") === null,
+            "stored=" + frame.contentWindow.localStorage.getItem("notes.drive.client"));
+      check("removing the Client ID unlocks the field",
+            driveId.readOnly === false && q("#drive-id-save").disabled === false,
+            "readOnly=" + driveId.readOnly + " saveDisabled=" + q("#drive-id-save").disabled);
+      q("#sync-token-remove").click();
+      await sleep(250);
 
       q("#settings-close").click();
       await sleep(250);
@@ -1266,7 +1554,7 @@ def expected_schema() -> str:
 PROBE = PROBE.replace("__EXPECTED_VERSION__", expected_version())
 PROBE = PROBE.replace("__EXPECTED_SCHEMA__", expected_schema())
 
-HOLDER: dict[str, str | None] = {"data": None}
+HOLDER: dict = {"data": None, "beats": []}
 
 
 class Probe(http.server.SimpleHTTPRequestHandler):
@@ -1275,6 +1563,14 @@ class Probe(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         if not self.path.startswith("/__result"):
+            if self.path.startswith("/__beat"):
+                length = int(self.headers.get("Content-Length") or 0)
+                HOLDER["beats"].append((time.time(), self.rfile.read(length).decode("utf-8")))
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+                return
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -1291,7 +1587,7 @@ def build_stage(name: str, app_js: Path) -> Path:
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     for asset in ("index.html", "app.css", "view.js", "storage.js", "reminder.js",
-                  "backup.js", "sync.js", "manifest.webmanifest"):
+                  "backup.js", "sync.js", "drive.js", "manifest.webmanifest"):
         shutil.copyfile(REPO / asset, stage / asset)
     shutil.copyfile(app_js, stage / "app.js")
     (stage / "_probe.html").write_text(PROBE, encoding="utf-8")
@@ -1308,6 +1604,34 @@ def serve(directory: Path, port: int) -> tuple[socketserver.TCPServer, threading
     return httpd, thread
 
 
+def kill_profile_chrome(profile: Path) -> None:
+    """Stop every Chrome process still using this run's profile directory.
+
+    On Windows the chrome.exe named on the command line is only a launcher: it
+    spawns the real browser and exits at once, so process.terminate() below
+    kills the launcher and ORPHANS the browser -- which goes on running for
+    hours and keeps the profile's process-singleton lock (the one Chrome 155's
+    2026-10-05 incident showed: a later run's launch was silently handed to the
+    living zombie from a previous run and never reached this run's page or
+    server at all, so the probe 'never reported back'). Sweeping by profile
+    name clears that lock; run before launching and again after terminating.
+    Matches only this directory's name -- the user's own browser profile lives
+    under a different path and is never touched.
+    """
+    token = profile.name
+    command = (
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        f"Where-Object {{ $_.CommandLine -like '*{token}*' }} | "
+        "ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }"
+    )
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-Command", command],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=30)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def drive(port: int, browser: Path, httpd, thread, label: str,
           cross_origin: bool = False, page: str = "_probe.html") -> list[dict]:
     """Run Chrome at the probe page and wait for it to report back.
@@ -1319,6 +1643,7 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
     # one would carry notes and folders into the next run and make any count
     # this probe asserts depend on history rather than on what it just did.
     profile = WORK / f"chrome-profile-{port}"
+    kill_profile_chrome(profile)
     if profile.exists():
         shutil.rmtree(profile, ignore_errors=True)
 
@@ -1339,7 +1664,7 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
     chrome_log = WORK / 'probe_chrome.log'
     log_handle = open(chrome_log, 'w', encoding='utf-8', errors='replace')
     process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=log_handle)
-    deadline = time.time() + 90
+    deadline = time.time() + 240  # wide enough for the full ~2.5 minute run
     try:
         while time.time() < deadline and HOLDER["data"] is None:
             time.sleep(0.25)
@@ -1350,17 +1675,27 @@ def drive(port: int, browser: Path, httpd, thread, label: str,
         except subprocess.TimeoutExpired:
             process.kill()
         log_handle.close()
+        kill_profile_chrome(profile)
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
 
     if HOLDER["data"] is None:
+        beats = HOLDER.get("beats") or []
+        if beats:
+            first = beats[0][0]
+            print(f"last probe beats ({len(beats)} total) for {label}:")
+            for when, body in beats[-8:]:
+                print(f"  +{when - first:5.1f}s  {body}")
+        else:
+            print(f"no /__beat at all for {label}: the probe script never ran")
         raise SystemExit(f"probe never reported back for {label} (browser hung or the page errored)")
     return json.loads(HOLDER["data"])
 
 
 def run_probe(stage: Path, port: int, browser: Path) -> list[dict]:
     HOLDER["data"] = None
+    HOLDER["beats"] = []
     httpd, thread = serve(stage, port)
     return drive(port, browser, httpd, thread, stage.name)
 
@@ -1372,6 +1707,7 @@ def run_probe_url(url: str, port: int, browser: Path) -> list[dict]:
     (scratch / "_probe.html").write_text(
         PROBE.replace('src="./index.html"', f'src="{url}"'), encoding="utf-8")
     HOLDER["data"] = None
+    HOLDER["beats"] = []
     httpd, thread = serve(scratch, port)
     return drive(port, browser, httpd, thread, url, cross_origin=True)
 
@@ -1380,6 +1716,7 @@ def run_probe_narrow(stage: Path, port: int, browser: Path) -> list[dict]:
     """The same stage again, in a phone-width frame (see PROBE_NARROW)."""
     (stage / "_probe_narrow.html").write_text(PROBE_NARROW, encoding="utf-8")
     HOLDER["data"] = None
+    HOLDER["beats"] = []
     httpd, thread = serve(stage, port)
     return drive(port, browser, httpd, thread, stage.name + " @380px",
                  page="_probe_narrow.html")
@@ -1392,6 +1729,7 @@ def run_probe_url_narrow(url: str, port: int, browser: Path) -> list[dict]:
     (scratch / "_probe_narrow.html").write_text(
         PROBE_NARROW.replace('src="./index.html"', f'src="{url}"'), encoding="utf-8")
     HOLDER["data"] = None
+    HOLDER["beats"] = []
     httpd, thread = serve(scratch, port)
     return drive(port, browser, httpd, thread, url + " @380px",
                  cross_origin=True, page="_probe_narrow.html")

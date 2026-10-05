@@ -268,6 +268,31 @@
         &ldquo;Only select repositories&rdquo; &rarr; choochatgpt/ask-ai-relay &rarr;
         Permissions &rarr; Contents: Read and write. The token lives only in this
         browser and is never placed in the app's public code.</p>
+      <!-- Google Drive second copy (v27): after each PC sync succeeds, the same
+           bundle goes to a "Notes Backup" folder in the user's Drive as one ZIP.
+           The Client ID below is public by design — it names the app to Google,
+           it is not a secret. The sign-in itself happens on Google's own window;
+           the app never sees the Google password and never stores the resulting
+           token (it lives in memory for under an hour). -->
+      <hr class="dialog-sep">
+      <div class="dialog-row sync-token-row">
+        <input id="drive-client-id" type="text" placeholder="Google Client ID (optional)"
+               autocomplete="off" aria-label="Google OAuth client ID">
+        <button id="drive-id-save" class="btn small" type="button">Save</button>
+        <button id="drive-id-remove" class="btn small" type="button">Remove</button>
+      </div>
+      <p id="drive-status" class="muted" role="status"></p>
+      <p class="muted">Optional second copy: after each sync the same backup + photos also
+        go to a &ldquo;Notes Backup&rdquo; folder in your Google Drive as one ZIP. One-time
+        setup: console.cloud.google.com &rarr; new project &rarr; APIs &amp; Services &rarr;
+        OAuth consent screen (External, add yourself as a test user) &rarr; Credentials
+        &rarr; Create credentials &rarr; OAuth client ID &rarr; Web application &rarr;
+        Authorised JavaScript origins: https://choochatgpt.github.io &rarr; copy the
+        Client ID (ends in .apps.googleusercontent.com) and paste it above. The Client ID
+        only names this app to Google &mdash; it is not a secret. The app never sees your
+        Google password: Google's own sign-in window asks for it, and the app receives
+        only a short-lived ticket that is forgotten when you close the page and can only
+        touch files this app created.</p>
       <hr class="dialog-sep">
       <label class="dialog-field">
         Email address

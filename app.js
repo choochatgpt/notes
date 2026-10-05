@@ -48,6 +48,19 @@ import {
   setToken,
   submit as syncSubmit
 } from "./sync.js";
+import {
+  buildZip,
+  clearClientId,
+  ensureBackupFolder,
+  friendlyDriveError,
+  getClientId,
+  hasClientId,
+  requestToken,
+  sanitizeClientId,
+  setClientId,
+  uploadBackup,
+  utf8
+} from "./drive.js";
 
 /**
  * The upper pane is either browsing (folders + list, or the reminder manager) or
@@ -1011,7 +1024,9 @@ async function showExportPanel() {
   await refreshExportCsv();
   // The user asked (2026-10-03) for the export click itself to sync everything:
   // with a token saved this button now sends the CSV + every photo on its own.
-  await runSync();
+  // driveAllowed:false — an auto-run must never pop Google's sign-in window;
+  // it copies to Drive only while the sign-in from an earlier tap still lives.
+  await runSyncCore({ driveAllowed: false });
 }
 
 /* ---- one-tap sync (sync.js) ------------------------------------------- */
@@ -1072,12 +1087,15 @@ function friendlySyncError(error) {
   return error?.message || String(error);
 }
 
-async function runSync() {
+async function runSyncCore({ driveAllowed }) {
   if (syncBusy) return;
   if (!hasToken()) {
     setSyncStatus("Add your backup token below (one-time setup), then tap the button again.");
     return;
   }
+  // The Google consent window must open inside the tap's user-activation
+  // window: once the click has crossed an await, browsers refuse the popup.
+  if (driveAllowed) kickOffDriveToken();
   syncBusy = true;
   const button = $("#sync-now-btn");
   if (button) button.disabled = true;
@@ -1130,12 +1148,33 @@ async function runSync() {
     setSyncStatus(`${prefix}Sent — backup + ${result.mediaCount} photo(s)/video(s) `
       + `(${Math.round(result.bytes / 1024)} KB). The PC picks it up within ~5 minutes `
       + `and emails the backup as before.${skipNote}`);
+    // The PC verdict is out; the Drive second copy (v27) runs after it and
+    // never on top of it — fire-and-forget, so an open Google consent window
+    // cannot hold syncBusy or this success message hostage.
+    if (driveAllowed) {
+      if (hasDriveClientId()) {
+        driveCopyStep({ csv, media, exportId: result.exportId });
+      } else {
+        setDriveStatus("Google Drive copy is off — paste your Client ID above to turn it on.");
+      }
+    } else if (hasDriveClientId()) {
+      if (driveTokenLive()) {
+        driveCopyStep({ csv, media, exportId: result.exportId });
+      } else {
+        setDriveStatus("(Google Drive sign-in will happen on your next tap of the sync button.)");
+      }
+    }
   } catch (error) {
     setSyncStatus(`${prefix}Sync failed: ${friendlySyncError(error)}`);
   } finally {
     syncBusy = false;
     if (button) button.disabled = false;
   }
+}
+
+/** The sync button: the only path allowed to open Google's consent window. */
+function runSync() {
+  return runSyncCore({ driveAllowed: true });
 }
 
 function saveSyncToken() {
@@ -1180,6 +1219,146 @@ function removeSyncToken() {
     input.placeholder = "Backup token (paste once)";
   }
   setSyncStatus("Token removed from this device.");
+}
+
+/* ---- Google Drive second copy (v27) ------------------------------------ */
+/* After a successful PC sync, the same bundle is zipped and copied to the
+ * user's own Google Drive (drive.js). The user asked for cloud saves on
+ * 2026-10-05; the design they chose: one ZIP per backup into a "Notes Backup"
+ * folder, uploaded on the same tap as the PC sync. There is no Google ID or
+ * password anywhere in this flow — the user consents on Google's own window
+ * and the app holds a short-lived access token IN MEMORY ONLY (never
+ * persisted; page reload forgets it by design). The Client ID the user pastes
+ * once is public by design, so unlike the relay token it may live in
+ * localStorage. */
+
+let driveToken = "";
+let driveTokenAt = 0;
+let driveTokenPromise = null;
+
+function setDriveStatus(message) {
+  const el = $("#drive-status");
+  if (el) el.textContent = message;
+}
+
+const hasDriveClientId = () => hasClientId();
+
+// The real token lives about an hour; retiring at 50 minutes keeps the last
+// sync of a session from dying mid-upload.
+const driveTokenLive = () => Boolean(driveToken)
+  && (Date.now() - driveTokenAt) < 50 * 60 * 1000;
+
+/**
+ * Called only from the tap path, synchronously, before runSyncCore's first
+ * await — browsers only permit the sign-in popup inside the click's
+ * user-activation window.
+ */
+function kickOffDriveToken() {
+  if (!hasDriveClientId() || driveTokenPromise || driveTokenLive()) return;
+  driveTokenPromise = requestToken(getClientId());
+  // The PC sync runs first; until the Drive step consumes this promise, a
+  // fast popup-close must not surface as an unhandled rejection.
+  driveTokenPromise.catch(() => {});
+}
+
+/**
+ * Fire-and-forget second copy: never fails or masks the PC sync (that
+ * already succeeded) and writes only #drive-status. Reuses the exact csv and
+ * media the relay upload just delivered — no second collection pass.
+ */
+async function driveCopyStep({ csv, media, exportId }) {
+  try {
+    if (!driveTokenLive()) {
+      const pending = driveTokenPromise;
+      driveTokenPromise = null;
+      const token = pending ? await pending : null;
+      if (!token) {
+        const error = new Error("no google sign-in yet");
+        error.code = "NOT_SIGNED_IN";
+        throw error;
+      }
+      driveToken = token;
+      driveTokenAt = Date.now();
+    }
+    setDriveStatus("Copying the same backup to Google Drive…");
+    const entries = [{ name: "backup.csv", bytes: utf8(csv) }].concat(
+      media.map(item => ({ name: `media/${item.name}`, bytes: item.bytes })));
+    const zipBytes = buildZip(entries);
+    const folderId = await ensureBackupFolder(driveToken);
+    const file = await uploadBackup({
+      token: driveToken,
+      zipBytes,
+      folderId,
+      name: `notes-backup-${exportId}.zip`
+    });
+    setDriveStatus(`Copied to Google Drive: ${file.name}`);
+  } catch (error) {
+    // The app never renews the sign-in on its own: on expiry the token is
+    // dropped and the next tap reconnects. No popup without a tap, ever.
+    if (error?.code === "TOKEN_EXPIRED") driveToken = "";
+    if (error?.code === "NOT_SIGNED_IN") {
+      setDriveStatus("(Google Drive sign-in will happen on your next tap of the sync button.)");
+    } else {
+      setDriveStatus(`Google Drive copy failed: ${friendlyDriveError(error)}`);
+    }
+  }
+}
+
+function saveDriveClientId() {
+  if (hasDriveClientId()) {
+    setDriveStatus("A Client ID is already saved. Tap Remove first if you want to replace it.");
+    return;
+  }
+  const input = $("#drive-client-id");
+  const value = (input?.value || "").trim();
+  if (!value) {
+    setDriveStatus("Paste the Client ID into the box first, then Save.");
+    return;
+  }
+  const cleaned = sanitizeClientId(value);
+  if (!cleaned || !cleaned.includes(".")) {
+    setDriveStatus("That paste doesn't look like a Client ID — it should end in "
+      + ".apps.googleusercontent.com. Copy the whole string from Google's console "
+      + "(steps below) and paste it here.");
+    return;
+  }
+  setClientId(cleaned);
+  if (input) {
+    input.value = "";
+    input.placeholder = "Client ID saved on this device";
+  }
+  refreshDriveUi();
+  setDriveStatus("Google Drive copy is on — it runs right after each PC sync. "
+    + "Google will ask once, on its own sign-in window, to allow it.");
+}
+
+function removeDriveClientId() {
+  clearClientId();
+  refreshDriveUi();
+  const input = $("#drive-client-id");
+  if (input) {
+    input.value = "";
+    input.placeholder = "Google Client ID (optional)";
+  }
+  setDriveStatus("Google Drive copy is off.");
+}
+
+/* The Client ID field is write-once like the backup token's, for the same
+ * reason: a stray tap must not be able to replace a working value.
+ */
+function refreshDriveUi() {
+  const input = $("#drive-client-id");
+  if (!input) return;
+  const stored = hasDriveClientId();
+  input.readOnly = stored;
+  input.placeholder = stored
+    ? "Client ID saved on this device — Remove to replace"
+    : "Google Client ID (optional)";
+  const save = $("#drive-id-save");
+  if (save) {
+    save.disabled = stored;
+    save.title = stored ? "Remove the Client ID first to paste a new one" : "";
+  }
 }
 
 function showImportPanel() {
@@ -1404,6 +1583,8 @@ function wireControls() {
   on("#sync-now-btn", "click", runSync);
   on("#sync-token-save", "click", saveSyncToken);
   on("#sync-token-remove", "click", removeSyncToken);
+  on("#drive-id-save", "click", saveDriveClientId);
+  on("#drive-id-remove", "click", removeDriveClientId);
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);
   on("#delete-note-btn", "click", deleteSelectedNote);
@@ -1445,6 +1626,7 @@ function wireControls() {
   const homeChip = $("#home-version");
   if (homeChip) homeChip.textContent = "v" + APP_VERSION;
   refreshSyncTokenUi();
+  refreshDriveUi();
 }
 
 /* The token field is write-once: while a token is stored the input is read

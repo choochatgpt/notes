@@ -66,11 +66,18 @@ PLACEHOLDER_FIRST_LINE = b"# NOTES TRANSFER INBOX"
 LOG_FILE = Path(ARCHIVE_DEFAULT) / "relay_backup_watch.log"
 TOOLS_DIR = Path(__file__).resolve().parent
 
+# The watcher normally runs under pythonw (no console of its own). Without
+# this flag every console child (git, the pull tools, the email sender)
+# makes Windows pop a fresh black window -- one per poll cycle, which the
+# user rightly called irritating (reported 2026-10-05).
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def run_git(repo: Path, *args: str) -> bytes:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
+        creationflags=_NO_WINDOW,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -125,7 +132,8 @@ def media_step(args: argparse.Namespace, repo: Path, head: str) -> str | None:
     done = subprocess.run(
         [sys.executable, str(TOOLS_DIR / "relay_pull_media.py"),
          "--repo", str(repo)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_NO_WINDOW)
     for line in (done.stdout or "").splitlines():
         log("  | " + line)
     if done.stderr and done.stderr.strip():
@@ -160,7 +168,8 @@ def sync_step(args: argparse.Namespace, repo: Path, head: str) -> str | None:
     done = subprocess.run(
         [sys.executable, str(TOOLS_DIR / "relay_pull_sync_inbox.py"),
          "--repo", str(repo)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_NO_WINDOW)
     for line in (done.stdout or "").splitlines():
         log("  | " + line)
     if done.stderr and done.stderr.strip():
@@ -192,7 +201,8 @@ def csv_step(args: argparse.Namespace, repo: Path, head: str) -> str:
     if args.to:
         cmd += ["--to", args.to]
     done = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace",
+                          creationflags=_NO_WINDOW)
     for line in (done.stdout or "").splitlines():
         log("  | " + line)
     if done.stderr and done.stderr.strip():

@@ -62,11 +62,17 @@ MAX_BYTES_PER_FILE = 24 * 1024 * 1024
 PLACEHOLDER_NAMES = {"readme.md", "readme.txt", ".gitkeep"}
 TOOLS_DIR = Path(__file__).resolve().parent
 
+# May run under the windowless watcher (pythonw). Without this flag every
+# console child (git) makes Windows pop a fresh black window -- one per
+# poll cycle (reported 2026-10-05).
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def run_git(repo: Path, *args: str) -> bytes:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
+        creationflags=_NO_WINDOW,
     )
     if result.returncode != 0:
         raise SystemExit(
@@ -97,6 +103,7 @@ def run_git_opt(repo: Path, *args: str) -> bytes | None:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
+        creationflags=_NO_WINDOW,
     )
     return result.stdout if result.returncode == 0 else None
 

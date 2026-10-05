@@ -74,12 +74,18 @@ MAX_CSV_BYTES = 10 * 1024 * 1024
 CSV_HEADER = b"# notes-backup"
 TOOLS_DIR = Path(__file__).resolve().parent
 
+# May run under the windowless watcher (pythonw). Without this flag every
+# console child (git, the email sender) makes Windows pop a fresh black
+# window -- one per poll cycle (reported 2026-10-05).
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def run_git(repo: Path, *args: str, stdin: bytes | None = None) -> bytes:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
         input=stdin,
+        creationflags=_NO_WINDOW,
     )
     if result.returncode != 0:
         raise SystemExit(
@@ -94,6 +100,7 @@ def branch_blob(repo: Path, branch_ref: str, path: str) -> bytes | None:
     result = subprocess.run(
         ["git", "-C", str(repo), "cat-file", "blob", f"{branch_ref}:{path}"],
         capture_output=True,
+        creationflags=_NO_WINDOW,
     )
     return result.stdout if result.returncode == 0 else None
 
@@ -346,10 +353,15 @@ def main(argv: list[str] | None = None) -> int:
         email_cmd = [sys.executable, str(TOOLS_DIR / "email_backup.py"), str(dated)]
         if args.to:
             email_cmd += ["--to", args.to]
-        sent = subprocess.run(email_cmd).returncode == 0
+        mailed = subprocess.run(email_cmd, capture_output=True, text=True,
+                                encoding="utf-8", errors="replace",
+                                creationflags=_NO_WINDOW)
+        sent = mailed.returncode == 0
         if not sent:
             print("the branch was left untouched -- fix the email config "
                   "(see email_backup.py --list-config) and rerun.")
+            if mailed.stderr and mailed.stderr.strip():
+                print("email sender said: " + mailed.stderr.strip()[:400])
             return 1
 
     if not manifest_files and not csv_payloads:

@@ -48,7 +48,9 @@ Exit codes: 0 = clean run (--once with nothing waiting, or Ctrl-C), 1 = a
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime
+import os
 import subprocess
 import sys
 import time
@@ -64,6 +66,7 @@ MAX_BYTES = 10 * 1024 * 1024
 BACKUP_HEADER = b"# notes-backup"
 PLACEHOLDER_FIRST_LINE = b"# NOTES TRANSFER INBOX"
 LOG_FILE = Path(ARCHIVE_DEFAULT) / "relay_backup_watch.log"
+LOCK_FILE = Path(ARCHIVE_DEFAULT) / "relay_backup_watch.lock"
 TOOLS_DIR = Path(__file__).resolve().parent
 
 # The watcher normally runs under pythonw (no console of its own). Without
@@ -99,6 +102,51 @@ def log(line: str) -> None:
             handle.write(text + "\n")
     except OSError:
         pass  # the console line still happened; a log hiccup must not kill the loop
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether a process with this PID exists right now (Windows-aware)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        # os.kill(pid, 0) would TERMINATE the process on Windows, so ask
+        # the kernel for a query-only handle instead.
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def another_watcher_alive() -> int | None:
+    """The PID of a live watcher, or None after claiming the lock for us.
+
+    A restart (or the Startup folder and a manual start landing together)
+    must never leave two pollers racing the branch rewrite, so daemon mode
+    keeps a PID lockfile. A lock naming a dead process is stale and taken
+    over; an unreadable lock never blocks the pickup.
+    """
+    try:
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if LOCK_FILE.exists():
+            try:
+                other = int(LOCK_FILE.read_text(encoding="ascii",
+                                                errors="ignore").strip())
+            except ValueError:
+                other = 0
+            if _pid_alive(other):
+                return other  # a live watcher owns the lock
+        LOCK_FILE.write_text(str(os.getpid()), encoding="ascii")
+        return None
+    except OSError:
+        return None  # cannot check -> run anyway (the old behaviour)
 
 
 def remote_blob(repo: Path, repo_path: str, head: str) -> bytes | None:
@@ -246,29 +294,47 @@ def main(argv: list[str] | None = None) -> int:
                         help="run one poll cycle and exit")
     args = parser.parse_args(argv)
 
-    # Under pythonw.exe (the scheduled task) sys.stdout is None, and even the
-    # first print would throw. Give the prints the log file itself.
-    if sys.stdout is None:
+    # Under pythonw.exe sys.stdout is None; print() itself then no-ops, but
+    # tracebacks still need a real stderr. Redirect ONLY stderr into the log:
+    # pointing stdout there too made log() write every line twice (once via
+    # print, once via its own file append), which read as a double instance.
+    if sys.stdout is None or sys.stderr is None:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        sys.stdout = sys.stderr = LOG_FILE.open("a", encoding="utf-8", buffering=1)
+        sys.stderr = LOG_FILE.open("a", encoding="utf-8", buffering=1)
 
     log(f"watcher started: repo={args.repo} inbox={args.repo_path} "
         f"media={REPO_MEDIA_DIR} sync={SYNC_BRANCH} archive={args.archive_dir} "
         f"every={args.every:g}s")
     failures = 0
-    while True:
-        try:
-            log(cycle(args))
-        except Exception as error:  # infrastructure trouble: log, wait, retry
-            failures += 1
-            log(f"cycle failed ({failures} so far): {error}")
-        if args.once:
-            return 1 if failures else 0
-        try:
-            time.sleep(args.every)
-        except KeyboardInterrupt:
-            log("watcher stopped")
+    holder = None
+    if not args.once:
+        holder = another_watcher_alive()
+        if holder is not None:
+            log(f"another watcher already runs (pid {holder}); exiting")
             return 0
+    try:
+        while True:
+            try:
+                log(cycle(args))
+            except Exception as error:  # infrastructure trouble: log, wait, retry
+                failures += 1
+                log(f"cycle failed ({failures} so far): {error}")
+            if args.once:
+                return 1 if failures else 0
+            try:
+                time.sleep(args.every)
+            except KeyboardInterrupt:
+                log("watcher stopped")
+                return 0
+    finally:
+        try:
+            # Remove the lock only if it is still ours (the unreadable-lock
+            # fallback runs without owning it).
+            if LOCK_FILE.exists() and LOCK_FILE.read_text(
+                    encoding="ascii", errors="ignore").strip() == str(os.getpid()):
+                LOCK_FILE.unlink()
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

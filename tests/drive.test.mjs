@@ -15,6 +15,7 @@
  * without any popup or network.
  */
 const resolved = new URL(process.argv[2] || "../source/drive.js", import.meta.url);
+import { readFileSync } from "node:fs";
 const {
   BACKUP_SCHEMA,
   CLIENT_KEY,
@@ -298,6 +299,16 @@ equal("client id: hasClientId false after clear", hasClientId(), false);
     cfg && (cfg.driveClientId === ""
       || /^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$/.test(cfg.driveClientId)),
     JSON.stringify(cfg && cfg.driveClientId));
+  // And the shell must actually load it: drive.js reads
+  // globalThis.NOTES_APP_CONFIG, which exists in the browser only if
+  // index.html wires config.js in before the app module runs
+  // (deployment-day 2026-10-06: file checks passed while the page never
+  // loaded the file at all).
+  const indexHtml = readFileSync(new URL("index.html", resolved), "utf8");
+  check("index.html: loads config.js before the app module",
+    indexHtml.includes('<script src="config.js"></script>')
+      && indexHtml.indexOf('src="config.js"') < indexHtml.indexOf('src="app.js"'),
+    "config.js script tag present and before app.js");
   delete globalThis.NOTES_APP_CONFIG;
 }
 

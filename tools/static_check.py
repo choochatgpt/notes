@@ -606,6 +606,16 @@ if re.search(r"GOCSPX-[A-Za-z0-9_-]{10,}|refresh_token|ya29\.", config):
     fails.append("config.js carries a secret-shaped value (client-secret "
                  "prefix, refresh token or access token) -- only the public "
                  "Client ID may ship")
+# config.js must be LOADED by the shell, not merely cached: a pasted Client ID
+# is invisible to the app if nothing wires the file into the page (found on
+# deployment day 2026-10-06 -- the app.js module tag was the only script tag,
+# so globalThis.NOTES_APP_CONFIG never existed in the browser despite every
+# file-level check passing).
+index_html = read("index.html")
+if '<script src="config.js"></script>' not in index_html:
+    fails.append('index.html must carry <script src="config.js"></script> -- '
+                 "drive.js reads globalThis.NOTES_APP_CONFIG, set by that "
+                 "file; a cached-but-unloaded config.js is never configured")
 # The per-user identity must never hardcode: no Client ID literal outside
 # config.js, no access-token literal (Google's implicit-flow tokens start
 # "ya29."), no account-id-shaped 21-digit number in any shipped file.

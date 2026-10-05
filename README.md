@@ -439,7 +439,7 @@ node tests/backup.test.mjs ../backup.js         # 76 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 69 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 193 checks in real Chrome (179 desktop + 14 at 380px)
+python tools/browser_check.py                   # 194 checks in real Chrome (180 desktop + 14 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

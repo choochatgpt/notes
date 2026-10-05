@@ -831,6 +831,16 @@ PROBE = """<!doctype html>
       const callsFor = token => gapiCalls.filter(c =>
         ((c.init || {}).headers || {}).Authorization === "Bearer " + token);
       const csvBeforeSwitch = q("#export-csv").value;
+      // The shell must have LOADED config.js, not merely cache it: drive.js
+      // reads globalThis.NOTES_APP_CONFIG, which exists in the browser only
+      // through index.html's classic script tag (v30 fix -- deployment day
+      // found the tag missing, so a pasted Client ID would never reach the
+      // app despite every file-level check passing).
+      check("v30: the shell loaded config.js (NOTES_APP_CONFIG.driveClientId is a string)",
+            frame.contentWindow.NOTES_APP_CONFIG
+              && typeof frame.contentWindow.NOTES_APP_CONFIG.driveClientId === "string",
+            "driveClientId=" + String(frame.contentWindow.NOTES_APP_CONFIG
+              && frame.contentWindow.NOTES_APP_CONFIG.driveClientId));
       const aCallsBefore = callsFor("probe-drive-token-A").length;
       // A already backs up twice before here (TEST A + TEST C): what matters
       // is that its store never changes again after the B steps.

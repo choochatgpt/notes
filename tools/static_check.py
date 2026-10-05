@@ -145,16 +145,17 @@ if 'id="agenda-list"' not in html:
     fails.append("index.html has no #agenda-list")
 
 # --- 6b. Settings: the ratio cycle, export and import ------------------------
-# The offered ratios are a product decision, not a style detail: the four
-# top-share percentages the user asked for (2026-09-29 revision), in their
-# order, wrapping. The default 50% is deliberately NOT in the cycle -- it is
-# the CSS fallback and the chip's starting value, checked separately below.
+# The offered ratios are a product decision, not a style detail: the user's
+# ten-percent steps from 10% through 90% (2026-10-05 revision; before it was
+# 20/40/60/80), in order, wrapping. The default 50% is the CSS fallback and
+# the chip's starting value, checked separately below; since this revision it
+# is also one of the offered stops.
 ratio_match = re.search(r"RATIOS\s*=\s*\[([^\]]+)\]", view)
 offered = re.findall(r'"([^"]+)"', ratio_match.group(1)) if ratio_match else []
-required = ["20%", "40%", "60%", "80%"]
+required = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"]
 if offered != required:
     fails.append(f"view.js RATIOS must be {required} in order "
-                 f"(the four requested top shares), found {offered}")
+                 f"(the requested 10%-step top shares), found {offered}")
 elif "function nextRatio(" not in view:
     fails.append("view.js has no nextRatio, so the ratio button cannot cycle")
 elif "function ratioToTracks(" not in view:

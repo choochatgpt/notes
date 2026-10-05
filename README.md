@@ -36,9 +36,9 @@ while you edit a note above it. The even split is the default because the agenda
 is where a reminder actually gets read, and a third of the screen cut the list
 short while the notes region had room to spare. It is a default rather than a
 rule: Settings → *Notes/Reminders panel display ratio* cycles the top pane
-through 20%, 40%, 60% and 80% of the screen and back around, and remembers the
-choice on the device. If the stored choice cannot be read, the app falls back to
-the even split — never to a broken layout.
+through 10%, 20%, 30% … up to 90% of the screen and back around, and remembers
+the choice on the device. If the stored choice cannot be read, the app falls
+back to the even split — never to a broken layout.
 
 **Every agenda row is exactly one line**, reading left to right as clock, title,
 how often it repeats, then when it is next due:
@@ -170,8 +170,8 @@ site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
 `CACHE_NAME` in `sw.js` together, every release.
 
 **Notes/Reminders panel display ratio.** Each click moves the split to the next
-top-pane share — `20% → 40% → 60% → 80%` and back around, so the notes region
-claims a fifth, two fifths, three fifths, or four fifths of the screen. The
+top-pane share — `10% → 20% → … → 90%` and back around, in ten-percent steps
+(the 2026-10-05 revision; it previously cycled 20/40/60/80). The
 choice is stored on the device and applied again on the next launch (the browser
 check proves this by reloading the app and re-measuring the panes). A fresh
 device starts at the even split (50%), which is the value the chip shows until

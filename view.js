@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "25";
+export const APP_VERSION = "26";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -223,20 +223,21 @@ export function noteSnippet(body) {
 
 /**
  * The pane splits offered in Settings, in cycle order: the share of the screen
- * the top (notes) pane claims. The user's four requested percentages, wrapping
- * 80% -> 20%.
+ * the top (notes) pane claims. The user's ten-percent steps from 10% through
+ * 90%, wrapping 90% -> 10% (2026-10-05 revision; before it was 20/40/60/80).
  */
-export const RATIOS = ["20%", "40%", "60%", "80%"];
+export const RATIOS = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"];
 
 /**
- * The split before anything is chosen: the even split. It is deliberately NOT
- * in the cycle -- the four above are the whole offer -- but it is the CSS
- * fallback and the chip's value until the first click, so a fresh device (or an
+ * The split before anything is chosen: the even split. It is the CSS fallback
+ * and the chip's value until the first click, so a fresh device (or an
  * unreadable stored value) starts even rather than at an arbitrary share.
+ * Since the 10%-step revision it is also one of the offered stops, so the
+ * first click from it simply advances to 60%.
  */
 export const DEFAULT_RATIO = "50%";
 
-/** The next ratio in the cycle. An unknown value (incl. the default) restarts at the first. */
+/** The next ratio in the cycle. An unknown value (not a stop) restarts at the first. */
 export function nextRatio(current) {
   const index = RATIOS.indexOf(current);
   return RATIOS[(index + 1) % RATIOS.length];

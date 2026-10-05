@@ -388,36 +388,38 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
 
 console.log("\n=== 11. pane ratio cycle -- 20/40/60/80 top share, then wrap ===");
 {
-  // The user's four requested shares of the top pane, in cycle order. The
-  // default 50% is deliberately NOT in the list -- it is where a fresh device
-  // starts (and the CSS fallback), and the first click leaves it for 20%.
+  // The user's requested ten-percent steps of the top pane, in cycle order
+  // (2026-10-05 revision; before it was 20/40/60/80). The default even split
+  // is now one of the stops, so the first click from a fresh device simply
+  // advances 50% -> 60%.
   equal("the offered ratios, in cycle order",
-        RATIOS.join(","), "20%,40%,60%,80%");
+        RATIOS.join(","), "10%,20%,30%,40%,50%,60%,70%,80%,90%");
   equal("the default is the even split", DEFAULT_RATIO, "50%");
-  check("the default is not one of the four, per the 2026-09-29 revision",
-        !RATIOS.includes(DEFAULT_RATIO));
+  check("the default is one of the offered stops since the 10%-step revision",
+        RATIOS.includes(DEFAULT_RATIO));
 
-  equal("the first click from the default lands on 20%", nextRatio(DEFAULT_RATIO), "20%");
-  equal("...then up the requested list", nextRatio("20%"), "40%");
-  equal("mid-cycle advances", nextRatio("40%"), "60%");
-  equal("the last share wraps to the first", nextRatio("80%"), "20%");
+  equal("the first click from the even split advances to 60%",
+        nextRatio(DEFAULT_RATIO), "60%");
+  equal("...and the low end climbs", nextRatio("10%"), "20%");
+  equal("mid-cycle advances", nextRatio("40%"), "50%");
+  equal("the last share wraps to the first", nextRatio("90%"), "10%");
 
   const visited = [];
-  let cursor = "20%";
+  let cursor = "10%";
   for (let i = 0; i < RATIOS.length; i += 1) {
     cursor = nextRatio(cursor);
     visited.push(cursor);
   }
-  equal("four clicks from the first share return to it", cursor, "20%");
+  equal("nine clicks from the first share return to it", cursor, "10%");
   equal("...having visited every offered share exactly once (last step wraps)",
-        visited.join(","), "40%,60%,80%,20%");
+        visited.join(","), "20%,30%,40%,50%,60%,70%,80%,90%,10%");
 
   equal("an unknown stored value restarts at the first share",
-        nextRatio("banana"), "20%");
-  equal("a missing value is treated the same way", nextRatio(null), "20%");
-  equal("an empty value too", nextRatio(""), "20%");
+        nextRatio("banana"), "10%");
+  equal("a missing value is treated the same way", nextRatio(null), "10%");
+  equal("an empty value too", nextRatio(""), "10%");
   equal("a stored ratio from the old a:b release also restarts",
-        nextRatio("1:4"), "20%");
+        nextRatio("1:4"), "10%");
 }
 
 console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
@@ -428,6 +430,9 @@ console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
   equal("the low end splits 20/80",
         ratioToTracks("20%").top + "/" + ratioToTracks("20%").bottom,
         "20fr/80fr");
+  equal("the lowest offered step splits 10/90",
+        ratioToTracks("10%").top + "/" + ratioToTracks("10%").bottom,
+        "10fr/90fr");
   equal("the high end splits 80/20",
         ratioToTracks("80%").top + "/" + ratioToTracks("80%").bottom,
         "80fr/20fr");

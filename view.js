@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "32";
+export const APP_VERSION = "33";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -288,14 +288,16 @@ export function ratioToTracks(ratio) {
 
 /**
  * The folder:contents splits offered in Settings (v31), in cycle order: the
- * share the left folder column claims inside the notes pane. The user's
+ * share the TOP folder panel claims inside the notes pane (since v33 the
+ * split is top/bottom; before that it was left/right). The user's
  * five-percent-window stops 30% through 70%, wrapping 70% -> 30% (2026-10-06).
  */
 export const FOLDER_RATIOS = ["30%", "40%", "50%", "60%", "70%"];
 
 /**
  * The split before anything is chosen: 40:60, the share the density pass
- * shipped on the user's request (2026-10-05). It is the CSS fallback (the
+ * shipped on the user's request (2026-10-05) -- 40% of the notes pane for the
+ * folder tree (its top share since v33). It is the CSS fallback (the
  * same 4fr/6fr the markup's chip carries) and the chip's value until the
  * first click, and like the pane ratio it is one of the offered stops, so
  * the first click simply advances to 50%.
@@ -309,17 +311,17 @@ export function nextFolderRatio(current) {
 }
 
 /**
- * CSS grid tracks for a left share: "40%" -> 40fr left, 60fr right.
- * Anything unparseable or out of range falls back to the default 40:60
- * rather than to junk columns.
+ * CSS grid tracks for the folder (top) share: "40%" -> 40fr folder, 60fr
+ * content. Anything unparseable or out of range falls back to the default
+ * 40:60 rather than to junk tracks.
  */
 export function folderRatioToTracks(ratio) {
   const match = /^(\d{1,3})%$/.exec(String(ratio ?? ""));
   const pct = match ? Number(match[1]) : NaN;
   if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
-    return { left: "4fr", right: "6fr" };
+    return { folder: "4fr", content: "6fr" };
   }
-  return { left: `${pct}fr`, right: `${100 - pct}fr` };
+  return { folder: `${pct}fr`, content: `${100 - pct}fr` };
 }
 
 /** "Work / Projects / Apollo", built by walking parents up to the root. */

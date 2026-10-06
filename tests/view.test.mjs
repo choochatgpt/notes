@@ -542,7 +542,7 @@ console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
         /^(1fr)$/.test(ratioToTracks("junk!").top));
 }
 
-console.log("\n=== 12b. folder ratio cycle -- 30..70 left share inside the notes pane ===");
+console.log("\n=== 12b. folder ratio cycle -- 30..70 folder (top) share inside the notes pane ===");
 {
   // The user's requested folder/contents stops (2026-10-06). The default is
   // the shipped 40:60 from the v25 density pass, so a fresh device starts
@@ -578,26 +578,26 @@ console.log("\n=== 12b. folder ratio cycle -- 30..70 left share inside the notes
 
   const folderTracks = folderRatioToTracks("30%");
   equal("the wide-contents stop splits 30/70",
-        folderTracks.left + "/" + folderTracks.right, "30fr/70fr");
+        folderTracks.folder + "/" + folderTracks.content, "30fr/70fr");
   equal("the wide-folder stop splits 70/30",
-        folderRatioToTracks("70%").left + "/" + folderRatioToTracks("70%").right,
+        folderRatioToTracks("70%").folder + "/" + folderRatioToTracks("70%").content,
         "70fr/30fr");
   equal("the default 40% is the shipped 40:60",
-        folderRatioToTracks(DEFAULT_FOLDER_RATIO).left + "/"
-          + folderRatioToTracks(DEFAULT_FOLDER_RATIO).right,
+        folderRatioToTracks(DEFAULT_FOLDER_RATIO).folder + "/"
+          + folderRatioToTracks(DEFAULT_FOLDER_RATIO).content,
         "40fr/60fr");
   equal("an unparseable value falls back to the shipped split, not junk",
-        folderRatioToTracks("banana").left + "/" + folderRatioToTracks("banana").right,
+        folderRatioToTracks("banana").folder + "/" + folderRatioToTracks("banana").content,
         "4fr/6fr");
   equal("undefined falls back too",
-        folderRatioToTracks(undefined).left + "/" + folderRatioToTracks(undefined).right,
+        folderRatioToTracks(undefined).folder + "/" + folderRatioToTracks(undefined).content,
         "4fr/6fr");
   equal("an out-of-range share is refused rather than asked for",
-        folderRatioToTracks("140%").left + "/" + folderRatioToTracks("140%").right,
+        folderRatioToTracks("140%").folder + "/" + folderRatioToTracks("140%").content,
         "4fr/6fr");
-  check("the fallback names real fractions, so the columns never get junk",
-        /^(4fr)$/.test(folderRatioToTracks("junk!").left)
-          && /^(6fr)$/.test(folderRatioToTracks("junk!").right));
+  check("the fallback names real fractions, so the rows never get junk",
+        /^(4fr)$/.test(folderRatioToTracks("junk!").folder)
+          && /^(6fr)$/.test(folderRatioToTracks("junk!").content));
 }
 
 console.log("\n=== 12. noteSnippet -- the list preview keeps the author's line breaks ===");

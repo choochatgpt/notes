@@ -178,9 +178,12 @@ if 'setSetting("paneRatio"' not in app:
 if 'getSetting("paneRatio"' not in app:
     fails.append("app.js never reads the pane ratio back, so the stored choice is ignored")
 
-# The folder/contents split inside the notes pane (v31): cycle 30..70, default
-# the shipped 40:60. Both grid rules (desktop and the <=760px override) must
-# read the custom properties, or the choice would dead-end at phone width.
+# The folder/contents split inside the notes pane (v31; v33 stacked it): cycle
+# 30..70, default the shipped 40:60 -- now of the pane's HEIGHT (tree above,
+# list below). The split is ONE grid rule at every width: app.js reaches it
+# through --folder-track/--content-track, and the narrow block must not
+# re-declare the template (a re-introduced columns override is the failed
+# layout trying to come back).
 folder_ratio_match = re.search(r"FOLDER_RATIOS\s*=\s*\[([^\]]+)\]", view)
 folder_offered = re.findall(r'"([^"]+)"', folder_ratio_match.group(1)) if folder_ratio_match else []
 folder_required = ["30%", "40%", "50%", "60%", "70%"]
@@ -201,20 +204,32 @@ elif 'DEFAULT_FOLDER_RATIO' not in app:
 elif '<span id="folder-ratio-value" class="chip accent">40%</span>' not in html:
     fails.append("the folder ratio chip must START at 40%, so the dialog opens "
                  "showing the shipped split before any click")
-elif 'setProperty("--folder-col"' not in app or 'setProperty("--content-col"' not in app:
-    fails.append("app.js never writes --folder-col/--content-col, so the chosen "
+elif 'setProperty("--folder-track"' not in app or 'setProperty("--content-track"' not in app:
+    fails.append("app.js never writes --folder-track/--content-track, so the chosen "
                  "folder ratio never reaches the layout")
 elif 'setSetting("folderRatio"' not in app:
     fails.append("app.js never persists the folder ratio, so the choice resets on every launch")
 elif 'getSetting("folderRatio"' not in app:
     fails.append("app.js never reads the folder ratio back, so the stored choice is ignored")
 else:
-    print(f"folder ratio cycle: {' -> '.join(folder_offered)} -> (wrap); default 40:60")
+    print(f"folder ratio cycle: {' -> '.join(folder_offered)} -> (wrap); "
+          "default 40:60 top/bottom (v33 stacked)")
 css = read("app.css")
-if css.count("minmax(0, var(--folder-col") < 2 or css.count("minmax(0, var(--content-col") < 2:
-    fails.append("app.css must drive --folder-col/--content-col through BOTH "
-                 ".browse-notes rules (desktop and the <=760px override), or "
-                 "the folder choice dead-ends at phone width")
+stacked_narrow = css.split("@media (max-width: 760px)", 1)
+if not re.search(r"\.browse-notes\s*\{[^}]*grid-template-rows:\s*"
+                 r"minmax\(0, var\(--folder-track, 4fr\)\)\s*"
+                 r"minmax\(0, var\(--content-track, 6fr\)\)", css, re.S):
+    fails.append("app.css's .browse-notes must carry ONE stacked grid-template-rows rule "
+                 "reading minmax(0, var(--folder-track, 4fr)) / "
+                 "minmax(0, var(--content-track, 6fr)), or the chosen folder ratio "
+                 "never reaches the layout and the old columns are still there")
+elif re.search(r"\.browse-notes[^{]*\{[^}]*grid-template-columns", css):
+    fails.append("a .browse-notes rule still declares grid-template-columns -- the "
+                 "notes pane is stacked (top/bottom) since v33; a columns rule "
+                 "reintroduces the side-by-side layout")
+elif len(stacked_narrow) > 1 and re.search(r"\.browse-notes\s*\{", stacked_narrow[1]):
+    fails.append("the <=760px block still overrides .browse-notes -- the stacked "
+                 "split is one rule at every width; nothing to re-declare")
 for required_label in ("Folder/Content display ratio for notes",):
     if required_label not in html:
         fails.append(f'the Settings dialog is missing the "{required_label}" control')

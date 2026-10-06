@@ -1137,11 +1137,13 @@ PROBE = """<!doctype html>
           "folders=" + doc.querySelectorAll("#folder-tree .folder-row").length);
     const targetId = folderRow ? folderRow.dataset.folder : "";
 
-    // The 40:60 folder:contents split the user asked for (2026-10-05) -- and
-    // since v31 the user can cycle it in Settings between 30% and 70%, so
-    // the Settings dialog is reopened here while the notes pane is actually
-    // browsed (.browse-notes does not exist on the agenda-only stages, which
-    // is where the dialog first opens).
+    // The folder:contents split, stacked top/bottom since v33 -- the folder
+    // tree sits ABOVE the note list, both panels full width (the user asked
+    // for the tree's full width instead of a left panel). Since v31 the user
+    // can cycle the share in Settings between 30% and 70%, so the Settings
+    // dialog is reopened here while the notes pane is actually browsed
+    // (.browse-notes does not exist on the agenda-only stages, which is where
+    // the dialog first opens). The split is now of the pane's HEIGHT.
     {
       q("#settings-btn").click();
       await sleep(400);
@@ -1150,19 +1152,36 @@ PROBE = """<!doctype html>
       check("the folder ratio cycle can open Settings over the notes stage",
             dialogOk, "open=" + (cycleDialog ? cycleDialog.open : "no dialog"));
 
+      // Layout geometry first: the tree panel must be the row above the list
+      // panel and both must be as wide as the notes grid itself, or the
+      // top/bottom premise everything else here measures is already wrong.
+      const above = q(".browse-notes .folders-col");
+      const below = q(".browse-notes .list-col");
+      const region = q(".browse-notes");
+      const aboveRect = above ? above.getBoundingClientRect() : null;
+      const belowRect = below ? below.getBoundingClientRect() : null;
+      const regionRect = region ? region.getBoundingClientRect() : null;
+      check("the folder tree is stacked above the note list, full width",
+            !!(aboveRect && belowRect && regionRect)
+            && aboveRect.top < belowRect.top
+            && aboveRect.bottom <= belowRect.top + 1
+            && Math.abs(aboveRect.width - regionRect.width) <= 1.5
+            && Math.abs(belowRect.width - regionRect.width) <= 1.5,
+            "above=" + (aboveRect ? Math.round(aboveRect.top) + "x" + Math.round(aboveRect.width) : "missing")
+            + " below=" + (belowRect ? Math.round(belowRect.top) + "x" + Math.round(belowRect.width) : "missing")
+            + " region=" + (regionRect ? Math.round(regionRect.width) : "missing"));
+
       const folderChipText = () => {
         const el = q("#folder-ratio-value");
         return el ? el.textContent.trim() : "";
       };
       const folderShare = () => {
-        const left = q(".browse-notes .folders-col");
-        const right = q(".browse-notes .list-col");
-        if (!left || !right) return -1;
-        const l = left.getBoundingClientRect().width;
-        const r = right.getBoundingClientRect().width;
-        return l + r > 0 ? l / (l + r) : -1;
+        if (!above || !below) return -1;
+        const a = above.getBoundingClientRect().height;
+        const b = below.getBoundingClientRect().height;
+        return a + b > 0 ? a / (a + b) : -1;
       };
-      // Chip text AND the real column widths: a chip that updates while the
+      // Chip text AND the real row heights: a chip that updates while the
       // grid does not would pass a text-only check, and that is the trap this
       // measurement exists for. The dialog ships at the default 40:60.
       check("the folder ratio control opens on the shipped 40:60",
@@ -1178,7 +1197,7 @@ PROBE = """<!doctype html>
         await waitFor(() => folderChipText() === label, 3000);
         await sleep(150);  // let layout settle after the style write
         const got = folderShare();
-        check("a folder ratio click lands on " + label + " and re-balances the columns",
+        check("a folder ratio click lands on " + label + " and re-balances the rows",
               folderChipText() === label && Math.abs(got - share) <= 0.05,
               "chip=" + folderChipText() + " folderShare=" + got.toFixed(3)
               + " expected=" + share.toFixed(3));
@@ -1700,15 +1719,15 @@ PROBE = """<!doctype html>
             "chip=" + (folderChip ? folderChip.textContent : "missing"));
       let folderShareRestart = -1;
       {
-        const left = fresh.querySelector(".browse-notes .folders-col");
-        const right = fresh.querySelector(".browse-notes .list-col");
-        if (left && right) {
-          const l = left.getBoundingClientRect().width;
-          const r = right.getBoundingClientRect().width;
-          folderShareRestart = l + r > 0 ? l / (l + r) : -1;
+        const above = fresh.querySelector(".browse-notes .folders-col");
+        const below = fresh.querySelector(".browse-notes .list-col");
+        if (above && below) {
+          const a = above.getBoundingClientRect().height;
+          const b = below.getBoundingClientRect().height;
+          folderShareRestart = a + b > 0 ? a / (a + b) : -1;
         }
       }
-      check("...and is applied to the folder columns",
+      check("...and is applied to the folder rows",
             Math.abs(folderShareRestart - 0.4) <= 0.05,
             "folderShare=" + folderShareRestart.toFixed(3));
       const email = fresh.querySelector("#backup-email");
@@ -1947,6 +1966,47 @@ PROBE = """<!doctype html>
             rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
             "rows=" + rowNames2().join(" | "));
     }
+
+    // --- v33: a long note list scrolls INSIDE its own panel ---
+    // Stacked, the tree sits ABOVE the list, so the list must be its own
+    // scroller: when it grew past its row (the flex automatic minimum), the
+    // scrollable overflow fell to .pane-body and scrolling a long list slid
+    // the whole tree aside. Seed enough notes to overflow the panel, scroll
+    // the list, and prove the list took the scroll while the tree's top and
+    // .pane-body stayed put. Last on purpose -- the ten notes pollute nothing.
+    {
+      const seedNote = async label => {
+        fq2("#new-note-btn").click();
+        await sleep(600);
+        fq2("#note-title").value = label;
+        fq2("#note-editor").requestSubmit();
+        await sleep(500);
+        fq2("#editor-back").click();
+        await sleep(400);
+      };
+      for (let i = 0; i < 10; i++) {
+        await seedNote("Scroll Probe " + i + " extra words to keep the row tall");
+      }
+      await sleep(400);
+      const scrolledList = fq2("#note-list");
+      const treePanel3 = fq2(".browse-notes .folders-col");
+      const paneBody3 = scrolledList ? scrolledList.closest(".pane-body") : null;
+      const treeTop0 = treePanel3 ? treePanel3.getBoundingClientRect().top : -1;
+      const overflowed = !!scrolledList
+        && scrolledList.scrollHeight > scrolledList.clientHeight;
+      if (scrolledList) scrolledList.scrollTop = 99999;
+      await sleep(300);
+      const treeTop1 = treePanel3 ? treePanel3.getBoundingClientRect().top : -1;
+      check("a long note list scrolls inside its own panel",
+            overflowed
+            && !!scrolledList && scrolledList.scrollTop > 0
+            && Math.abs(treeTop1 - treeTop0) <= 1
+            && !!paneBody3 && paneBody3.scrollTop === 0,
+            "overflowed=" + overflowed
+            + " scrollTop=" + (scrolledList ? scrolledList.scrollTop : "n/a")
+            + " treeTop=" + treeTop0 + "->" + treeTop1
+            + " paneBody=" + (paneBody3 ? paneBody3.scrollTop : "n/a"));
+    }
   } catch (error) {
     check("probe ran to completion", false, String(error && error.message || error));
   }
@@ -2100,6 +2160,20 @@ PROBE_NARROW = """<!doctype html>
             && upStyle.display !== "none",
             "w=" + (upBox ? Math.round(upBox.width) : -1)
             + " h=" + (upBox ? Math.round(upBox.height) : -1));
+    }
+
+    // The stacked split is ONE rule at every width since v33; the phone frame
+    // must lay the tree above the list too (no side-by-side at 380px).
+    {
+      const above = q(".browse-notes .folders-col");
+      const below = q(".browse-notes .list-col");
+      const stackOk = !!(above && below)
+        && above.getBoundingClientRect().top < below.getBoundingClientRect().top
+        && above.getBoundingClientRect().bottom
+           <= below.getBoundingClientRect().top + 1;
+      check("narrow: the folder panel is stacked above the note list", stackOk,
+            "aboveTop=" + (above ? Math.round(above.getBoundingClientRect().top) : -1)
+            + " belowTop=" + (below ? Math.round(below.getBoundingClientRect().top) : -1));
     }
 
     // --- the editor's three buttons share one line at phone width ---

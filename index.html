@@ -104,7 +104,8 @@
       </div>
 
       <div class="pane-body">
-        <!-- Notes browser: folder tree beside the note list. -->
+        <!-- Notes browser: the folder tree above the note list (v33),
+             both panels full width. -->
         <div id="browse-notes" class="browse browse-notes">
           <div class="folders-col">
             <div class="col-head">
@@ -238,9 +239,10 @@
       </button>
     </div>
 
-    <!-- Cycles the folder/contents split INSIDE the notes pane (v31): 30% is
-         a wide contents column, 70% a wide folder tree; the default is the
-         shipped 40:60. The chip shows where you are. -->
+    <!-- Cycles the folder/contents split INSIDE the notes pane (v31; v33
+         made it top/bottom): 30% is a tall contents list under the folder
+         tree, 70% a tall tree over a short list; the default stays the
+         shipped 40:60 of the pane's height. The chip shows where you are. -->
     <div class="dialog-row">
       <button id="folder-ratio-btn" class="btn" type="button"
               aria-label="Folder/Content display ratio for notes">

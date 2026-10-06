@@ -311,16 +311,18 @@ body {
 
 .browse { height: 100%; min-height: 0; }
 
-/* Notes browser: folder tree beside the note list, inside the upper pane.
-   40:60 by default (user request 2026-10-05): the tree needs enough room for
-   nested names, but the contents column is where reading happens, so it earns
-   the wider share. Since v31 the user cycles this in Settings between
-   30% and 70%; the custom properties --folder-col/--content-col carry the
-   choice and the 4fr/6fr fallback is the default state. */
+/* Notes browser: the folder tree ABOVE the note list (v33, on request) --
+   both full width. 40:60 by default still, but the share is now of the
+   notes pane's HEIGHT: the tree needs enough room for nested names, and the
+   panels' WIDTH is what the user wanted back. Since v31 the split is cycled
+   in Settings between 30% and 70%; since v33 it is top/bottom. The custom
+   properties --folder-track/--content-track carry the choice (track, not
+   column/row: the orientation lives in this one template) and the 4fr/6fr
+   fallback is the default state. */
 .browse-notes {
   display: grid;
-  grid-template-columns: minmax(0, var(--folder-col, 4fr))
-                         minmax(0, var(--content-col, 6fr));
+  grid-template-rows: minmax(0, var(--folder-track, 4fr))
+                      minmax(0, var(--content-track, 6fr));
   gap: 0;
 }
 
@@ -329,7 +331,7 @@ body {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
   background: var(--surface-2);
 }
 
@@ -344,7 +346,13 @@ body {
 .col-head .panel-title { flex: 1; }
 
 .list-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.list-col .item-list { flex: 1; }
+
+/* The note list scrolls INSIDE its own panel (v33, required): without this the
+   flex item grows past its row (measured 683px content in a 308px track) and
+   .pane-body becomes the scroller again, which would slide the tree above off
+   screen the moment a long list is scrolled. The tree's own panel already
+   scrolls the same way. */
+.list-col .item-list { flex: 1; overflow: auto; overscroll-behavior: contain; }
 
 .inline-form {
   display: flex;
@@ -973,14 +981,11 @@ body[data-fatal="true"] .pane { opacity: .55; }
   .topbar-actions .btn { padding: 7px; gap: 0; }
   .topbar { gap: 8px; padding-left: 6px; padding-right: 6px; }
 
-  /* The folder ratio follows the same var() as the desktop split (v31), so
-     the Settings choice holds at phone width as well; the 4fr/6fr fallbacks
-     keep the default 40:60 here too. Narrowing the folder column further is
-     what made nested names unreadable, and the column is where the delete
-     control lives. */
+  /* The folder/contents split is ONE rule at every width since v33: the base
+     .browse-notes row template serves the phone as well, so there is nothing
+     to override here and the Settings choice cannot dead-end at any width.
+     (A re-declared template here used to duplicate the desktop rule.) */
   .app-shell { padding: 3px 4px 0; gap: 4px; }
-  .browse-notes { grid-template-columns: minmax(0, var(--folder-col, 4fr))
-                                         minmax(0, var(--content-col, 6fr)); }
   .editor { padding: 6px; }
   .item-row { padding: 4px 6px; gap: 5px; }
   .folder-select { font-size: 12.5px; }

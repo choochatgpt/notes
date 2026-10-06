@@ -59,9 +59,12 @@ but leaves you to infer whether it repeats weekly or fortnightly, which is the
 inference the label exists to remove. A one-off reads `Once`; a spent one-off
 reads `Past` and carries no due time, because it does not have one.
 
-**Inside the notes half, the folders and the note list are half each.** The
-folder column carries the names and the delete control, so it gets an equal
-share rather than whatever is left over.
+**Inside the notes half, the folder tree sits ABOVE the note list, both full
+width** (v33, asked for so the tree reads at full width instead of a narrow
+left panel). The default split gives the tree 40% of the notes pane's height,
+and Settings "Folder/Content display ratio for notes" cycles it 30%–70%. A
+long note list scrolls inside its own bottom panel, so the tree above stays
+put, and each panel carries its own header and controls.
 
 **The chrome is deliberately thin.** Small gaps, small padding, compact buttons —
 every pixel spent on margin is a folder name that gets cut off.
@@ -72,7 +75,7 @@ labels collapse and the icons carry the action.
 **The upper half browses, then edits in place.** Tapping a note (or a reminder)
 swaps that area into its editor with a back arrow.
 
-**Two tabs in the upper area.** *Notes* shows the folder tree beside the note
+**Two tabs in the upper area.** *Notes* shows the folder tree above the note
 list. *Reminders* is where reminders are managed — created, edited and deleted.
 The agenda below is read-only, which keeps exactly one place able to change a
 reminder.
@@ -190,6 +193,14 @@ check proves this by reloading the app and re-measuring the panes). A fresh
 device starts at the even split (50%), which is the value the chip shows until
 the first click — the four shares are the whole offer, and 50% is the fallback
 an unreadable stored value degrades to.
+
+**Folder/Content display ratio for notes** (added v31; a vertical split since
+v33). Each click moves the share of the notes pane's **height** that the folder
+tree claims above the note list — `30% → 40% → 50% → 60% → 70%` and back around.
+The choice is stored on the device and applied again on the next launch; a
+fresh device starts at the shipped 40% (40/60 of the pane's height), which is
+also the CSS fallback an unreadable stored value degrades to. The chip shows
+where you are in the cycle.
 
 **Export notes/reminders to email.** The panel builds the whole database —
 nested folders with their parenting, notes, and reminders — as one text CSV
@@ -455,7 +466,7 @@ node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 220 checks in real Chrome (203 desktop + 17 at 380px)
+python tools/browser_check.py                   # 223 checks in real Chrome (205 desktop + 18 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -468,10 +479,12 @@ indent depth, and that a folder whose parent is missing is still offered, since
 a folder the picker cannot name is one no note can be moved out of — the
 sibling order shared by the tree and the picker (`sortFoldersSiblings`), so
 that arranged folders lead in hand order and everything else trails
-alphabetically — and the
-pane-ratio cycle: the exact four top-share percentages, that the 50% default is
-not among them, that four clicks wrap back to the first, and that an
-unparseable or old-format stored ratio falls back to the even split.
+alphabetically — the
+pane-ratio cycle (ten-percent steps, the 50% even split as default and
+fallback), and the folder-ratio cycle (since v33 the 30%–70% stops are the
+folder panel's **top** share in a stacked notes pane, the 40% default, wrap
+at the ends, and a junk stored value falling back to real 40/60 tracks rather
+than junk rows).
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
 (nesting, commas/quotes/newlines in note bodies, weekday rules, the v2
@@ -510,7 +523,12 @@ widths (the same no-hover-reveal rule as the delete), the folder order must be
 a record field rather than a device setting, the picker must read through the
 same `sortFoldersSiblings` as the tree, and every rename/reorder interaction
 must leave the edit state behind (tab switch, delete, restore, commit and
-cancel all clear it).
+cancel all clear it). And the v33 pins state the stacked layout itself: the
+notes grid carries exactly one `grid-template-rows` rule with the
+`--folder-track`/`--content-track` variables, declares no
+`grid-template-columns` anywhere, the ≤760px block does not override
+`.browse-notes` (one split at every width), and `#note-list` is styled as its
+own scroller.
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
@@ -524,13 +542,20 @@ alphabetical, one arrow tap moving exactly one slot, the inline rename
 controls, the folder `order` column riding the exported CSV back through a
 restore, and the arrangement + name surviving a reload. It also measures the two panes' rendered
 heights, because equal rows in the source do not prove equal panes on screen —
-a `min-height` on either one breaks the split without touching the rule. Static
+a `min-height` on either one breaks the split without touching the rule. The
+v33 stacked layout is measured, not pinned: the folder panel renders as the
+row above the note list with both panels as wide as the notes grid itself, a
+folder-ratio click re-balances the two rows' heights (chip text AND geometry),
+and after enough notes are seeded the list scrolls inside its own panel while
+the tree's top and `.pane-body`'s scroll position stay exactly where they
+were. Static
 checks can prove an id exists and a listener is attached in the source; they
 cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
 
 For Settings it walks the whole story: every ratio click measured against the
-fraction of the screen it should claim, the export panel carrying exactly
+fraction of the screen it should claim (the pane ratio against the top pane's
+height, the folder ratio against the tree panel's height in its row), the export panel carrying exactly
 Share CSV for backup + Export CSV with the removed buttons proven absent, the export CSV
 built and read back (the mail link's attribute only — a clicked `mailto:` hangs
 headless Chrome forever), a garbage paste refused, a previewed backup armed, an
@@ -549,7 +574,9 @@ remaining thumbnail back; deleting the note — whose confirmation is inspected
 for the photo warning — empties OPFS and the media store completely. The
 380px pass measures the things layout bugs hide in: the reminder row shows the
 date with the relative time stood down and no leftover separator, all on one
-line; and Delete / Add photo/video / Save sit on one line at phone width.
+line; and Delete / Add photo/video / Save sit on one line at phone width. Since
+v33 the narrow pass also proves the folder panel is stacked above the note list
+at 380px — the same one rule serves every width.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

@@ -1116,18 +1116,18 @@ async function cyclePaneRatio() {
 }
 
 /**
- * Put a left share on the folder/contents columns. The default 40:60 is the
- * CSS fallback, so resetting the properties would also be correct -- but
- * setting them explicitly keeps the chip and the tracks reading from the
- * same value. Anything outside the offered five reads as the default rather
- * than as junk columns.
+ * Put a top share on the folder/contents rows (v33: the folder tree sits
+ * above the note list). The default 40:60 is the CSS fallback, so resetting
+ * the properties would also be correct -- but setting them explicitly keeps
+ * the chip and the tracks reading from the same value. Anything outside the
+ * offered five reads as the default rather than as junk tracks.
  */
 function applyFolderRatio(ratio) {
   const region = $(".browse-notes");
   const tracks = folderRatioToTracks(ratio);
   if (region) {
-    region.style.setProperty("--folder-col", tracks.left);
-    region.style.setProperty("--content-col", tracks.right);
+    region.style.setProperty("--folder-track", tracks.folder);
+    region.style.setProperty("--content-track", tracks.content);
   }
   const chip = $("#folder-ratio-value");
   if (chip) {

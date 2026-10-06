@@ -97,6 +97,19 @@ Branches expand and collapse, each folder shows how many notes are directly in
 it, and a breadcrumb chip shows the path (`Work / Projects / Apollo`). Notes
 filed at no folder live under **Unfiled**.
 
+**Folders can be renamed and re-ordered by hand (v32).** Every row carries
+always-on **↑ / ↓ / rename** buttons beside the delete — no hover hunting, and
+the same at 380px as at 900px. A rename edits the row in place: prefilled
+input, **Save** (or Enter) commits, **✕** (or Escape) cancels, an empty name
+just keeps the old one, and the breadcrumb chip updates with it. The arrows
+re-order one slot per tap within the row's own sibling group — the note-picker
+mirrors the arranged tree, so "Move note…" reads the same list the tree shows.
+Until the first arrow tap a group is plain alphabetical; that first tap freezes
+the arrangement, and afterwards a newly created folder lands at the end of its
+group instead of shuffling the ones already arranged. The hand arrangement
+rides the backup: the folders section carries an `order` column, so a restore
+and a new device both put folders back where you put them.
+
 **Reminders are a flat list.** They are deliberately not filed into folders. Both
 the agenda and the Reminders tab are ordered by the soonest upcoming reminder,
 and each row is one line: title, how it repeats, then a relative due ("in 3 days")
@@ -161,9 +174,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 19"), so on any device you can
+and the release number at the bottom ("Version 32"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v19`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v32`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -180,7 +193,7 @@ an unreadable stored value degrades to.
 
 **Export notes/reminders to email.** The panel builds the whole database —
 nested folders with their parenting, notes, and reminders — as one text CSV
-under a versioned `# notes-backup v2` header, and the primary action is the
+under a versioned `# notes-backup v3` header, and the primary action is the
 one-tap **Back up notes + photos now**: it collects the bundle once and hands
 it to every configured destination independently (since v28) — each
 destination reports its own status line, one destination's failure never
@@ -255,8 +268,11 @@ outright.
 The address is remembered in the same local database as your notes — it never
 leaves the device either. The backup is **text only**: photos ride along as an
 id list (`mediaIds`) and never as bytes. On the same device a restore therefore
-reattaches the pictures; on a new device the notes come back without them. A
-v1 backup (no mediaIds column) still restores. Reminder due dates are
+reattaches the pictures; on a new device the notes come back without them.
+Folders carry their hand arrangement back too: an `order` column rides along
+(v3). A v1 backup (no mediaIds column) and a v2 backup (no order column) still
+restore — older files parse, alphabetically arranged as their releases showed
+them. Reminder due dates are
 deliberately left out — they are recomputed from the start date and the rule on
 restore, so a due date can never be imported stale from another machine.
 
@@ -434,12 +450,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 128 tests
-node tests/backup.test.mjs ../backup.js         # 76 tests
+node tests/view.test.mjs ../view.js             # 156 tests
+node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
-node tests/drive.test.mjs ../drive.js           # 69 tests (stubbed Google API)
+node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 202 checks in real Chrome (188 desktop + 14 at 380px)
+python tools/browser_check.py                   # 220 checks in real Chrome (203 desktop + 17 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -449,18 +465,24 @@ relative-time buckets, folder paths, HTML escaping, subtree collection for a
 recursive folder delete (including that a parent cycle terminates), the wording
 of the delete confirmation, that every recurrence label names its period as well as its frequency, the folder picker's contents — tree order,
 indent depth, and that a folder whose parent is missing is still offered, since
-a folder the picker cannot name is one no note can be moved out of — and the
+a folder the picker cannot name is one no note can be moved out of — the
+sibling order shared by the tree and the picker (`sortFoldersSiblings`), so
+that arranged folders lead in hand order and everything else trails
+alphabetically — and the
 pane-ratio cycle: the exact four top-share percentages, that the 50% default is
 not among them, that four clicks wrap back to the first, and that an
 unparseable or old-format stored ratio falls back to the even split.
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
 (nesting, commas/quotes/newlines in note bodies, weekday rules, the v2
-`mediaIds` column), CRLF and LF input, a leading BOM, malformed rows / missing
-sections / duplicate ids refused with line numbers, dangling folder references
-repaired *and reported*, the confirmation wording's counts and its
-photos-not-included clause, **a v1 file still parsing** (only a file newer than
-the app is refused), and the mailto ceiling refusing rather than truncating.
+`mediaIds` column, the v3 folder `order` column — zero orders included, since
+0 is a real position), CRLF and LF input, a leading BOM, malformed rows /
+missing sections / duplicate ids refused with line numbers, dangling folder
+references repaired *and reported*, a folder whose parent is gone lifted to the
+top with a warning, the confirmation wording's counts and its
+photos-not-included clause, **v1 and v2 files still parsing** (only a file
+newer than the app is refused), junk order cells (`3.5`, `0x2`, words) staying
+unordered, and the mailto ceiling refusing rather than truncating.
 
 All five take the module path as an argument and default to the `../source/` layout.
 
@@ -481,16 +503,26 @@ share gone; the clipboard button's label was renamed to "Share CSV for backup"
 on 2026-10-02),
 the editor action row is nowrap, the narrow layout keeps the reminder date and
 stands the relative time down, photos have their strip/viewer/OPFS plumbing,
-and backup.js is v2 with a mediaIds column and a parse gate that accepts
-older files.
+and backup.js is v3 with a mediaIds + folder-order columns and a parse gate
+that accepts older files. The v32 pins hold the rename/reorder work to its
+shape: the pencil/up/down/delete controls must always be on screen in both
+widths (the same no-hover-reveal rule as the delete), the folder order must be
+a record field rather than a device setting, the picker must read through the
+same `sortFoldersSiblings` as the tree, and every rename/reorder interaction
+must leave the edit state behind (tab switch, delete, restore, commit and
+cancel all clear it).
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
 resulting DOM — including moving a note and confirming it left the folder it was
-in (not just that it arrived in the new one), and deleting a folder: that the
+in (not just that it arrived in the new one), deleting a folder: that the
 control is on screen without hovering, that cancelling the confirmation keeps the
 folder, that the confirmation names the folder and counts the notes inside it,
-and that confirming removes both. It also measures the two panes' rendered
+and that confirming removes both — and the v32 rename/reorder flow: starting
+alphabetical, one arrow tap moving exactly one slot, the inline rename
+(prefill, save, chip refresh, Escape-cancel, empty-name no-op), the always-on
+controls, the folder `order` column riding the exported CSV back through a
+restore, and the arrangement + name surviving a reload. It also measures the two panes' rendered
 heights, because equal rows in the source do not prove equal panes on screen —
 a `min-height` on either one breaks the split without touching the rule. Static
 checks can prove an id exists and a listener is attached in the source; they

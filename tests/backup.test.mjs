@@ -51,8 +51,8 @@ const STAMP = "2026-09-29T12:00:00.000Z";
 // folder, and both an enabled weekly reminder and a spent disabled one.
 const fixture = {
   folders: [
-    { id: "f1", parentId: null, name: 'Work, "HQ"', createdAt: STAMP, updatedAt: STAMP },
-    { id: "f2", parentId: "f1", name: "Projects", createdAt: STAMP, updatedAt: STAMP },
+    { id: "f1", parentId: null, name: 'Work, "HQ"', order: 1, createdAt: STAMP, updatedAt: STAMP },
+    { id: "f2", parentId: "f1", name: "Projects", order: 0, createdAt: STAMP, updatedAt: STAMP },
     { id: "f3", parentId: null, name: "Empty", createdAt: STAMP, updatedAt: STAMP }
   ],
   notes: [
@@ -108,6 +108,17 @@ console.log("=== 1. build -> parse round-trip ===");
   check("the notes section carries a mediaIds column",
         csv.indexOf("id,folderId,title,body,mediaIds,createdAt,updatedAt") !== -1,
         csv.split("\r\n")[3]);
+  equal("the folders section carries an order column",
+        csv.split("\r\n")[2],
+        "id,parentId,name,order,createdAt,updatedAt");
+  // A zero order is a real position (the user's first arranged folder); it must
+  // not be lost to a truthiness bug.
+  equal("a folder's order survives the round trip",
+        byId(parsed.folders, "f2").order, 0);
+  equal("...as does an ordered one higher up",
+        byId(parsed.folders, "f1").order, 1);
+  equal("a folder without an order parses back as null",
+        byId(parsed.folders, "f3").order, null);
 
   const weekly = byId(parsed.reminders, "r1");
   equal("the recurrence object round-trips field for field",
@@ -284,7 +295,7 @@ console.log("\n=== 6. buildMailtoHref -- refused rather than truncated ===");
   equal("one character past the limit is refused", overLimit.ok, false);
 }
 
-console.log("\n=== 7. versions: v2 out, v1 still read ===");
+console.log("\n=== 7. versions: v3 out, older files still read ===");
 {
   // The exact bytes an app at the previous release wrote: no mediaIds column,
   // a v1 header. Columns are matched by header name, so this must keep parsing.
@@ -331,6 +342,59 @@ console.log("\n=== 7. versions: v2 out, v1 still read ===");
   equal("...and parse back into a list",
         JSON.stringify(parseBackupCsv(withPhotos).notes[0].mediaIds),
         JSON.stringify(["m1", "m2"]));
+}
+
+console.log("\n=== 7b. v2 still reads -- and junk order cells stay unordered ===");
+{
+  // The exact bytes this app wrote between the mediaIds bump and the order
+  // bump: no order column in the folders section. It must keep parsing.
+  const v2 = [
+    `# notes-backup v2, exported ${STAMP}`,
+    "## folders",
+    "id,parentId,name,createdAt,updatedAt",
+    `f1,,"Zeta, arranged",${STAMP},${STAMP}`,
+    "## notes",
+    "id,folderId,title,body,mediaIds,createdAt,updatedAt",
+    `n1,f1,Hello,"Body, text",m1,${STAMP},${STAMP}`,
+    "## reminders",
+    "id,folderId,title,body,enabled,startAt,timeZone,recurrence,createdAt,updatedAt",
+    `r1,,Ring,,true,${STAMP},UTC,` +
+      `"{""version"":1,""kind"":""once"",""interval"":1,""weekdays"":[]}",${STAMP},${STAMP}`,
+    ""
+  ].join("\r\n");
+
+  const old = parseBackupCsv(v2);
+  check("a v2 backup still parses", old.ok, old.errors.join(" | "));
+  equal("...and reports its own version", old.version, 2);
+  equal("...with its folder named and intact", old.folders[0].name, "Zeta, arranged");
+  equal("...and its folders restore as unordered",
+        old.folders[0].order, null);
+
+  // An order cell that is not a bare integer parses as never-arranged, however
+  // it got into the file: the arranged order of two releases could not collide
+  // on a nonsense value.
+  const junk = [
+    "# notes-backup v1, exported 2026-01-01T00:00:00.000Z",
+    "## folders",
+    "id,parentId,name,order,createdAt,updatedAt",
+    `f1,,Work,3.5,${STAMP},${STAMP}`,
+    `f2,f1,Hex,0x2,${STAMP},${STAMP}`,
+    `f3,f1,Prose,abc,${STAMP},${STAMP}`,
+    `f4,f1,Signed,-2,${STAMP},${STAMP}`,
+    "## notes",
+    "id,folderId,title,body,createdAt,updatedAt",
+    "## reminders",
+    "id,folderId,title,body,enabled,startAt,timeZone,recurrence,createdAt,updatedAt",
+    ""
+  ].join("\r\n");
+  const parsed = parseBackupCsv(junk);
+  check("prose and non-integer order cells parse without erroring", parsed.ok,
+        parsed.errors.join(" | "));
+  equal("a decimal order is not an order", parsed.folders[0].order, null);
+  equal("a hex-looking order is not an order", parsed.folders[1].order, null);
+  equal("a word order is not an order", parsed.folders[2].order, null);
+  equal("a negative integer order IS an order",
+        parsed.folders[3].order, -2);
 }
 
 console.log(`\n===== ${passed} passed, ${failed} failed =====`);

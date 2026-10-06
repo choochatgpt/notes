@@ -36,6 +36,7 @@ const {
   ratioToTracks,
   relativeFromNow,
   SNIPPET_LINE_CHARS,
+  sortFoldersSiblings,
   sortReminders
 } = await import(resolved.href);
 
@@ -316,7 +317,7 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
   equal("Unfiled sits at depth 0", options[0].depth, 0);
 
   equal(
-    "the tree is walked depth-first, siblings alphabetical",
+    "the tree is walked depth-first, siblings alphabetical while none carries an order",
     options.slice(1).map(o => o.name).join(","),
     "Home,Work,Apollo,Q3,HR"
   );
@@ -387,6 +388,88 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
     "a nameless folder sorts without throwing",
     folderOptions(missingName).length,
     2
+  );
+}
+
+console.log(
+  "\n=== 10b. sortFoldersSiblings -- arranged folders first, alphabetical tail ==="
+);
+{
+  const group = [
+    { id: "b", parentId: null, name: "Bravo" },
+    { id: "a", parentId: null, name: "Alpha", order: 1 },
+    { id: "z", parentId: null, name: "Zulu", order: 0 }
+  ];
+  const sorted = sortFoldersSiblings(group);
+  equal(
+    "ordered folders precede unordered ones",
+    sorted.map(row => row.id).join(","),
+    "z,a,b"
+  );
+  equal("the input array is not mutated", group.map(row => row.id).join(","), "b,a,z");
+
+  equal(
+    "ordered siblings sort by order ascending",
+    sortFoldersSiblings([
+      { id: "3", name: "Three", order: 2 },
+      { id: "1", name: "One", order: 0 },
+      { id: "2", name: "Two", order: 1 }
+    ]).map(row => row.id).join(","),
+    "1,2,3"
+  );
+  equal(
+    "equal order values break on name",
+    sortFoldersSiblings([
+      { id: "b", name: "Charlie", order: 4 },
+      { id: "a", name: "Alpha", order: 4 }
+    ]).map(row => row.id).join(","),
+    "a,b"
+  );
+  equal(
+    "the unordered tail sorts alphabetically",
+    sortFoldersSiblings([
+      { id: "b", parentId: null, name: "Bravo", order: 0 },
+      { id: "d", parentId: null, name: "Delta" },
+      { id: "c", parentId: null, name: "Charlie" }
+    ]).map(row => row.id).join(","),
+    "b,c,d"
+  );
+  equal(
+    "a non-numeric order does not count as ordered",
+    sortFoldersSiblings([
+      { id: "junk", name: "Junk", order: "3.5" },
+      { id: "hex", name: "Hex", order: "0x2" },
+      { id: "text", name: "Text", order: "abc" },
+      { id: "real", name: "Real", order: 0 }
+    ]).map(row => row.id).join(","),
+    "real,hex,junk,text"
+  );
+  equal(
+    "a single-element group sorts to itself",
+    sortFoldersSiblings([{ id: "solo", name: "Solo" }]).length,
+    1
+  );
+  equal("an empty group is an empty list", sortFoldersSiblings([]).length, 0);
+
+  // The picker mirrors the arranged tree: the note editor's folder list must
+  // read exactly like the folder column.
+  const arranged = [
+    { id: "b", parentId: null, name: "Bravo" },
+    { id: "a", parentId: null, name: "Alpha", order: 1 },
+    { id: "z", parentId: null, name: "Zulu", order: 0 }
+  ];
+  equal(
+    "the picker mirrors the arranged tree",
+    folderOptions(arranged).map(o => o.name).join(","),
+    "Unfiled,Zulu,Alpha,Bravo"
+  );
+  // A folder created after a rearrange carries no order and appends at the end;
+  // it must never wedge itself into the middle of an arrangement already made.
+  const appended = arranged.concat([{ id: "new", parentId: null, name: "New" }]);
+  equal(
+    "a new folder without an order lands last in the picker",
+    folderOptions(appended).map(o => o.name).join(","),
+    "Unfiled,Zulu,Alpha,Bravo,New"
   );
 }
 

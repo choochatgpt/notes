@@ -432,6 +432,75 @@ body {
 .folder-del:focus-visible { outline: 2px solid var(--danger); outline-offset: 1px; }
 .folder-row.active .folder-del { color: var(--text-dim); }
 
+/* The move and rename controls live by the same doctrine as .folder-del above:
+   always on screen, quiet at rest, tappable when invisible would be a lie. The
+   arrows reuse the right-pointing chevron glyph, rotated here. */
+.folder-up,
+.folder-down,
+.folder-rename,
+.folder-rename-cancel {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background .13s, color .13s;
+}
+.folder-up .icon,
+.folder-down .icon {
+  width: 12px;
+  height: 12px;
+  transition: transform .13s;
+}
+.folder-up .icon { transform: rotate(-90deg); }
+.folder-down .icon { transform: rotate(90deg); }
+.folder-rename .icon { width: 12px; height: 12px; }
+.folder-rename-cancel { font-size: 12px; font-weight: 650; line-height: 1; }
+.folder-up:hover,
+.folder-down:hover,
+.folder-rename:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.folder-up:focus-visible,
+.folder-down:focus-visible,
+.folder-rename:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.folder-rename-cancel:hover {
+  background: var(--surface-3);
+  color: var(--text-dim);
+}
+.folder-rename-cancel:focus-visible {
+  outline: 2px solid var(--text-dim);
+  outline-offset: 1px;
+}
+.folder-row.active .folder-up,
+.folder-row.active .folder-down,
+.folder-row.active .folder-rename { color: var(--text-dim); }
+
+/* The editing row swaps the row controls for one small form. */
+.folder-row.editing { gap: 0; }
+.folder-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.folder-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
 .count {
   flex: none;
   padding: 0 4px;
@@ -567,6 +636,7 @@ body {
 .title-input,
 .body-input,
 .inline-form input,
+.folder-rename-input,
 .form-grid input,
 .form-grid select,
 .dialog-panel input {
@@ -586,6 +656,7 @@ body {
 .title-input:focus,
 .body-input:focus,
 .inline-form input:focus,
+.folder-rename-input:focus,
 .form-grid input:focus,
 .form-grid select:focus,
 .dialog-panel input:focus {

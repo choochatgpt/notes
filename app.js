@@ -35,6 +35,7 @@ import {
   DEFAULT_RATIO,
   DEFAULT_FOLDER_RATIO,
   relativeFromNow,
+  sortFoldersSiblings,
   sortReminders
 } from "./view.js";
 import {
@@ -78,6 +79,11 @@ const state = {
   // a view detail, not part of the note data.
   collapsed: new Set(),
   folders: [],
+  // The folder row currently being renamed and its in-progress text, so a
+  // re-render (any action after an edit) does not swallow what was typed.
+  // Cleared by tab switch, folder delete, restore and the save/cancel buttons.
+  renamingFolderId: null,
+  renamingDraft: null,
   folderChip: "",
   reminderChip: "",
   editChip: ""
@@ -167,8 +173,8 @@ async function renderFolders() {
     if (!byParent.has(parent)) byParent.set(parent, []);
     byParent.get(parent).push(folder);
   }
-  for (const list of byParent.values()) {
-    list.sort((a, b) => a.name.localeCompare(b.name));
+  for (const [parent, list] of byParent) {
+    byParent.set(parent, sortFoldersSiblings(list));
   }
 
   const rows = [
@@ -188,6 +194,30 @@ async function renderFolders() {
       const open = hasChildren && !state.collapsed.has(folder.id);
       const count = counts.get(folder.id) || 0;
 
+      if (folder.id === state.renamingFolderId) {
+        // The rename row swaps the row controls for a small form. There is no
+        // Cancel button in the tree chrome around it: Escape cancels on a
+        // keyboard, and the visible ✕ answers every phone keyboard, which has
+        // no Escape key. Nothing happens on blur -- blur fires before a Save
+        // click lands and would commit half-typed text.
+        rows.push(
+          `<div class="folder-row editing" data-folder="${esc(folder.id)}"
+                data-renaming="${esc(folder.id)}" style="padding-left:${5 + depth * 8}px">
+             <span class="folder-toggle leaf"></span>
+             <form class="folder-rename-form" autocomplete="off">
+               <input class="folder-rename-input" type="text"
+                      value="${esc(state.renamingDraft ?? folder.name)}"
+                      aria-label="Folder name">
+               <button class="btn small primary" type="submit">Save</button>
+               <button class="folder-rename-cancel" type="button"
+                       title="Cancel renaming" aria-label="Cancel renaming">&#x2715;</button>
+             </form>
+           </div>`
+        );
+        if (open) walk(folder.id, depth + 1);
+        continue;
+      }
+
       rows.push(
         `<div class="folder-row ${state.selectedFolderId === folder.id ? "active" : ""}"
               data-folder="${esc(folder.id)}" style="padding-left:${5 + depth * 8}px">
@@ -201,6 +231,18 @@ async function renderFolders() {
              <span class="folder-name">${esc(folder.name)}</span>
            </button>
            ${count ? `<span class="count">${count}</span>` : ""}
+           <button class="folder-up" type="button" data-up="${esc(folder.id)}"
+                   title="Move up" aria-label="Move ${esc(folder.name)} up">
+             <svg class="icon"><use href="#i-chevron"></use></svg>
+           </button>
+           <button class="folder-down" type="button" data-down="${esc(folder.id)}"
+                   title="Move down" aria-label="Move ${esc(folder.name)} down">
+             <svg class="icon"><use href="#i-chevron"></use></svg>
+           </button>
+           <button class="folder-rename" type="button" data-rename="${esc(folder.id)}"
+                   title="Rename folder" aria-label="Rename folder ${esc(folder.name)}">
+             <svg class="icon"><use href="#i-pencil"></use></svg>
+           </button>
            <button class="folder-del" type="button" data-del="${esc(folder.id)}"
                    title="Delete folder" aria-label="Delete folder ${esc(folder.name)}">
              <svg class="icon"><use href="#i-trash"></use></svg>
@@ -216,7 +258,28 @@ async function renderFolders() {
   els.folderTree.innerHTML = rows.join("");
 
   els.folderTree.querySelectorAll(".folder-row").forEach(rowEl => {
+    if (rowEl.dataset.renaming) wireRenameRow(rowEl);
     rowEl.addEventListener("click", async event => {
+      // A renaming row is one form: its submit/cancel handlers are attached
+      // above, and the select-or-toggle branches below must not fire through it.
+      if (rowEl.dataset.renaming) return;
+
+      const up = event.target.closest(".folder-up");
+      if (up?.dataset.up) {
+        await moveFolder(up.dataset.up, -1);
+        return;
+      }
+      const down = event.target.closest(".folder-down");
+      if (down?.dataset.down) {
+        await moveFolder(down.dataset.down, 1);
+        return;
+      }
+      const rename = event.target.closest(".folder-rename");
+      if (rename?.dataset.rename) {
+        await beginFolderRename(rename.dataset.rename);
+        return;
+      }
+
       const toggle = event.target.closest(".folder-toggle");
       if (toggle?.dataset.toggle) {
         const id = toggle.dataset.toggle;
@@ -484,6 +547,9 @@ function startNewFolder() {
     els.newFolderForm.classList.remove("hidden");
     els.newFolderName.focus();
   };
+  // One editing interaction at a time: an open rename row ends when the new
+  // folder form takes over the column.
+  clearRenameState();
   // Folders are a notes concept; make sure the tree is on screen first.
   if (state.activeKind !== "notes" || state.mode === "edit") {
     switchKind("notes").then(reveal);
@@ -546,7 +612,104 @@ async function deleteFolder(folderId) {
     state.mode = "browse";
     state.selectedItemId = null;
   }
+  if (doomedIds.has(state.renamingFolderId)) clearRenameState();
 
+  await renderAll();
+}
+
+function clearRenameState() {
+  state.renamingFolderId = null;
+  state.renamingDraft = null;
+}
+
+/** Swaps a folder row into the inline rename form and puts the caret in it. */
+async function beginFolderRename(folderId) {
+  const folder = state.folders.find(candidate => candidate.id === folderId);
+  if (!folder) return;
+  state.renamingFolderId = folderId;
+  state.renamingDraft = null;
+  await renderFolders();
+  const input = els.folderTree.querySelector(".folder-rename-input");
+  if (input) {
+    input.focus();
+    input.select();
+  }
+}
+
+/** Attaches the rename form's wiring to the freshly rendered editing row. */
+function wireRenameRow(rowEl) {
+  const folderId = rowEl.dataset.renaming;
+  const form = rowEl.querySelector(".folder-rename-form");
+  const input = rowEl.querySelector(".folder-rename-input");
+  if (!form || !input) return;
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    submitRenameFolder(folderId, input.value)
+      .catch(error => reportFailure(error, "folder rename"));
+  });
+  input.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelFolderRename();
+    }
+  });
+  input.addEventListener("input", () => {
+    state.renamingDraft = input.value;
+  });
+  const cancel = rowEl.querySelector(".folder-rename-cancel");
+  if (cancel) cancel.addEventListener("click", cancelFolderRename);
+}
+
+/**
+ * Commits a rename, or cancels the edit. An empty name keeps the old one
+ * silently -- the same no-error convention as submitting an empty new-folder
+ * form -- and an unchanged name is not written at all. Identity is the id, so
+ * two folders may share a name, exactly as at creation.
+ */
+async function submitRenameFolder(folderId, name) {
+  const folder = (await getAll("folders")).find(candidate => candidate.id === folderId);
+  clearRenameState();
+  if (folder && name && name !== folder.name) {
+    await put("folders", { ...folder, name, updatedAt: nowIso() });
+  }
+  await renderAll();
+}
+
+function cancelFolderRename() {
+  clearRenameState();
+  renderFolders().catch(error => reportFailure(error, "folder rename"));
+}
+
+/**
+ * Moves a folder one slot among its siblings, using the exact order the tree
+ * displays (sortFoldersSiblings). Positions are 0..n-1 assigned across the
+ * visible siblings, so the first move also freezes the previous alphabetical
+ * display as the baseline; after that a brand-new folder without an order
+ * appends at the end and never shuffles an arrangement already made. A lone
+ * folder and a tap at the edge both write nothing: order is only ever written
+ * when something actually moves. No confirmation -- rearranging is fully
+ * reversible, next to a delete which absolutely is not.
+ */
+async function moveFolder(folderId, delta) {
+  const folders = await getAll("folders");
+  const moved = folders.find(candidate => candidate.id === folderId);
+  if (!moved) return;
+
+  const parent = moved.parentId ?? null;
+  const group = sortFoldersSiblings(
+    folders.filter(candidate => (candidate.parentId ?? null) === parent)
+  );
+  const index = group.indexOf(moved);
+  const target = index + delta;
+  if (group.length < 2 || target < 0 || target >= group.length) return;
+
+  group.splice(target, 0, group.splice(index, 1)[0]);
+  for (let i = 0; i < group.length; i += 1) {
+    const row = group[i];
+    if (row.order === i) continue;
+    await put("folders", { ...row, order: i });
+  }
   await renderAll();
 }
 
@@ -906,6 +1069,7 @@ async function switchKind(kind) {
   state.mode = "browse";
   state.selectedItemId = null;
   els.newFolderForm.classList.add("hidden");
+  clearRenameState();
   await renderAll();
 }
 
@@ -1667,6 +1831,7 @@ async function restoreBackup() {
   state.selectedItemId = null;
   state.mode = "browse";
   state.collapsed.clear();
+  clearRenameState();
 
   // The backup never carries nextDueAt; it is rebuilt from startAt + rule.
   await refreshReminderSchedule();

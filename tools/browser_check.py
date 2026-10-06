@@ -1721,6 +1721,232 @@ PROBE = """<!doctype html>
             rowsAfter.length === 2,
             "rows=" + rowsAfter.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
     }
+
+    // --- v32: renaming and rearranging folders ---
+    // Folder rows now carry move and rename controls beside the delete; the
+    // sibling order is alphabetical until a move pins it, and the backup
+    // carries the order column through an export/restore. The reload above
+    // replaced the document, so everything here re-queries the fresh one --
+    // and the confirm stub lives on the dead window's old contentWindow frame
+    // state, which now belongs to the reloaded document again in this
+    // variable's window, so restore clicks below re-arm it.
+    const fdoc = frame.contentDocument;
+    const fq = sel => fdoc.querySelector(sel);
+    frame.contentWindow.confirm = message => {
+      confirms.push(String(message));
+      return confirmAnswer;
+    };
+    confirmAnswer = false;
+
+    const rowNames = () => {
+      // Root-level rows sit at depth 0 (padding-left 5px); the nested Probe Sub
+      // at 13px is a different sibling group entirely.
+      const rows = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+        .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
+      return rows.map(r => {
+        const name = r.querySelector(".folder-name");
+        return name ? name.textContent.trim() : "?";
+      });
+    };
+
+    // Two more root folders. The reload left the world at Probe Root (root)
+    // and Probe Sub (child of it); nothing is selected, so creation lands at
+    // the root next to Probe Root. Nothing has an order yet, so the display
+    // must still be plain alphabetical.
+    fq("#new-folder-btn").click();
+    await sleep(400);
+    fq("#new-folder-name").value = "Probe Alpha";
+    fq("#new-folder-form").requestSubmit();
+    await sleep(800);
+    fq("#new-folder-btn").click();
+    await sleep(400);
+    fq("#new-folder-name").value = "Probe Beta";
+    fq("#new-folder-form").requestSubmit();
+    await sleep(800);
+    check("the three probe root folders start in alphabetical order",
+          rowNames().join("|") === "Probe Alpha|Probe Beta|Probe Root",
+          "rows=" + rowNames().join(" | "));
+
+    const firstRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+      .find(r => r.dataset.folder);
+    const moveUp = firstRow && firstRow.querySelector(".folder-up");
+    const moveDown = firstRow && firstRow.querySelector(".folder-down");
+    const pencilBtn = firstRow && firstRow.querySelector(".folder-rename");
+    const trashBtn = firstRow && firstRow.querySelector(".folder-del");
+    check("the folder row offers rename and move controls",
+          !!firstRow && !!moveUp && !!moveDown && !!pencilBtn && !!trashBtn,
+          "row=" + (firstRow ? firstRow.textContent.trim().slice(0, 30) : "missing"));
+    if (moveUp) {
+      const box = moveUp.getBoundingClientRect();
+      const style = frame.contentWindow.getComputedStyle(moveUp);
+      check("the folder controls are on screen without hovering",
+            box.width > 0 && box.height > 0
+            && style.opacity !== "0" && style.visibility !== "hidden"
+            && style.pointerEvents !== "none",
+            "w=" + Math.round(box.width) + " h=" + Math.round(box.height)
+            + " opacity=" + style.opacity + " visibility=" + style.visibility);
+    }
+
+    if (moveDown) {
+      moveDown.click();
+      await waitFor(() => rowNames()[0] === "Probe Beta", 3000);
+      check("the down arrow moves a folder one position",
+            rowNames().join("|") === "Probe Beta|Probe Alpha|Probe Root",
+            "rows=" + rowNames().join(" | "));
+    }
+
+    let renamedRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+      .find(r => r.dataset.folder && /Probe Alpha/.test(r.textContent));
+    let pencil = renamedRow && renamedRow.querySelector(".folder-rename");
+    if (pencil) {
+      pencil.click();
+      await sleep(500);
+      const editInput = fq(".folder-rename-input");
+      check("the rename edit opens with the folder's current name",
+            !!editInput && editInput.value === "Probe Alpha",
+            "value=" + (editInput ? editInput.value : "missing"));
+      if (editInput) {
+        editInput.value = "Probe Renamed";
+        const saveForm = fq(".folder-rename-form");
+        if (saveForm) saveForm.requestSubmit();
+        await waitFor(() => !fq(".folder-rename-input"), 4000);
+        check("saving commits the new folder name",
+              rowNames()[1] === "Probe Renamed",
+              "rows=" + rowNames().join(" | "));
+
+        // The context chip reads the path through folderPath, so a rename of
+        // the selected folder must refresh it the moment the name lands.
+        renamedRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+          .find(r => r.dataset.folder && /Probe Renamed/.test(r.textContent));
+        if (renamedRow) {
+          renamedRow.querySelector(".folder-select").click();
+          await sleep(500);
+          pencil = renamedRow.querySelector(".folder-rename");
+          pencil.click();
+          await sleep(400);
+          const chipInput = fq(".folder-rename-input");
+          if (chipInput) {
+            chipInput.value = "Probe Renamed Too";
+            const chipForm = fq(".folder-rename-form");
+            if (chipForm) chipForm.requestSubmit();
+            await waitFor(() => !fq(".folder-rename-input"), 4000);
+            const chipText = fq("#list-context")
+              ? fq("#list-context").textContent : "";
+            check("the breadcrumb chip reflects the renamed folder",
+                  chipText.indexOf("Probe Renamed Too") !== -1,
+                  "chip=" + chipText.slice(0, 60));
+          }
+        }
+      }
+    }
+
+    const escRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+      .find(r => r.dataset.folder && /Probe Root/.test(r.textContent));
+    const escPencil = escRow && escRow.querySelector(".folder-rename");
+    if (escPencil) {
+      escPencil.click();
+      await sleep(400);
+      const escInput = fq(".folder-rename-input");
+      if (escInput) {
+        escInput.value = "XXX Wrong";
+        escInput.dispatchEvent(new KeyboardEvent("keydown",
+          { key: "Escape", bubbles: true }));
+        await waitFor(() => !fq(".folder-rename-input"), 3000);
+        check("Escape cancels the rename",
+              fdoc.querySelector("#folder-tree").textContent.indexOf("XXX Wrong") === -1
+              && rowNames().indexOf("Probe Root") !== -1,
+              "rows=" + rowNames().join(" | "));
+
+        const emptyRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
+          .find(r => r.dataset.folder && /Probe Root/.test(r.textContent));
+        if (emptyRow) emptyRow.querySelector(".folder-rename").click();
+        await sleep(400);
+        const emptyInput = fq(".folder-rename-input");
+        if (emptyInput) {
+          emptyInput.value = "";
+          const emptyForm = fq(".folder-rename-form");
+          if (emptyForm) emptyForm.requestSubmit();
+          await waitFor(() => !fq(".folder-rename-input"), 3000);
+          check("an empty name keeps the folder's name silently",
+                !fq(".folder-rename-input") && rowNames()[2] === "Probe Root",
+                "rows=" + rowNames().join(" | "));
+        }
+      }
+    }
+
+    const settingsAgain = fq("#settings-btn");
+    settingsAgain.click();
+    await sleep(400);
+    fq("#export-btn").click();
+    await waitFor(() => {
+      const box = fq("#export-csv");
+      return box && box.value.indexOf("Probe Renamed Too") !== -1;
+    }, 6000);
+    const orderedCsv = fq("#export-csv") ? fq("#export-csv").value : "";
+    check("the backup CSV carries the folders' order column",
+          orderedCsv.indexOf("id,parentId,name,order,createdAt,updatedAt") !== -1
+          && orderedCsv.indexOf("# notes-backup v" + "__EXPECTED_SCHEMA__") === 0
+          && /Probe Beta,0,/.test(orderedCsv)
+          && /Probe Renamed Too,1,/.test(orderedCsv),
+          "header=" + orderedCsv.slice(0, 42) + " foldersRow=" +
+            (orderedCsv.split("\\r\\n")[2] || "?"));
+
+    const orderedBox = fq("#restore-input");
+    orderedBox.value = orderedCsv;
+    fq("#preview-btn").click();
+    await sleep(500);
+    confirmAnswer = true;
+    fq("#restore-btn").click();
+    await waitFor(() => /Restored/.test(
+      fq("#preview-out") ? fq("#preview-out").textContent : ""), 6000);
+    fq("#settings-close").click();
+    await sleep(300);
+    check("restoring keeps the arranged order",
+          rowNames().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+          "rows=" + rowNames().join(" | "));
+    check("...and the renamed folder's name survives it",
+          rowNames().indexOf("Probe Renamed Too") !== -1,
+          "rows=" + rowNames().join(" | "));
+
+    const olderDoc = fdoc;
+    frame.contentWindow.location.reload();
+    const reloaded2 = await waitFor(() => {
+      const d = frame.contentDocument;
+      if (!d || d === olderDoc || !d.body) return false;
+      return d.body.dataset.ready === "true" || d.body.dataset.fatal === "true";
+    }, 20000);
+    const fdoc2 = frame.contentDocument;
+    const fq2 = sel => fdoc2.querySelector(sel);
+    const rowNames2 = () => {
+      const rows = [...fdoc2.querySelectorAll("#folder-tree .folder-row")]
+        .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
+      return rows.map(r => {
+        const name = r.querySelector(".folder-name");
+        return name ? name.textContent.trim() : "?";
+      });
+    };
+    check("the arranged order and the rename survive a reload",
+          reloaded2 && rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+          "rows=" + rowNames2().join(" | "));
+
+    const postRows = [...fdoc2.querySelectorAll("#folder-tree .folder-row")]
+      .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
+    const topUp = postRows[0] && postRows[0].querySelector(".folder-up");
+    if (topUp) {
+      topUp.click();
+      await sleep(600);
+      check("the up arrow on the topmost folder is a no-op",
+            rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+            "rows=" + rowNames2().join(" | "));
+    }
+    const bottomDown = postRows[2] && postRows[2].querySelector(".folder-down");
+    if (bottomDown) {
+      bottomDown.click();
+      await sleep(600);
+      check("the down arrow on the bottom folder is a no-op",
+            rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+            "rows=" + rowNames2().join(" | "));
+    }
   } catch (error) {
     check("probe ran to completion", false, String(error && error.message || error));
   }
@@ -1834,6 +2060,46 @@ PROBE_NARROW = """<!doctype html>
       const rowH = reminderRow.getBoundingClientRect().height;
       check("narrow: the reminder row is still a single line",
             rowH <= lineH * 1.9, "rowH=" + Math.round(rowH) + " line=" + Math.round(lineH));
+    }
+
+    // --- v32: folder controls at phone width ---
+    // Placed BEFORE the editor block below on purpose: opening an editor hides
+    // the browse pane, and the folder tree does not exist inside it. The row's
+    // move/rename/delete buttons must remain on screen at 380px -- they are
+    // never hover-revealed, and no narrow rule may hide them.
+    q("#notes-tab").click();
+    await sleep(400);
+    q("#new-folder-btn").click();
+    await sleep(400);
+    q("#new-folder-name").value = "Narrow Folder";
+    q("#new-folder-form").requestSubmit();
+    await sleep(800);
+    const narrowRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+      .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
+    check("narrow: a created folder shows in the tree", !!narrowRow);
+    if (narrowRow) {
+      const pencil = narrowRow.querySelector(".folder-rename");
+      const up = narrowRow.querySelector(".folder-up");
+      const down = narrowRow.querySelector(".folder-down");
+      const pencilBox = pencil && pencil.getBoundingClientRect();
+      const pencilStyle = pencil && frame.contentWindow.getComputedStyle(pencil);
+      check("narrow: the rename control is on screen without hover",
+            !!pencil && pencilBox.width > 0 && pencilBox.height > 0
+            && pencilStyle.opacity !== "0" && pencilStyle.visibility !== "hidden"
+            && pencilStyle.pointerEvents !== "none"
+            && pencilStyle.display !== "none",
+            "w=" + (pencilBox ? Math.round(pencilBox.width) : -1)
+            + " h=" + (pencilBox ? Math.round(pencilBox.height) : -1));
+      const upBox = up && up.getBoundingClientRect();
+      const downBox = down && down.getBoundingClientRect();
+      const upStyle = up && frame.contentWindow.getComputedStyle(up);
+      check("narrow: the move controls are on screen without hover",
+            !!up && !!down && upBox.width > 0 && upBox.height > 0
+            && downBox.width > 0 && downBox.height > 0
+            && upStyle.visibility !== "hidden" && upStyle.pointerEvents !== "none"
+            && upStyle.display !== "none",
+            "w=" + (upBox ? Math.round(upBox.width) : -1)
+            + " h=" + (upBox ? Math.round(upBox.height) : -1));
     }
 
     // --- the editor's three buttons share one line at phone width ---

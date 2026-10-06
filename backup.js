@@ -1,7 +1,7 @@
 /**
  * Pure backup serializer and parser: text in, data out, no DOM and no storage.
  *
- * The backup is a sectioned CSV under a versioned `# notes-backup v2` header.
+ * The backup is a sectioned CSV under a versioned `# notes-backup v3` header.
  * Folders are included even though the export is called "notes/reminders":
  * without them a restore could not rebuild the tree, and every note's folderId
  * would dangle. Reminder due dates are deliberately NOT stored -- nextDueAt is a
@@ -13,16 +13,19 @@
  * keeping the ids means a same-device restore reattaches the photos, which
  * still sit in OPFS/IndexedDB where a restore never reaches.
  *
- * Version 1 files are still read: columns are matched by header name, so a v1
- * notes section without mediaIds parses with an empty list. Only a file NEWER
- * than this app is refused.
+ * Folders carry an order column (v3): the position the user arranged a folder
+ * into, empty for never-arranged. It is restored verbatim, so an arranged tree
+ * comes back arranged. Older files are still read: columns are matched by
+ * header name, so a v1 or v2 file without the column parses with every folder
+ * unordered -- alphabetical, as those releases displayed them. Only a file
+ * NEWER than this app is refused.
  *
  * The parser validates the whole document before anything writes to the
  * database. A malformed file produces errors, not exceptions, so the UI can
  * refuse the restore rather than half-apply it.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * mailto: URLs are silently truncated by some mail clients somewhere between
@@ -32,7 +35,7 @@ export const SCHEMA_VERSION = 2;
 export const MAILTO_SAFE_LIMIT = 1800;
 
 const SECTIONS = [
-  { name: "folders", columns: ["id", "parentId", "name", "createdAt", "updatedAt"] },
+  { name: "folders", columns: ["id", "parentId", "name", "order", "createdAt", "updatedAt"] },
   { name: "notes", columns: ["id", "folderId", "title", "body", "mediaIds", "createdAt", "updatedAt"] },
   {
     name: "reminders",
@@ -50,6 +53,18 @@ function csvCell(value) {
 
 function csvRow(values) {
   return values.map(csvCell).join(",");
+}
+
+/**
+ * The folder order cell. A bare integer is the position the user arranged the
+ * folder into; anything else -- empty for never-arranged folders and for files
+ * from before this column existed, or text that never was an order -- parses
+ * to null. `parseInt` would happily accept "3.5" and "0x2", so the shape is
+ * checked instead.
+ */
+function parseOrderCell(text) {
+  const value = String(text ?? "").trim();
+  return /^-?\d+$/.test(value) ? Number(value) : null;
 }
 
 /**
@@ -224,6 +239,7 @@ export function parseBackupCsv(text) {
           id,
           parentId: cellAt(entry, header, "parentId") || null,
           name: cellAt(entry, header, "name"),
+          order: parseOrderCell(cellAt(entry, header, "order")),
           createdAt: cellAt(entry, header, "createdAt"),
           updatedAt: cellAt(entry, header, "updatedAt")
         });

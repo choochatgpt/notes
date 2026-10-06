@@ -779,13 +779,20 @@ if "link.download" not in save_media or "URL.createObjectURL" not in save_media:
 else:
     print("photos: strip + viewer wired; bytes in OPFS; delete and revoke paths pinned")
 
-# 15e. Backup v2: the notes section carries mediaIds, and OLDER files parse.
+# 15e. Backup v3: the notes section carries mediaIds, folders carry order, and
+# OLDER files (v1 and v2) parse.
 backup = read("backup.js")
-if 'SCHEMA_VERSION = 2' not in backup:
-    fails.append("backup.js SCHEMA_VERSION is not 2 -- the mediaIds column needs "
-                 "a version bump (v1 readers must refuse v2 files, never choke on them)")
+if 'SCHEMA_VERSION = 3' not in backup:
+    fails.append("backup.js SCHEMA_VERSION is not 3 -- the folder order column needs "
+                 "a version bump (v2 readers must refuse v3 files, never choke on them)")
 if '"mediaIds"' not in backup:
     fails.append("backup.js has no mediaIds column in the notes section")
+if '"order"' not in backup:
+    fails.append('backup.js has no "order" column in the folders section (v32: '
+                 "the folder list can be arranged, so an export must carry positions)")
+folders_columns = re.search(r'name: "folders", columns: \[([^\]]+)\]', backup)
+if not folders_columns or '"order"' not in folders_columns.group(1):
+    fails.append('the folders SECTIONS entry lost the "order" column')
 if "if (result.version > SCHEMA_VERSION)" not in backup:
     fails.append("parseBackupCsv does not accept OLDER backups (the gate must be "
                  "version > SCHEMA_VERSION, not !==: a v1 file has no mediaIds "
@@ -794,8 +801,8 @@ if "Photos are not included" not in backup:
     fails.append("describeRestore no longer states that photos are not included, "
                  "so a restore could look like it lost someone's photos")
 else:
-    print("backup: v2 with a mediaIds column; v1 files still parse; the photo "
-          "exclusion is stated in the restore confirmation")
+    print("backup: v3 with mediaIds + order columns; v1 and v2 files still parse; "
+          "the photo exclusion is stated in the restore confirmation")
 
 # 15f. One-tap backup (2026-10-03; destination-independent since v28): the
 # export panel's primary action runs every configured destination. The relay
@@ -896,6 +903,73 @@ else:
     print("drive: Connect/Disconnect wired; Client ID ships in app config only "
           "(config.js); backup identity is per user; destinations independent; "
           "auto-run pinned to driveAllowed:false; sign-in confined to drive.js")
+
+# 15h. Folder rename + reorder (v32): per-row pencil / up / down controls, one
+# shared sibling order, and positions that only ever come from a move.
+if '<symbol id="i-pencil" viewBox="0 0 24 24">' not in html:
+    fails.append('index.html lost the i-pencil symbol -- the rename button '
+                 "renders an empty glyph without it")
+for required in ('data-rename="${esc(folder.id)}"', 'data-up="${esc(folder.id)}"',
+                 'data-down="${esc(folder.id)}"',
+                 ".folder-rename-form", "folder-rename-input",
+                 "folder-rename-cancel", 'class="folder-row editing"'):
+    if required not in app:
+        fails.append(f"app.js lost the rename/reorder row markup piece {required!r}")
+for function_name in ("moveFolder", "beginFolderRename", "submitRenameFolder",
+                      "cancelFolderRename", "clearRenameState", "wireRenameRow"):
+    if f"function {function_name}(" not in app:
+        fails.append(f"app.js lost {function_name}() -- the rename/reorder flow "
+                     "is incomplete")
+if "renamingFolderId" not in app:
+    fails.append("app.js lost state.renamingFolderId -- a rename edit would "
+                 "vanish on the next re-render")
+if "function sortFoldersSiblings(" not in view:
+    fails.append("view.js lost sortFoldersSiblings() -- the tree and the picker "
+                 "must sort through one helper")
+if "sortFoldersSiblings(" not in app:
+    fails.append("app.js does not render through sortFoldersSiblings -- the "
+                 "folder tree would reorder itself back to alphabetical")
+if "sortFoldersSiblings(children)" not in view or "sortFoldersSiblings(" not in view:
+    fails.append("folderOptions does not mirror the arranged tree through "
+                 "sortFoldersSiblings")
+if 'setSetting("folderOrder"' in app or 'getSetting("folderOrder"' in app:
+    fails.append("folder order is a note-record field, not a device setting -- "
+                 "it must ride the folders store and the backup CSV")
+# The new controls repeat the .folder-del doctrine: never hover-revealed. The
+# shared rule must be present as one block (both rotate rules and hidden forms
+# would defeat it per-class otherwise).
+controls_rule = re.search(
+    r"\.folder-up,\s*\n\.folder-down,\s*\n\.folder-rename,\s*\n\.folder-rename-cancel\s*\{([^}]*)\}",
+    css)
+if not controls_rule:
+    fails.append("app.css lost the shared .folder-up/.folder-down/.folder-rename "
+                 "rule block (the move/rename controls need the .folder-del "
+                 "geometry: always on screen, quiet at rest)")
+else:
+    shared = controls_rule.group(1)
+    for banned in ("opacity: 0", "opacity:0", "pointer-events: none",
+                   "visibility: hidden", "display: none"):
+        if banned in shared:
+            fails.append(f'the folder move/rename rule hides its controls at rest '
+                         f'("{banned}") -- the .folder-del anti-hover-reveal doctrine')
+    if "color:" not in shared:
+        fails.append("the folder move/rename rule has no resting color -- a "
+                     "control with no visible state reads as dead")
+if ".folder-up .icon { transform: rotate(-90deg); }" not in css \
+        or ".folder-down .icon { transform: rotate(90deg); }" not in css:
+    fails.append("app.css lost the arrow rotation -- the up/down buttons would "
+                 "draw the tree's forward chevron instead of arrows")
+if re.search(r"@media \(max-width: 760px\)", css) and \
+        re.search(r"\.folder-rename\s*\{[^}]*?(display:\s*none|opacity: 0|visibility: hidden)", css):
+    fails.append("the move/rename controls must stay on screen at narrow width "
+                 "too -- that is where phones hit them")
+for cleanup_call in ("cancelFolderRename();", "clearRenameState();"):
+    if cleanup_call not in app:
+        fails.append(f"app.js lost the {cleanup_call} cleanup call")
+else:
+    print("rename/reorder: pencil + up/down on every folder row, always on "
+          "screen; one shared sibling order (view.js); first move freezes the "
+          "alphabetical baseline; backup v3 carries the order column")
 
 print()
 if notes:

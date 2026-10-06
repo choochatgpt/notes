@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "31";
+export const APP_VERSION = "32";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -110,6 +110,33 @@ export function sortReminders(list) {
 }
 
 /**
+ * The one sibling-folder order the tree and the picker both display, so the
+ * picker always reads exactly like the folder tree.
+ *
+ * A folder the user has arranged carries a finite integer `order` (written
+ * only by a move) and these come first, ascending, ties on name. Folders
+ * without one -- never arranged, restored from an older backup, or brand new
+ * -- follow alphabetically, so a fresh folder appends at the end of a
+ * group instead of shuffling an arrangement already made. A text `order` must
+ * be a bare integer, the same shapes the backup parser accepts.
+ */
+export function sortFoldersSiblings(list) {
+  const orderOf = row => {
+    const value = row?.order;
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string" && /^-?\d+$/.test(value.trim())) return Number(value);
+    return null;
+  };
+  return [...list].sort((a, b) => {
+    const aOrder = orderOf(a);
+    const bOrder = orderOf(b);
+    if (aOrder !== null && bOrder !== null && aOrder !== bOrder) return aOrder - bOrder;
+    if (aOrder !== null || bOrder !== null) return aOrder === null ? 1 : -1;
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""));
+  });
+}
+
+/**
  * Every folder id in the subtree rooted at `folderId`, including the root.
  *
  * Deleting a folder deletes its contents, so the caller needs the whole set
@@ -144,8 +171,9 @@ export function collectSubtree(folderId, folders) {
  * depth-first, each entry carrying the depth it should be indented by, with
  * "Unfiled" first as the null id.
  *
- * Siblings come out alphabetical, so the picker reads in the same order as the
- * tree. A folder whose parent is missing -- which the UI cannot create, but a
+ * Siblings come out in the same arranged order the folder tree shows
+ * (sortFoldersSiblings), so the picker reads exactly like the tree.
+ * A folder whose parent is missing -- which the UI cannot create, but a
  * hand-edited database could hold -- is appended at depth 0 rather than dropped.
  * A folder the picker cannot name is a folder no note can be moved out of.
  */
@@ -157,8 +185,9 @@ export function folderOptions(folders) {
     if (!byParent.has(parent)) byParent.set(parent, []);
     byParent.get(parent).push(folder);
   }
-  const byName = (a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""));
-  for (const children of byParent.values()) children.sort(byName);
+  for (const [parent, children] of byParent) {
+    byParent.set(parent, sortFoldersSiblings(children));
+  }
 
   const options = [{ id: null, name: "Unfiled", depth: 0 }];
   const seen = new Set();
@@ -175,7 +204,7 @@ export function folderOptions(folders) {
   };
   walk(null, 0);
 
-  for (const folder of list.filter(candidate => !seen.has(candidate.id)).sort(byName)) {
+  for (const folder of sortFoldersSiblings(list.filter(candidate => !seen.has(candidate.id)))) {
     options.push({ id: folder.id, name: folder.name, depth: 0 });
   }
   return options;

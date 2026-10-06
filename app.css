@@ -312,12 +312,15 @@ body {
 .browse { height: 100%; min-height: 0; }
 
 /* Notes browser: folder tree beside the note list, inside the upper pane.
-   40:60 (user request 2026-10-05): the tree needs enough room for nested
-   names, but the contents column is where reading happens, so it earns the
-   wider share. */
+   40:60 by default (user request 2026-10-05): the tree needs enough room for
+   nested names, but the contents column is where reading happens, so it earns
+   the wider share. Since v31 the user cycles this in Settings between
+   30% and 70%; the custom properties --folder-col/--content-col carry the
+   choice and the 4fr/6fr fallback is the default state. */
 .browse-notes {
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  grid-template-columns: minmax(0, var(--folder-col, 4fr))
+                         minmax(0, var(--content-col, 6fr));
   gap: 0;
 }
 
@@ -899,10 +902,14 @@ body[data-fatal="true"] .pane { opacity: .55; }
   .topbar-actions .btn { padding: 7px; gap: 0; }
   .topbar { gap: 8px; padding-left: 6px; padding-right: 6px; }
 
-  /* 40:60 here too. Narrowing the folder column further is what made
-     nested names unreadable, and the column is where the delete control lives. */
+  /* The folder ratio follows the same var() as the desktop split (v31), so
+     the Settings choice holds at phone width as well; the 4fr/6fr fallbacks
+     keep the default 40:60 here too. Narrowing the folder column further is
+     what made nested names unreadable, and the column is where the delete
+     control lives. */
   .app-shell { padding: 3px 4px 0; gap: 4px; }
-  .browse-notes { grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); }
+  .browse-notes { grid-template-columns: minmax(0, var(--folder-col, 4fr))
+                                         minmax(0, var(--content-col, 6fr)); }
   .editor { padding: 6px; }
   .item-row { padding: 4px 6px; gap: 5px; }
   .folder-select { font-size: 12.5px; }

@@ -20,13 +20,17 @@ const {
   absoluteLabel,
   collectSubtree,
   DEFAULT_RATIO,
+  DEFAULT_FOLDER_RATIO,
   describeDeletion,
   describeRule,
   esc,
   folderOptions,
   folderPath,
+  FOLDER_RATIOS,
+  folderRatioToTracks,
   localInputValue,
   nextRatio,
+  nextFolderRatio,
   noteSnippet,
   RATIOS,
   ratioToTracks,
@@ -453,6 +457,64 @@ console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
         "1fr/1fr");
   check("the fallback is a real fraction pair, so the grid never gets junk",
         /^(1fr)$/.test(ratioToTracks("junk!").top));
+}
+
+console.log("\n=== 12b. folder ratio cycle -- 30..70 left share inside the notes pane ===");
+{
+  // The user's requested folder/contents stops (2026-10-06). The default is
+  // the shipped 40:60 from the v25 density pass, so a fresh device starts
+  // at the split it already had, and the default is one of the offered
+  // stops: the first click simply advances 40% -> 50%.
+  equal("the offered folder ratios, in cycle order",
+        FOLDER_RATIOS.join(","), "30%,40%,50%,60%,70%");
+  equal("the default is the shipped folder:contents split",
+        DEFAULT_FOLDER_RATIO, "40%");
+  check("the default is one of the offered stops",
+        FOLDER_RATIOS.includes(DEFAULT_FOLDER_RATIO));
+
+  equal("the first click from the shipped split advances to 50%",
+        nextFolderRatio(DEFAULT_FOLDER_RATIO), "50%");
+  equal("mid-cycle advances", nextFolderRatio("50%"), "60%");
+  equal("the last stop wraps to the first", nextFolderRatio("70%"), "30%");
+
+  const visited = [];
+  let cursor = "40%";
+  for (let i = 0; i < FOLDER_RATIOS.length; i += 1) {
+    cursor = nextFolderRatio(cursor);
+    visited.push(cursor);
+  }
+  equal("five clicks from the shipped split return to it", cursor, "40%");
+  equal("...having visited every offered share exactly once (the 70->30 step is the wrap)",
+        visited.join(","), "50%,60%,70%,30%,40%");
+
+  equal("an unknown stored value restarts at the first stop",
+        nextFolderRatio("banana"), "30%");
+  equal("a missing value is treated the same way", nextFolderRatio(null), "30%");
+  equal("a stored value from before this release restarts too",
+        nextFolderRatio("2:3"), "30%");
+
+  const folderTracks = folderRatioToTracks("30%");
+  equal("the wide-contents stop splits 30/70",
+        folderTracks.left + "/" + folderTracks.right, "30fr/70fr");
+  equal("the wide-folder stop splits 70/30",
+        folderRatioToTracks("70%").left + "/" + folderRatioToTracks("70%").right,
+        "70fr/30fr");
+  equal("the default 40% is the shipped 40:60",
+        folderRatioToTracks(DEFAULT_FOLDER_RATIO).left + "/"
+          + folderRatioToTracks(DEFAULT_FOLDER_RATIO).right,
+        "40fr/60fr");
+  equal("an unparseable value falls back to the shipped split, not junk",
+        folderRatioToTracks("banana").left + "/" + folderRatioToTracks("banana").right,
+        "4fr/6fr");
+  equal("undefined falls back too",
+        folderRatioToTracks(undefined).left + "/" + folderRatioToTracks(undefined).right,
+        "4fr/6fr");
+  equal("an out-of-range share is refused rather than asked for",
+        folderRatioToTracks("140%").left + "/" + folderRatioToTracks("140%").right,
+        "4fr/6fr");
+  check("the fallback names real fractions, so the columns never get junk",
+        /^(4fr)$/.test(folderRatioToTracks("junk!").left)
+          && /^(6fr)$/.test(folderRatioToTracks("junk!").right));
 }
 
 console.log("\n=== 12. noteSnippet -- the list preview keeps the author's line breaks ===");

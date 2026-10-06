@@ -26,10 +26,14 @@ import {
   folderPath,
   localInputValue,
   nextRatio,
+  nextFolderRatio,
   noteSnippet,
   RATIOS,
   ratioToTracks,
+  FOLDER_RATIOS,
+  folderRatioToTracks,
   DEFAULT_RATIO,
+  DEFAULT_FOLDER_RATIO,
   relativeFromNow,
   sortReminders
 } from "./view.js";
@@ -947,6 +951,32 @@ async function cyclePaneRatio() {
   applyPaneRatio(next);
 }
 
+/**
+ * Put a left share on the folder/contents columns. The default 40:60 is the
+ * CSS fallback, so resetting the properties would also be correct -- but
+ * setting them explicitly keeps the chip and the tracks reading from the
+ * same value. Anything outside the offered five reads as the default rather
+ * than as junk columns.
+ */
+function applyFolderRatio(ratio) {
+  const region = $(".browse-notes");
+  const tracks = folderRatioToTracks(ratio);
+  if (region) {
+    region.style.setProperty("--folder-col", tracks.left);
+    region.style.setProperty("--content-col", tracks.right);
+  }
+  const chip = $("#folder-ratio-value");
+  if (chip) {
+    chip.textContent = FOLDER_RATIOS.includes(ratio) ? ratio : DEFAULT_FOLDER_RATIO;
+  }
+}
+
+async function cycleFolderRatio() {
+  const next = nextFolderRatio(await getSetting("folderRatio", DEFAULT_FOLDER_RATIO));
+  await setSetting("folderRatio", next);
+  applyFolderRatio(next);
+}
+
 function openSettings() {
   const dialog = $("#settings-dialog");
   if (!dialog) return;
@@ -1706,6 +1736,7 @@ function wireControls() {
   on("#settings-btn", "click", openSettings);
   on("#settings-close", "click", closeSettings);
   on("#ratio-btn", "click", cyclePaneRatio);
+  on("#folder-ratio-btn", "click", cycleFolderRatio);
   on("#export-btn", "click", showExportPanel);
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
@@ -1815,9 +1846,10 @@ async function init() {
 
   await openDatabase();
 
-  // Device preferences must be in place before the first paint: the pane split
-  // and the last address the backup was exported to.
+  // Device preferences must be in place before the first paint: the pane split,
+  // the folder/contents split, and the last address the backup was exported to.
   applyPaneRatio(await getSetting("paneRatio", DEFAULT_RATIO));
+  applyFolderRatio(await getSetting("folderRatio", DEFAULT_FOLDER_RATIO));
   const savedEmail = await getSetting("backupEmail", "");
   if (savedEmail) {
     const input = $("#backup-email");

@@ -235,6 +235,17 @@
       </button>
     </div>
 
+    <!-- Cycles the folder/contents split INSIDE the notes pane (v31): 30% is
+         a wide contents column, 70% a wide folder tree; the default is the
+         shipped 40:60. The chip shows where you are. -->
+    <div class="dialog-row">
+      <button id="folder-ratio-btn" class="btn" type="button"
+              aria-label="Folder/Content display ratio for notes">
+        Folder/Content display ratio for notes
+        <span id="folder-ratio-value" class="chip accent">40%</span>
+      </button>
+    </div>
+
     <div class="dialog-actions">
       <button id="export-btn" class="btn primary" type="button">Export notes/reminders to email</button>
       <button id="import-btn" class="btn" type="button">Import notes/reminders</button>

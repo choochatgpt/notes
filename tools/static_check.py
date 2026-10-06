@@ -178,6 +178,49 @@ if 'setSetting("paneRatio"' not in app:
 if 'getSetting("paneRatio"' not in app:
     fails.append("app.js never reads the pane ratio back, so the stored choice is ignored")
 
+# The folder/contents split inside the notes pane (v31): cycle 30..70, default
+# the shipped 40:60. Both grid rules (desktop and the <=760px override) must
+# read the custom properties, or the choice would dead-end at phone width.
+folder_ratio_match = re.search(r"FOLDER_RATIOS\s*=\s*\[([^\]]+)\]", view)
+folder_offered = re.findall(r'"([^"]+)"', folder_ratio_match.group(1)) if folder_ratio_match else []
+folder_required = ["30%", "40%", "50%", "60%", "70%"]
+if folder_offered != folder_required:
+    fails.append(f"view.js FOLDER_RATIOS must be {folder_required} in order "
+                 f"(the requested folder/contents stops), found {folder_offered}")
+elif "function nextFolderRatio(" not in view:
+    fails.append("view.js has no nextFolderRatio, so the folder ratio button cannot cycle")
+elif "function folderRatioToTracks(" not in view:
+    fails.append("view.js has no folderRatioToTracks, so a chosen folder ratio cannot reach the grid")
+elif 'DEFAULT_FOLDER_RATIO = "40%"' not in view:
+    fails.append('view.js must define DEFAULT_FOLDER_RATIO = "40%" -- the shipped '
+                 "folder:contents split is where a fresh device starts and what an "
+                 "unreadable value falls back to")
+elif 'DEFAULT_FOLDER_RATIO' not in app:
+    fails.append("app.js never uses DEFAULT_FOLDER_RATIO, so the chip and the "
+                 "store can drift from view.js")
+elif '<span id="folder-ratio-value" class="chip accent">40%</span>' not in html:
+    fails.append("the folder ratio chip must START at 40%, so the dialog opens "
+                 "showing the shipped split before any click")
+elif 'setProperty("--folder-col"' not in app or 'setProperty("--content-col"' not in app:
+    fails.append("app.js never writes --folder-col/--content-col, so the chosen "
+                 "folder ratio never reaches the layout")
+elif 'setSetting("folderRatio"' not in app:
+    fails.append("app.js never persists the folder ratio, so the choice resets on every launch")
+elif 'getSetting("folderRatio"' not in app:
+    fails.append("app.js never reads the folder ratio back, so the stored choice is ignored")
+else:
+    print(f"folder ratio cycle: {' -> '.join(folder_offered)} -> (wrap); default 40:60")
+css = read("app.css")
+if css.count("minmax(0, var(--folder-col") < 2 or css.count("minmax(0, var(--content-col") < 2:
+    fails.append("app.css must drive --folder-col/--content-col through BOTH "
+                 ".browse-notes rules (desktop and the <=760px override), or "
+                 "the folder choice dead-ends at phone width")
+for required_label in ("Folder/Content display ratio for notes",):
+    if required_label not in html:
+        fails.append(f'the Settings dialog is missing the "{required_label}" control')
+if 'on("#folder-ratio-btn"' not in app:
+    fails.append("app.js never wires #folder-ratio-btn, so the control is inert")
+
 for required_label in (
     "Notes/Reminders panel display ratio",
     "Export notes/reminders to email",

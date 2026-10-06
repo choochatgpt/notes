@@ -1137,15 +1137,53 @@ PROBE = """<!doctype html>
           "folders=" + doc.querySelectorAll("#folder-tree .folder-row").length);
     const targetId = folderRow ? folderRow.dataset.folder : "";
 
-    // The 40:60 folder:contents split the user asked for (2026-10-05).
+    // The 40:60 folder:contents split the user asked for (2026-10-05) -- and
+    // since v31 the user can cycle it in Settings between 30% and 70%, so
+    // the Settings dialog is reopened here while the notes pane is actually
+    // browsed (.browse-notes does not exist on the agenda-only stages, which
+    // is where the dialog first opens).
     {
-      const foldersBox = doc.querySelector(".browse-notes .folders-col").getBoundingClientRect();
-      const listBox = doc.querySelector(".browse-notes .list-col").getBoundingClientRect();
-      const share = foldersBox.width / (foldersBox.width + listBox.width);
-      check("the folder column takes 40% and the contents 60%",
-            Math.abs(share - 0.4) <= 0.05,
-            "folders=" + Math.round(foldersBox.width) + "px list=" + Math.round(listBox.width)
-            + "px share=" + share.toFixed(3));
+      q("#settings-btn").click();
+      await sleep(400);
+      const cycleDialog = q("#settings-dialog");
+      const dialogOk = !!(cycleDialog && cycleDialog.open);
+      check("the folder ratio cycle can open Settings over the notes stage",
+            dialogOk, "open=" + (cycleDialog ? cycleDialog.open : "no dialog"));
+
+      const folderChipText = () => {
+        const el = q("#folder-ratio-value");
+        return el ? el.textContent.trim() : "";
+      };
+      const folderShare = () => {
+        const left = q(".browse-notes .folders-col");
+        const right = q(".browse-notes .list-col");
+        if (!left || !right) return -1;
+        const l = left.getBoundingClientRect().width;
+        const r = right.getBoundingClientRect().width;
+        return l + r > 0 ? l / (l + r) : -1;
+      };
+      // Chip text AND the real column widths: a chip that updates while the
+      // grid does not would pass a text-only check, and that is the trap this
+      // measurement exists for. The dialog ships at the default 40:60.
+      check("the folder ratio control opens on the shipped 40:60",
+            folderChipText() === "40%" && Math.abs(folderShare() - 0.4) <= 0.05,
+            "chip=" + folderChipText() + " folderShare=" + folderShare().toFixed(3));
+      // Five clicks walk every stop and return home, closing the cycle
+      // (70% -> 30% is the wrap) -- and leaving the default behind for the
+      // later folder-split and restart-persistence checks.
+      const folderCycle = [["50%", 0.5], ["60%", 0.6], ["70%", 0.7],
+                           ["30%", 0.3], ["40%", 0.4]];
+      for (const [label, share] of folderCycle) {
+        q("#folder-ratio-btn").click();
+        await waitFor(() => folderChipText() === label, 3000);
+        await sleep(150);  // let layout settle after the style write
+        const got = folderShare();
+        check("a folder ratio click lands on " + label + " and re-balances the columns",
+              folderChipText() === label && Math.abs(got - share) <= 0.05,
+              "chip=" + folderChipText() + " folderShare=" + got.toFixed(3)
+              + " expected=" + share.toFixed(3));
+      }
+      if (dialogOk) { q("#settings-close").click(); await sleep(300); }
     }
 
     const unfiledRows = doc.querySelectorAll("#note-list .item-row");
@@ -1656,6 +1694,23 @@ PROBE = """<!doctype html>
       }
       check("...and is applied to the layout",
             Math.abs(share - 0.6) <= 0.04, "topShare=" + share.toFixed(3));
+      const folderChip = fresh.querySelector("#folder-ratio-value");
+      check("the folder ratio comes back on restart (the cycle closed on 40%)",
+            !!folderChip && folderChip.textContent.trim() === "40%",
+            "chip=" + (folderChip ? folderChip.textContent : "missing"));
+      let folderShareRestart = -1;
+      {
+        const left = fresh.querySelector(".browse-notes .folders-col");
+        const right = fresh.querySelector(".browse-notes .list-col");
+        if (left && right) {
+          const l = left.getBoundingClientRect().width;
+          const r = right.getBoundingClientRect().width;
+          folderShareRestart = l + r > 0 ? l / (l + r) : -1;
+        }
+      }
+      check("...and is applied to the folder columns",
+            Math.abs(folderShareRestart - 0.4) <= 0.05,
+            "folderShare=" + folderShareRestart.toFixed(3));
       const email = fresh.querySelector("#backup-email");
       check("the saved email address comes back",
             !!email && email.value === "probe@example.com",

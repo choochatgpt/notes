@@ -53,13 +53,28 @@
       <circle cx="12" cy="12" r="3"/>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
     </symbol>
+    <symbol id="i-image" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+    </symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </symbol>
   </svg>
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg class="icon"><use href="#i-note"></use></svg>
-      </span>
+      <!-- The mark is a real button (v36): tapping it reloads the app, so a
+           phone picks up a new release without re-pasting the URL. The title
+           stays outside the button -- a heading cannot live inside one. -->
+      <button class="brand-btn" id="reload-btn" type="button" title="Reload the app"
+              aria-label="Reload the app (picks up a new version)">
+        <span class="brand-mark" aria-hidden="true">
+          <svg class="icon"><use href="#i-note"></use></svg>
+        </span>
+      </button>
       <h1>Notes</h1>
       <!-- The running release, visible without opening Settings -->
       <span class="version-chip" id="home-version"></span>
@@ -89,7 +104,9 @@
          the pane while a note is open -- the folder tree stays, and the editor
          swaps into the note list's panel below it (reminders keep the
          full-pane swap, since they have no tree). A back arrow returns to the
-         list either way, so the reminder agenda below never scrolls away. -->
+         list either way. Since v36 the agenda below steps aside while a NOTE
+         is edited, so the editor gets the whole shell (the reminder editor
+         keeps the agenda visible). -->
     <section class="pane" aria-label="Notes and reminders">
       <div class="panel-head">
         <button id="editor-back" class="icon-btn hidden" type="button" title="Back" aria-label="Back to the list">
@@ -152,16 +169,31 @@
               <!-- Attached photos/videos/documents. Thumbnails render here; the
                    full bytes stay in this device's OPFS and are never backed up. -->
               <div id="media-strip" class="media-strip hidden"></div>
+              <!-- Three pickers feed ONE pipeline. The picture button opens the
+                   gallery/file picker; the document button keeps the broad
+                   accept (images, videos, PDFs); the camera input pins
+                   capture="environment" so Chrome on Android opens the camera
+                   itself (desktop browsers ignore it and open a picker). -->
+              <div class="editor-actions">
+                <button id="add-gallery-btn" class="btn" type="button">
+                  <svg class="icon"><use href="#i-image"></use></svg><span>Add picture/video</span>
+                </button>
+                <button id="add-doc-btn" class="btn" type="button">
+                  <svg class="icon"><use href="#i-clip"></use></svg><span>Add document</span>
+                </button>
+                <button id="add-camera-btn" class="btn" type="button">
+                  <svg class="icon"><use href="#i-camera"></use></svg><span>Camera</span>
+                </button>
+              </div>
               <div class="editor-actions">
                 <button id="delete-note-btn" class="btn danger" type="button">
                   <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
                 </button>
-                <button id="add-media-btn" class="btn" type="button">
-                  <svg class="icon"><use href="#i-clip"></use></svg><span>Add attachment</span>
-                </button>
                 <button id="save-note-btn" class="btn primary" type="submit">Save</button>
               </div>
               <input id="media-input" type="file" accept="image/*,video/*,application/pdf" multiple hidden>
+              <input id="gallery-input" type="file" accept="image/*,video/*" multiple hidden>
+              <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" multiple hidden>
             </form>
           </div>
         </div>
@@ -221,8 +253,9 @@
       </div>
     </section>
 
-    <!-- Lower half: the agenda. Read-only and always visible while you work
-         above, soonest reminder first. -->
+    <!-- Lower half: the agenda. Read-only, soonest reminder first. Visible
+         whenever you browse; while a NOTE is edited above it steps aside to
+         give the editor the whole shell (v36). -->
     <section class="pane pane-agenda" aria-label="Upcoming reminders">
       <div class="panel-head">
         <span class="panel-title">Upcoming reminders</span>

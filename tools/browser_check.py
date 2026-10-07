@@ -389,6 +389,12 @@ PROBE = """<!doctype html>
           body.dataset.mode === "edit" && body.dataset.kind === "reminders",
           "mode=" + body.dataset.mode + " kind=" + body.dataset.kind + " status=" + status());
 
+    // --- v36: the agenda steps aside only for NOTE edits. A reminder edit
+    // keeps it (body[data-kind] is "reminders" during this edit).
+    check("a reminder edit keeps the agenda visible",
+          !!q(".pane-agenda") && q(".pane-agenda").getBoundingClientRect().height > 2,
+          "agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
+
     // Fill it in and save, so the agenda below has a real reminder to lay out
     // rather than its empty-state paragraph. A weekly Tue+Thu rule is the case
     // the user described, and it is the one whose label used to omit the period.
@@ -1134,6 +1140,22 @@ PROBE = """<!doctype html>
               + " editorVisible=" + editorVisible);
         check("the open editor replaced the note list in its panel",
               editorVisible && q("#note-list").classList.contains("hidden"));
+
+        // --- v36: two action rows, and the agenda steps aside ---
+        const actionRows = [...doc.querySelectorAll("#note-editor .editor-actions")];
+        const pickerButtons = ["#add-gallery-btn", "#add-doc-btn", "#add-camera-btn"]
+          .map(sel => doc.querySelector(sel));
+        check("the note editor's actions are two rows -- pickers first, then Delete + Save",
+              actionRows.length === 2
+              && pickerButtons.every(b => !!b && actionRows[0].contains(b))
+              && actionRows[1].contains(doc.querySelector("#delete-note-btn"))
+              && actionRows[1].contains(doc.querySelector("#save-note-btn"))
+              && Math.round(actionRows[0].getBoundingClientRect().top)
+                 < Math.round(actionRows[1].getBoundingClientRect().top),
+              "rows=" + actionRows.length);
+        check("an open note editor collapses the agenda",
+              editorVisible && q(".pane-agenda").getBoundingClientRect().height <= 2,
+              "agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
       }
     } else {
       check("a note row exists to tap", false, "note-list is empty");
@@ -1247,6 +1269,13 @@ PROBE = """<!doctype html>
         await sleep(700);
         const left = doc.querySelectorAll("#note-list .item-row").length;
         check("the note has left Unfiled", left === 0, "unfiled rows=" + left);
+
+        // --- v36: the agenda returns when the note editor closes ---
+        check("closing the note editor brings the agenda back",
+              body.dataset.mode === "browse"
+              && q(".pane-agenda").getBoundingClientRect().height > 2,
+              "mode=" + body.dataset.mode
+              + " agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
 
         const dest = doc.querySelector(
           '#folder-tree .folder-row[data-folder="' + targetId + '"] .folder-select');
@@ -2117,6 +2146,45 @@ PROBE = """<!doctype html>
             + " treeTop=" + treeTop0 + "->" + treeTop1
             + " paneBody=" + (paneBody3 ? paneBody3.scrollTop : "n/a"));
     }
+
+    // --- v36: the brand mark is a reload button ---
+    // Last on purpose: a reload creates a fresh document AND a fresh realm, so
+    // every stub wired onto the old window dies (the v32 restore block re-arms
+    // its own confirm for the same reason). Nothing after this needs a stub.
+    // Queried from frame.contentDocument, NOT the script's opening doc: the
+    // flow has restarted the app twice by now, so doc/q are stale by here --
+    // the same reason the v32/v33 blocks minted fresh fdoc/fq helpers.
+    {
+      const liveDoc = frame.contentDocument;
+      const brand = liveDoc.querySelector(".brand");
+      const reloadBtn = liveDoc.querySelector("#reload-btn");
+      check("the brand mark is a reload button",
+            !!reloadBtn && !!brand && brand.contains(reloadBtn)
+            && reloadBtn.tagName === "BUTTON"
+            && reloadBtn.getAttribute("type") === "button"
+            && !!reloadBtn.querySelector(".brand-mark")
+            && !reloadBtn.contains(liveDoc.querySelector("h1"))
+            && !!(reloadBtn.getAttribute("aria-label") || "").trim(),
+            "tag=" + (reloadBtn ? reloadBtn.tagName : "missing"));
+      const chipVersion = "__EXPECTED_VERSION__";
+      const oldDoc = frame.contentDocument;
+      reloadBtn.click();
+      let freshDoc = null;
+      for (let i = 0; i < 100 && !freshDoc; i++) {
+        await sleep(200);
+        const d = frame.contentDocument;
+        freshDoc = d && d !== oldDoc && d.body
+          && (d.body.dataset.ready === "true" || d.body.dataset.fatal === "true")
+          ? d : null;
+      }
+      check("the brand-mark button reloads the app into a fresh document",
+            !!freshDoc, "deadline=20s");
+      check("the header chip refills after the brand-mark reload",
+            !!freshDoc && !!freshDoc.querySelector("#home-version")
+            && freshDoc.querySelector("#home-version").textContent === "v" + chipVersion,
+            "chip=" + (freshDoc && freshDoc.querySelector("#home-version")
+              ? freshDoc.querySelector("#home-version").textContent : "missing"));
+    }
   } catch (error) {
     check("probe ran to completion", false, String(error && error.message || error));
   }
@@ -2384,25 +2452,107 @@ PROBE_NARROW = """<!doctype html>
       }
     }
 
-    // --- the editor's three buttons share one line at phone width ---
-    // Same-line is a layout fact: the tops of Delete, Add attachment and Save
-    // must agree, and the row must be one button tall, not two stacked.
+    // --- v36: the picture picker feeds the same pipeline ---
+    // A fresh note attaches one png through #gallery-input -- the same
+    // addNoteMedia ritual as the document input -- and its row badge counts
+    // it. Unfiled is selected first: the v35 chip block left Narrow Folder as
+    // the visible folder, and a note filed elsewhere never renders in the
+    // filtered list for this check to find.
+    {
+      q("#notes-tab").click();
+      await sleep(400);
+      const unfiledBtn = [...doc.querySelectorAll("#folder-tree .folder-row")]
+        .find(r => r.dataset.folder === "")
+        ?.querySelector(".folder-select");
+      if (unfiledBtn) { unfiledBtn.click(); await sleep(500); }
+      q("#new-note-btn").click();
+      await sleep(800);
+      // Title is set and SAVED before the attach: addNoteMedia re-renders the
+      // editor as it persists, so an unsaved-title-only editor would feed an
+      // empty title into the submit (the note then lists as "Untitled note").
+      q("#note-title").value = "Narrow Gallery";
+      q("#note-editor").requestSubmit();
+      await sleep(600);
+      const input = doc.querySelector("#gallery-input");
+      const canvas = doc.createElement("canvas");
+      canvas.width = 24;
+      canvas.height = 24;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#e0533d";
+      ctx.fillRect(0, 0, 24, 24);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      const transfer = new frame.contentWindow.DataTransfer();
+      transfer.items.add(new frame.contentWindow.File([blob], "gal.png", { type: "image/png" }));
+      input.files = transfer.files;
+      input.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      await sleep(1500);
+      check("narrow: the picture picker attaches through the same pipeline",
+            !q("#media-strip").classList.contains("hidden")
+            && q("#media-strip").querySelectorAll(".media-thumb").length === 1,
+            "thumbs=" + q("#media-strip").querySelectorAll(".media-thumb").length);
+      q("#editor-back").click();
+      await sleep(600);
+      const galleryRow = [...doc.querySelectorAll("#note-list .item-row")]
+        .find(r => r.textContent.includes("Narrow Gallery"));
+      const galleryBadge = galleryRow && galleryRow.querySelector(".item-attach");
+      check("narrow: the gallery-attached note's row badge counts it",
+            !!galleryBadge && /1 png/.test(galleryBadge.textContent.trim()),
+            "rowFound=" + !!galleryRow
+            + " titles=" + [...doc.querySelectorAll("#note-list .item-row")]
+              .map(r => r.textContent.trim().slice(0, 20)).slice(0, 8).join(" | ")
+            + " badge=" + (galleryBadge ? galleryBadge.textContent.trim() : "none"));
+    }
+
+    // The camera path is device-only (headless cannot open a camera applet),
+    // so the probe asserts the input's picker recipe instead of driving it.
+    {
+      const cam = doc.querySelector("#camera-input");
+      const gallery = doc.querySelector("#gallery-input");
+      check("narrow: the camera input is hidden and capture-pinned",
+            !!cam && cam.tagName === "INPUT"
+            && (cam.getAttribute("accept") || "") === "image/*,video/*"
+            && cam.getAttribute("capture") === "environment"
+            && cam.getAttribute("type") === "file"
+            && cam.hasAttribute("hidden"),
+            "accept=" + (cam ? cam.getAttribute("accept") : "missing")
+            + " capture=" + (cam ? cam.getAttribute("capture") : "missing"));
+      check("narrow: the gallery input is media-only and uncaptured",
+            !!gallery && gallery.getAttribute("capture") === null
+            && (gallery.getAttribute("accept") || "") === "image/*,video/*",
+            "accept=" + (gallery ? gallery.getAttribute("accept") : "missing"));
+    }
+
+    // --- v36: the editor's actions split into two rows at phone width ---
+    // The three attachment pickers fill the first row, Delete + Save the
+    // second. Same-line is still a layout fact per row: the tops inside each
+    // row must agree, and each row must be one button tall, not two stacked.
     q("#notes-tab").click();
     await sleep(400);
     q("#new-note-btn").click();
     await sleep(800);
-    const buttons = ["#delete-note-btn", "#add-media-btn", "#save-note-btn"]
+    const pickButtons = ["#add-gallery-btn", "#add-doc-btn", "#add-camera-btn"]
       .map(sel => q(sel));
-    if (buttons.every(b => b)) {
-      const tops = buttons.map(b => Math.round(b.getBoundingClientRect().top));
-      const spread = Math.max(...tops) - Math.min(...tops);
-      const actionBox = q(".editor-actions").getBoundingClientRect();
-      const buttonH = buttons[2].getBoundingClientRect().height;
-      check("narrow: Delete, Add attachment and Save sit on one line",
-            spread <= 2, "tops=" + tops.join(","));
-      check("narrow: the action row is one button tall, not two",
-            actionBox.height <= buttonH * 1.35,
-            "rowH=" + Math.round(actionBox.height) + " btnH=" + Math.round(buttonH));
+    const endButtons = ["#delete-note-btn", "#save-note-btn"].map(sel => q(sel));
+    if (pickButtons.every(b => b) && endButtons.every(b => b)) {
+      const pickTops = pickButtons.map(b => Math.round(b.getBoundingClientRect().top));
+      const endTops = endButtons.map(b => Math.round(b.getBoundingClientRect().top));
+      const rows = [...doc.querySelectorAll("#note-editor .editor-actions")];
+      check("narrow: the three attachment pickers sit on one line",
+            rows.length === 2
+            && Math.max(...pickTops) - Math.min(...pickTops) <= 2,
+            "tops=" + pickTops.join(","));
+      check("narrow: Delete and Save sit on their own line",
+            Math.max(...endTops) - Math.min(...endTops) <= 2,
+            "tops=" + endTops.join(","));
+      const buttonH = endButtons[1].getBoundingClientRect().height;
+      check("narrow: each action row is one button tall, not two",
+            rows.length === 2
+            && rows.every(row => row.getBoundingClientRect().height <= buttonH * 1.35),
+            "rows=" + rows.map(r => Math.round(r.getBoundingClientRect().height)).join(",")
+            + " btnH=" + Math.round(buttonH));
+      check("narrow: an open editor takes the agenda's half too",
+            q(".pane-agenda").getBoundingClientRect().height <= 2,
+            "agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
       check("narrow: no photo strip shows on a note without photos",
             !q("#media-strip") || q("#media-strip").classList.contains("hidden"),
             "stripVisible=" + (q("#media-strip")
@@ -2412,8 +2562,8 @@ PROBE_NARROW = """<!doctype html>
             "visible=" + (q("#editor-attach")
               ? !q("#editor-attach").classList.contains("hidden") : "missing"));
     } else {
-      check("narrow: the three editor buttons all exist",
-            false, "missing=" + buttons.map(b => !!b).join(","));
+      check("narrow: the editor action buttons all exist",
+            false, "missing=" + pickButtons.concat(endButtons).map(b => !!b).join(","));
     }
   } catch (error) {
     check("narrow probe ran to completion", false, String(error && error.message || error));

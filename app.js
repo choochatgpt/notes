@@ -2035,14 +2035,27 @@ function wireControls() {
   on("#note-editor", "submit", saveNote);
   on("#reminder-editor", "submit", saveReminder);
   on("#reminder-repeat", "change", syncWeekdayVisibility);
-  on("#add-media-btn", "click", () => $("#media-input")?.click());
-  on("#media-input", "change", async event => {
+  // Reloading from the top-left mark (v36): a tap means the whole app starts
+  // over, which is how a phone picks up a new release without re-pasting the
+  // URL -- and the recovery path when startup fails. Like every navigation
+  // here (tab switch, folder click), it silently discards unsaved edits.
+  on("#reload-btn", "click", () => location.reload());
+  // The three pickers feed ONE pipeline. Each button opens its own input, and
+  // every input runs the same change ritual: addNoteMedia snapshots the
+  // FileList before its first await, and the input resets only AFTER the
+  // attach finishes, so re-picking the same file still fires a change event.
+  // One helper keeps that ritual in one place.
+  const attachFromInput = async event => {
     const input = event.target;
     if (input?.files?.length) await addNoteMedia(input.files);
-    // Reset only after the attach finishes, so picking the same file again
-    // still fires a change event.
     input.value = "";
-  });
+  };
+  on("#add-gallery-btn", "click", () => $("#gallery-input")?.click());
+  on("#add-doc-btn", "click", () => $("#media-input")?.click());
+  on("#add-camera-btn", "click", () => $("#camera-input")?.click());
+  on("#gallery-input", "change", attachFromInput);
+  on("#media-input", "change", attachFromInput);
+  on("#camera-input", "change", attachFromInput);
   on("#media-close", "click", closeMedia);
   on("#media-save-btn", "click", saveMediaToDevice);
   // Escape (a native dialog "cancel") routes here too: the bytes' URL must be

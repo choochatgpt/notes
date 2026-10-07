@@ -38,9 +38,14 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 While a note is open for editing, the top box still shows the tree and the
 bottom box shows the editor instead of the list.
 
+Since v36 an open **note** editor goes one further: the agenda steps aside
+entirely (a pure-CSS rule keyed on the editor-open state), so the editor gets
+the whole shell — and it returns the moment you leave the editor. Reminder
+edits keep the agenda, and while you browse it is always there.
+
 **The split is half and half by default — the notes region above, the agenda
-below.** The agenda is never scrolled off: a reminder coming due stays in view
-while you edit a note above it. The even split is the default because the agenda
+below.** While you browse, the agenda is never scrolled off: a reminder coming
+due stays in view. The even split is the default because the agenda
 is where a reminder actually gets read, and a third of the screen cut the list
 short while the notes region had room to spare. It is a default rather than a
 rule: Settings → *Notes/Reminders panel display ratio* cycles the top pane
@@ -93,7 +98,11 @@ switching tabs.
 every pixel spent on margin is a folder name that gets cut off.
 
 **The top bar is one row that never wraps.** On a narrow screen the button
-labels collapse and the icons carry the action.
+labels collapse and the icons carry the action. The note mark at the top left
+is a reload button as of v36: tapping it restarts the app in place — how a
+phone picks up a new release without re-pasting the URL, and the recovery path
+when a startup died (a reload re-runs boot against the fresh, network-first
+shell). Like every navigation here, it silently discards unsaved edits.
 
 **The upper half browses, then edits in place.** Tapping a note swaps the list
 panel into its editor under the still-visible tree; tapping a reminder swaps
@@ -201,9 +210,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 35"), so on any device you can
+and the release number at the bottom ("Version 36"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v35`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v36`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -395,9 +404,12 @@ exist later would sit in a store the restore does not touch.
 
 ## Attachments on notes
 
-Open a note, press **Add attachment** (v34: the picker accepts images, videos
-**and PDFs**). Images land as thumbnails on a strip above Delete / Add
-attachment / Save; a PDF gets a labelled tile ("PDF") instead — the strip has
+Open a note and pick one of three (v36): **Add picture/video** opens the
+gallery-style picker (images and videos), **Add document** is the original
+broad picker (images, videos **and PDFs**), and **Camera** opens the camera
+applet on a phone — desktop Chrome ignores the capture hint and behaves like
+the gallery. All three feed the same pipeline. Images land as thumbnails on a
+strip above the action rows; a PDF gets a labelled tile ("PDF") instead — the strip has
 no picture to show for a document, by design. The change is applied immediately
 (no need to press Save first, and nothing is orphaned if you close without
 saving). Tapping a thumbnail or tile opens it full-size in a viewer: pictures
@@ -455,8 +467,11 @@ The manual fallbacks remain for a phone with no token saved yet:
 Rules: private repo only; per-file cap 24 MB (the sync refuses bigger and
 names the file); the text backup CSV stays text-only in its own column.
 
-The editor's three buttons — Delete, Add attachment, Save — are pinned to one
-line at every width: the row never wraps, and the labels compact down instead.
+The editor's actions are two rows as of v36 — the three pickers (Add
+picture/video, Add document, Camera), then Delete and Save — and each row is
+pinned to one line at every width: rows never wrap, and the labels compact down
+instead. While the editor is open the agenda below steps aside (see the split
+above), so the rows have the room.
 
 ## Not built yet
 
@@ -502,7 +517,7 @@ node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # ~240 checks in real Chrome (~216 desktop + ~24 at 380px)
+python tools/browser_check.py                   # ~253 checks in real Chrome (~223 desktop + ~30 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -544,7 +559,7 @@ app module may contain `fetch`, `XMLHttpRequest`, `sendBeacon` or
 too: the export panel is exactly Share CSV for backup + Export CSV (download/
 share gone; the clipboard button's label was renamed to "Share CSV for backup"
 on 2026-10-02),
-the editor action row is nowrap, the narrow layout keeps the reminder date and
+the editor action rows are nowrap (two rows since v36), the narrow layout keeps the reminder date and
 stands the relative time down, attachments have their strip/viewer/OPFS
 plumbing (v34: a PDF tile, the document iframe branch, and
 `attachmentBadge` both defined and used), and backup.js is v3 with a mediaIds
@@ -580,7 +595,12 @@ row above the note list with both panels as wide as the notes grid itself, a
 folder-ratio click re-balances the two rows' heights (chip text AND geometry),
 and after enough notes are seeded the list scrolls inside its own panel while
 the tree's top and `.pane-body`'s scroll position stay exactly where they
-were. Static
+were. v36 adds the editor-open pair: an open note editor measured to have
+collapsed the agenda, a reminder edit measured to have kept it, the agenda
+measured back on close, and the two action rows ordered pickers-first. The
+brand-mark reload runs last in the whole flow, deliberately — a reload kills
+every stub in the frame — and its headless Chrome asserts a genuinely fresh
+document whose header chip reads this checkout's version. Static
 checks can prove an id exists and a listener is attached in the source; they
 cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
@@ -607,12 +627,18 @@ tile and its `application/pdf` record, and the v34 note-row badge is read off
 the real list (`2 · 1 pdf · 1 png` with the full breakdown in the title);
 tapping the PDF tile opens the document viewer on a `blob:` iframe and closing
 empties it; deleting the note — whose confirmation is inspected for the
-attachment warning — empties OPFS and the media store completely. The
+attachment warning — empties OPFS and the media store completely. The v36
+narrow pass drives the picture picker (`#gallery-input`) through that same
+`DataTransfer` route and asserts the three-input picker recipe statically —
+the camera input is capture-pinned but never driven (headless Chrome has no
+camera). The
 380px pass measures the things layout bugs hide in: the reminder row shows the
 date with the relative time stood down and no leftover separator, all on one
 line; the attachment-count line renders inside the preview column (the v19
-one-word-per-line trap, guarded); and Delete / Add attachment / Save sit on one
-line at phone width. Since v33 the narrow pass also proves the folder panel is
+one-word-per-line trap, guarded); and the editor's two action rows keep their
+own lines at phone width — the three pickers on the first, Delete / Save on the
+second — with the agenda collapsed under an open editor. Since v33 the narrow
+pass also proves the folder panel is
 stacked above the note list at 380px — the same one rule serves every width.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless

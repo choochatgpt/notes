@@ -1,8 +1,8 @@
 /* Notes -- local-first notes and reminders.
    Layout: a pinned top bar, then a stacked split. The upper pane browses and
-   edits; the lower pane is the always-visible reminder agenda, soonest first.
-   The lower pane never scrolls away, so a due reminder stays in view while a
-   note is open above it. */
+   edits; the lower pane is the reminder agenda, soonest first. The agenda is
+   visible whenever you browse; while a note is edited (v36) it steps aside so
+   the editor gets the whole shell. */
 
 :root {
   --bg: #eef1f6;
@@ -118,6 +118,23 @@ body {
   background: linear-gradient(140deg, var(--accent-2), var(--accent));
   box-shadow: var(--shadow-sm);
 }
+
+/* The brand mark is the reload button (v36): tapping it reloads the app, so a
+   phone picks up a new release without re-pasting the URL -- and this is the
+   recovery path when startup fails and the top bar's buttons are inert. The
+   button resets the UA chrome so the existing .brand-mark tile paints exactly
+   as before; the <h1> stays the button's sibling because a heading cannot
+   live inside a button. */
+.brand-btn {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 9px;
+}
+.brand-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
 
 .brand h1 {
   margin: 0;
@@ -243,6 +260,23 @@ body {
   border-radius: 9px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+}
+
+/* While a NOTE is edited (v36) the agenda steps aside so the editor gets the
+   whole shell. This rule replaces grid-template-rows wholesale, so the inline
+   --pane-top/--pane-bottom that applyPaneRatio wrote are unread while it
+   matches; the base rule above keeps its 1fr fallbacks (static_check pins
+   them). Cycling the pane ratio during a note edit moves the chip only -- the
+   tracks re-balance when the editor closes. The second rule kills the
+   agenda's border and shadow so the collapsed track paints nothing; the
+   reminder editor keeps the agenda, since body[data-kind] is "reminders"
+   there. */
+body[data-mode="edit"][data-kind="notes"] .app-shell {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0fr);
+}
+body[data-mode="edit"][data-kind="notes"] .pane-agenda {
+  border: 0;
+  box-shadow: none;
 }
 
 .panel-head {
@@ -840,10 +874,13 @@ body {
 #media-frame { width: min(640px, 88vw); height: 64vh; }
 .media-hint { margin: 6px 0 0; color: var(--text-faint); font-size: 11.5px; }
 
-/* One line, never a second row. The user asked for Delete, Add attachment and
-   Save to share a single line, so the row is nowrap and the buttons compact
+/* Two rows since v36: the three attachment pickers on the first, Delete +
+   Save on the second. The v19 rule said all three buttons shared one line;
+   three pickers cannot fit beside Delete and Save at phone width, so the
+   actions became two rows and each row still never wraps -- buttons compact
    down instead: smaller padding, and a label that ellipsises under pressure
-   rather than pushing Save off the row. */
+   rather than pushing Save off its row. The reminder editor's single actions
+   row keeps using the same rule, so it gains nothing. */
 .editor-actions {
   display: flex;
   align-items: center;

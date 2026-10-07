@@ -113,6 +113,43 @@ else:
     else:
         print("top bar pinned to one row: .topbar and .topbar-actions both nowrap")
 
+# --- 5b. The brand mark is the reload button (v36) ----------------------------
+# Tapping the top-left note icon reloads the app, so a phone picks up a new
+# release without re-pasting the URL -- and it is the recovery path when
+# startup fails. The button must wrap the mark only (a heading cannot live
+# inside a button, so the <h1> stays a sibling), be a real type="button", and
+# call location.reload() through the guarded on() helper.
+brand_btn = re.search(
+    r'<button class="brand-btn" id="reload-btn" type="button"[^>]*>', html)
+if not brand_btn:
+    fails.append("the brand mark is not a #reload-btn: the top-left icon must "
+                 "reload the app so a phone picks up updates without re-pasting "
+                 "the URL (v36)")
+else:
+    if "aria-label=" not in brand_btn.group(0):
+        fails.append("#reload-btn has no aria-label -- a button without a name")
+    brand_chunk = re.search(r'<button class="brand-btn" id="reload-btn".*?</button>',
+                            html, re.S)
+    if not brand_chunk or 'class="brand-mark"' not in brand_chunk.group(0) \
+            or "<h1" in brand_chunk.group(0):
+        fails.append("#reload-btn must wrap the .brand-mark only -- the <h1> stays "
+                     "outside the button")
+    if 'on("#reload-btn", "click", () => location.reload());' not in app:
+        fails.append('app.js never wires #reload-btn to location.reload() -- '
+                     "the brand mark cannot reload the app")
+brand_css = re.search(r"\.brand-btn\s*\{([^}]*)\}", css)
+if not brand_css:
+    fails.append("no .brand-btn rule -- the reload button renders with UA chrome")
+elif not all(token in brand_css.group(1)
+             for token in ("cursor: pointer", "border: 0", "padding: 0")):
+    fails.append(".brand-btn must shed the UA button chrome (padding/border/"
+                 "background) so the .brand-mark tile paints exactly as before")
+if not re.search(r"\.brand-btn:focus-visible\s*\{[^}]*outline:", css):
+    fails.append(".brand-btn has no :focus-visible outline -- a keyboard user "
+                 "cannot see where the reload button is")
+else:
+    print("brand mark: a real #reload-btn that calls location.reload()")
+
 # --- 6. The stacked split: notes above, agenda below -------------------------
 # The two rows read custom properties so the Settings ratio button can
 # re-balance them (1:4 through 3:4). What must never drift: exactly two tracks,
@@ -766,15 +803,43 @@ if 'id="open-email-btn"' not in html:
 if 'id="i-download"' in html or 'href="#i-download"' in html or 'href="#i-download"' in app:
     fails.append("the i-download glyph is back, but nothing downloads anymore")
 
-# 15b. The editor's Delete / Add attachment / Save share one line.
+# 15b. The editor actions are two nowrap rows (v36): the three attachment
+# pickers on the first, Delete + Save on the second. The v19 rule gave all
+# three buttons one line; three pickers cannot fit beside Delete and Save at
+# phone width, so each row is still nowrap and the two-row order is pinned.
 editor_actions = re.search(r"\.editor-actions\s*\{([^}]*)\}", css)
 if not editor_actions:
     fails.append("no .editor-actions rule found")
 elif "nowrap" not in editor_actions.group(1):
-    fails.append(".editor-actions does not pin flex-wrap: nowrap, so the three "
-                 "editor buttons can wrap onto a second row")
+    fails.append(".editor-actions does not pin flex-wrap: nowrap, so an editor "
+                 "action row can wrap onto a second row")
+note_form = re.search(r'<form id="note-editor"[^>]*>(.*?)</form>', html, re.S)
+if not note_form:
+    fails.append('index.html lost <form id="note-editor">')
 else:
-    print("editor actions: Delete / Add attachment / Save pinned to one line")
+    rows = re.findall(r'<div class="editor-actions">(.*?)</div>',
+                      note_form.group(1), re.S)
+    if len(rows) != 2:
+        fails.append("the note editor must have exactly two action rows (the "
+                     f"pickers, then Delete + Save), found {len(rows)}")
+    else:
+        if not all(row_id in rows[0] for row_id in
+                   ('id="add-gallery-btn"', 'id="add-doc-btn"', 'id="add-camera-btn"')) \
+                or 'id="delete-note-btn"' in rows[0] or 'id="save-note-btn"' in rows[0]:
+            fails.append("the FIRST editor-actions row must hold the three "
+                         "attachment pickers and only them")
+        elif ('id="delete-note-btn"' not in rows[1]
+              or 'id="save-note-btn"' not in rows[1] or 'id="add-' in rows[1]):
+            fails.append("the SECOND editor-actions row must hold Delete and Save "
+                         "only -- Save stays the form's submit")
+        elif ('>Add picture/video</span>' not in rows[0]
+              or '>Add document</span>' not in rows[0]
+              or '>Camera</span>' not in rows[0]):
+            fails.append('the picker labels ("Add picture/video", "Add document", '
+                         '"Camera") are the user\'s names verbatim and must survive')
+        else:
+            print("editor actions: two nowrap rows -- Add picture/video / Add "
+                  "document / Camera, then Delete + Save")
 
 # 15c. The narrow layout keeps the reminder DATE and drops the relative time --
 # the reverse of what it used to do, per the 2026-10-01 request.
@@ -801,16 +866,56 @@ else:
 for required in ('id="media-strip"', 'id="media-input"', 'id="media-dialog"',
                  'id="media-view"', 'id="media-video"', 'id="media-frame"',
                  'id="media-hint"', 'id="media-close"',
-                 'id="media-save-btn"', 'id="add-media-btn"'):
+                 'id="media-save-btn"', 'id="add-gallery-btn"',
+                 'id="add-doc-btn"', 'id="add-camera-btn"',
+                 'id="gallery-input"', 'id="camera-input"'):
     if required not in html:
         fails.append(f"index.html lost {required}, so attachments have nowhere to render")
 if '<symbol id="i-clip"' not in html:
-    fails.append("index.html has no i-clip sprite symbol for the add-attachment button")
+    fails.append("index.html has no i-clip sprite symbol for the attachments layer")
 if 'href="#i-clip"' not in html:
-    fails.append("nothing uses the i-clip glyph -- the add-media button must carry it "
-                 "(and the note row's attachment-count line reuses it)")
+    fails.append("nothing uses the i-clip glyph -- the Add document button and the "
+                 "attachment-count lines carry it")
+if '<symbol id="i-image"' not in html or 'href="#i-image"' not in html:
+    fails.append("the Add picture/video button has no i-image sprite symbol in use")
+if '<symbol id="i-camera"' not in html or 'href="#i-camera"' not in html:
+    fails.append("the Camera button has no i-camera sprite symbol in use")
+if 'on("#add-media-btn"' in app or 'id="add-media-btn"' in html:
+    fails.append("the old single Add attachment button survived -- v36 replaced it "
+                 "with the three pickers")
 if 'accept="image/*,video/*,application/pdf"' not in html:
     fails.append('#media-input no longer accepts image/*,video/*,application/pdf')
+if html.count('accept="image/*,video/*,application/pdf"') != 1:
+    fails.append("the broad document accept must stay on #media-input only -- the "
+                 "gallery and camera pickers are media-only")
+gallery_input = re.search(r'<input id="gallery-input"[^>]*>', html)
+if not gallery_input:
+    fails.append("the gallery input vanished -- Add picture/video has nowhere to pick into")
+elif ('accept="image/*,video/*"' not in gallery_input.group(0)
+      or "multiple" not in gallery_input.group(0) or "hidden" not in gallery_input.group(0)):
+    fails.append("#gallery-input must accept image/*,video/* (the gallery picker) "
+                 "and stay hidden")
+camera_input = re.search(r'<input id="camera-input"[^>]*>', html)
+if not camera_input:
+    fails.append("the camera input vanished -- the Camera button has nowhere to pick into")
+elif ('capture="environment"' not in camera_input.group(0)
+      or 'accept="image/*,video/*"' not in camera_input.group(0)
+      or "hidden" not in camera_input.group(0)):
+    fails.append('#camera-input must pin capture="environment" so Chrome on Android '
+                 "opens the camera itself, and stay hidden")
+for wired in ('on("#add-gallery-btn", "click", () => $("#gallery-input")?.click());',
+              'on("#add-doc-btn", "click", () => $("#media-input")?.click());',
+              'on("#add-camera-btn", "click", () => $("#camera-input")?.click());',
+              'on("#gallery-input", "change", attachFromInput);',
+              'on("#media-input", "change", attachFromInput);',
+              'on("#camera-input", "change", attachFromInput);'):
+    if wired not in app:
+        fails.append(f"app.js lost the picker wiring: {wired}")
+if not re.search(r"await addNoteMedia\(input\.files\);.{0,120}input\.value = \"\";",
+                 app, re.S):
+    fails.append("the shared picker ritual is broken: addNoteMedia must run from the "
+                 'files and "input.value = \\"\\"" must reset only after it finishes, '
+                 "so re-picking the same file still fires a change event")
 for helper in ("export async function opfsPut(", "export async function opfsGet(",
                "export async function opfsDelete("):
     if helper not in storage:
@@ -1056,6 +1161,41 @@ else:
     print("rename/reorder: pencil + up/down on every folder row, always on "
           "screen; one shared sibling order (view.js); first move freezes the "
           "alphabetical baseline; backup v3 carries the order column")
+
+# --- 16. The agenda steps aside while a NOTE is edited (v36) ------------------
+# Pure CSS: syncUpper already writes body[data-kind]/[data-mode], so "a note
+# editor is open" is exactly edit+notes. The collapse rule must replace the
+# two-row split wholesale (making the inline --pane-top/--pane-bottom inert)
+# and must appear AFTER the base .app-shell rule, because section 6 reads the
+# first match. The border/shadow kill rides along so the collapsed agenda
+# paints nothing.
+collapse = re.search(
+    r'body\[data-mode="edit"\]\[data-kind="notes"\] \.app-shell\s*\{([^}]*)\}',
+    css)
+if not collapse:
+    fails.append("no agenda-collapse rule: while a note is edited the agenda must "
+                 "give the editor the whole shell (v36)")
+else:
+    if "minmax(0, 1fr)" not in collapse.group(1) \
+            or "minmax(0, 0fr)" not in collapse.group(1):
+        fails.append("the agenda-collapse rule must pin the editor's track to full "
+                     "and the agenda's to minmax(0, 0fr)")
+    elif re.search(r'body\[data-mode="edit"\]\[data-kind="notes"\] \.app-shell\s*\{',
+                   css).start() < re.search(r"\.app-shell\s*\{", css).start():
+        fails.append("the agenda-collapse rule must come after the base .app-shell "
+                     "rule -- section 6 reads the first match")
+agenda_kill = re.search(
+    r'body\[data-mode="edit"\]\[data-kind="notes"\] \.pane-agenda\s*\{([^}]*)\}',
+    css)
+if not agenda_kill:
+    fails.append("the collapsed agenda still paints its border/shadow sliver -- "
+                 "add the .pane-agenda border/shadow-kill companion rule")
+elif "border: 0" not in agenda_kill.group(1) \
+        or "box-shadow: none" not in agenda_kill.group(1):
+    fails.append("the .pane-agenda companion rule must kill both the border and "
+                 "the shadow while the agenda is collapsed")
+else:
+    print("agenda: steps aside while a note is edited (pure CSS on body[data-*])")
 
 print()
 if notes:

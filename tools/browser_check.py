@@ -1332,6 +1332,19 @@ PROBE = """<!doctype html>
       const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
       return new frame.contentWindow.File([blob], name, { type: "image/png" });
     };
+    // v34: a minimal one-page PDF. Its xref is sketched rather than exact --
+    // the checks assert the tile, the record and the iframe's blob: src, never
+    // painted PDF pixels, and Chrome's viewer is lenient about a malformed
+    // page table on a one-object file.
+    const makePdfFile = name => {
+      const body = "%PDF-1.4\\n"
+        + "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\\n"
+        + "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\\n"
+        + "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\\n"
+        + "xref\\n0 4\\n0000000000 65535 f \\n"
+        + "trailer<</Size 4/Root 1 0 R>>\\nstartxref\\n9\\n%%EOF\\n";
+      return new frame.contentWindow.File([body], name, { type: "application/pdf" });
+    };
 
     let photosOk = false;
     try {
@@ -1416,16 +1429,71 @@ PROBE = """<!doctype html>
             && !(doc.querySelector("#media-view").getAttribute("src")),
             "open=" + !!(doc.querySelector("#media-dialog") || {}).open);
 
+      // v34: documents attach too. The PDF gets a labelled tile instead of a
+      // fake picture, and the note row's count line reports all three.
+      const pdfTransfer = new frame.contentWindow.DataTransfer();
+      pdfTransfer.items.add(makePdfFile("probe.pdf"));
+      input.files = pdfTransfer.files;
+      input.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      await sleep(1500);
+
+      const pdfTile = [...doc.querySelectorAll("#media-strip .media-thumb")]
+        .find(cell => cell.querySelector(".media-file-tag"));
+      check("a PDF attaches with its own labelled tile, not a broken img",
+            !!pdfTile && (/PDF/.test(pdfTile.textContent)),
+            "tile=" + (pdfTile ? pdfTile.textContent.trim() : "missing"));
+      const rowsNow = await mediaRows();
+      check("the PDF record carries its document type",
+            rowsNow.some(r => r.type === "application/pdf"),
+            "types=" + rowsNow.map(r => r.type).join(","));
+      check("...and a PDF with no thumbnail shows no img",
+            !pdfTile || !pdfTile.querySelector("img"),
+            "img=" + !!(pdfTile && pdfTile.querySelector("img")));
+      check("...and its bytes landed in OPFS",
+            (await opfsCount()).length === 2, "files=" + (await opfsCount()).length);
+
+      const attachRow = [...doc.querySelectorAll("#note-list .item-row")]
+        .find(row => row.textContent.includes("Photo Note"));
+      const attachLine = attachRow && attachRow.querySelector(".item-attach");
+      check("the note row counts its attachments by type",
+            attachRow && attachLine
+            && /2 · 1 pdf · 1 png/.test(attachLine.textContent)
+            && /2 attachments:/.test(attachLine.getAttribute("title") || ""),
+            "badge=" + (attachLine
+              ? attachLine.textContent.trim() + " | " + attachLine.getAttribute("title")
+              : "missing"));
+
+      // The viewer gains the document branch: the iframe shows the OPFS copy
+      // through an object URL; the img branch stays hidden (a PDF in <img> is
+      // only ever alt text).
+      if (pdfTile) pdfTile.click();
+      await sleep(900);
+      const frameEl = doc.querySelector("#media-frame");
+      const imgEl = doc.querySelector("#media-view");
+      check("tapping the PDF tile opens the document viewer",
+            (doc.querySelector("#media-dialog") || {}).open && frameEl
+            && !frameEl.classList.contains("hidden")
+            && (frameEl.getAttribute("src") || "").startsWith("blob:")
+            && imgEl.classList.contains("hidden")
+            && !doc.querySelector("#media-hint").classList.contains("hidden"),
+            "src=" + ((frameEl && frameEl.getAttribute("src") || "").slice(0, 5)));
+      doc.querySelector("#media-close").click();
+      await sleep(400);
+      check("closing the document viewer empties the frame",
+            !(doc.querySelector("#media-dialog") || {}).open
+            && !(doc.querySelector("#media-frame").getAttribute("src")),
+            "src=" + ((doc.querySelector("#media-frame").getAttribute("src") || "?")));
+
       // Deleting the note takes the rest of its media with it. The
-      // confirmation must name the photos that are about to go.
+      // confirmation must name the attachments that are about to go.
       confirmAnswer = true;
       const confirmsBeforeDelete = confirms.length;
       q("#delete-note-btn").click();
       await sleep(1000);
       const deleteWording = confirms[confirms.length - 1] || "";
-      check("deleting a photo note warns about the photos",
+      check("deleting a note with attachments warns about them",
             confirms.length > confirmsBeforeDelete
-            && /Photo Note/.test(deleteWording) && /photo/.test(deleteWording),
+            && /Photo Note/.test(deleteWording) && /2 attachments/.test(deleteWording),
             "said=" + deleteWording.slice(0, 120));
       check("the photo note is gone from the list",
             !([...doc.querySelectorAll("#note-list .item-row")]
@@ -2176,8 +2244,56 @@ PROBE_NARROW = """<!doctype html>
             + " belowTop=" + (below ? Math.round(below.getBoundingClientRect().top) : -1));
     }
 
+    // --- v34: the attachment-count line at phone width ---
+    // The badge's whole point is visibility while browsing, so no narrow rule
+    // may stand it down, and it must sit inside the preview's 1fr column (the
+    // 2026-10-01 trap: a nowrap item in an auto grid column starved the
+    // preview into one word per line).
+    q("#notes-tab").click();
+    await sleep(400);
+    q("#new-note-btn").click();
+    await sleep(800);
+    q("#note-title").value = "Narrow Attached";
+    q("#note-editor").requestSubmit();
+    await sleep(600);
+    {
+      const input = doc.querySelector("#media-input");
+      const canvas = doc.createElement("canvas");
+      canvas.width = 24;
+      canvas.height = 24;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#3d7be0";
+      ctx.fillRect(0, 0, 24, 24);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      const transfer = new frame.contentWindow.DataTransfer();
+      transfer.items.add(new frame.contentWindow.File([blob], "n1.png", { type: "image/png" }));
+      transfer.items.add(new frame.contentWindow.File([blob], "n2.png", { type: "image/png" }));
+      input.files = transfer.files;
+      input.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      await sleep(1500);
+      q("#editor-back").click();
+      await sleep(600);
+    }
+    const narrowAttached = [...doc.querySelectorAll("#note-list .item-row")]
+      .find(r => r.textContent.includes("Narrow Attached"));
+    const narrowBadge = narrowAttached && narrowAttached.querySelector(".item-attach");
+    check("narrow: an attached note's row shows its attachment count",
+          !!narrowBadge && /2 png/.test(narrowBadge.textContent.trim()),
+          "badge=" + (narrowBadge ? narrowBadge.textContent.trim() : "missing"));
+    if (narrowBadge) {
+      const main = narrowAttached.querySelector(".item-main");
+      const badgeBox = narrowBadge.getBoundingClientRect();
+      const mainBox = main.getBoundingClientRect();
+      const rowBox = narrowAttached.getBoundingClientRect();
+      check("narrow: the count line lives inside the preview column",
+            narrowBadge.closest(".item-main") === main && badgeBox.width > 0
+            && badgeBox.right <= rowBox.right && badgeBox.left >= mainBox.left - 1,
+            "badgeW=" + Math.round(badgeBox.width)
+            + " mainW=" + Math.round(mainBox.width));
+    }
+
     // --- the editor's three buttons share one line at phone width ---
-    // Same-line is a layout fact: the tops of Delete, Add photo/video and Save
+    // Same-line is a layout fact: the tops of Delete, Add attachment and Save
     // must agree, and the row must be one button tall, not two stacked.
     q("#notes-tab").click();
     await sleep(400);
@@ -2190,7 +2306,7 @@ PROBE_NARROW = """<!doctype html>
       const spread = Math.max(...tops) - Math.min(...tops);
       const actionBox = q(".editor-actions").getBoundingClientRect();
       const buttonH = buttons[2].getBoundingClientRect().height;
-      check("narrow: Delete, Add photo/video and Save sit on one line",
+      check("narrow: Delete, Add attachment and Save sit on one line",
             spread <= 2, "tops=" + tops.join(","));
       check("narrow: the action row is one button tall, not two",
             actionBox.height <= buttonH * 1.35,

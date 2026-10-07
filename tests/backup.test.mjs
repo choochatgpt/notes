@@ -246,8 +246,8 @@ console.log("\n=== 5. describeRestore -- counts before the point of no return ==
   check("the export date is stated", text.indexOf(STAMP) !== -1, text);
   check("what is kept is stated", /settings are kept/i.test(text), text);
   check("irreversibility is stated", text.indexOf("cannot be undone") !== -1, text);
-  check("the photo exclusion is stated (v2 backups carry ids, never bytes)",
-        text.indexOf("Photos are not included") !== -1, text);
+  check("the attachment exclusion is stated (backups carry ids, never bytes)",
+        text.indexOf("Attached files are not included in a backup.") !== -1, text);
 
   const bare = describeRestore({});
   check("zero counts still read as words, not blanks",

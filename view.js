@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "33";
+export const APP_VERSION = "34";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -322,6 +322,60 @@ export function folderRatioToTracks(ratio) {
     return { folder: "4fr", content: "6fr" };
   }
   return { folder: `${pct}fr`, content: `${100 - pct}fr` };
+}
+
+/**
+ * The attachment-count line under a note's title in the list, "7 · 5 jpg ·
+ * 2 pdf", from the media records the note ACTUALLY has.
+ *
+ * The caller passes loaded records, not the note's raw id list -- a dangling
+ * id is the note's problem (delete still names the id count); the badge
+ * reports what is really there, so it never shows a ghost attachment.
+ *
+ * Labels come from the record's type first and fall back to the file name's
+ * extension for a record with no type (the common shapes: jpeg/jpg fold into
+ * "jpg"). One kind reads as just that group -- "5 jpg" -- because the total
+ * would be the same number twice; two or more kinds lead with the total so
+ * the line is one glance, not arithmetic. The `title` always carries the
+ * full breakdown, including for the single-group cases.
+ */
+export function attachmentBadge(records) {
+  const list = (records || []).filter(Boolean);
+  if (!list.length) return null;
+
+  const counts = new Map();
+  for (const record of list) {
+    const label = attachmentLabel(record);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  const groups = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const parts = groups.map(([label, count]) => `${count} ${label}`);
+  const total = list.length;
+
+  return {
+    text: groups.length === 1 ? parts[0] : `${total} · ${parts.join(" · ")}`,
+    title: `${total} attachment${total === 1 ? "" : "s"}: ${parts.join(", ")}`
+  };
+}
+
+/** A record's group label: type first, then the name's extension. */
+function attachmentLabel(record) {
+  const type = String(record?.type || "");
+  if (type === "image/jpeg" || type === "image/jpg") return "jpg";
+  if (type === "image/png") return "png";
+  if (type === "application/pdf") return "pdf";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("image/")) return type.slice("image/".length).toLowerCase() || "image";
+
+  const name = String(record?.name || "");
+  const dot = name.lastIndexOf(".");
+  if (dot !== -1 && dot < name.length - 1) {
+    const ext = name.slice(dot + 1).toLowerCase();
+    if (ext === "jpg" || ext === "jpeg") return "jpg";
+    return ext || "file";
+  }
+  return "file";
 }
 
 /** "Work / Projects / Apollo", built by walking parents up to the root. */

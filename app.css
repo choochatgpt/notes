@@ -572,6 +572,25 @@ body {
      truncation, so the row can only ever grow to a few lines. */
   white-space: pre-line;
 }
+
+/* The attachment-count line (v34): "3 · 2 png · 1 pdf" under the title.
+   It lives INSIDE the 1fr .item-main column on purpose -- the 2026-10-01
+   one-word-per-line report was a nowrap item sitting in an auto grid column,
+   starving the preview; here the count line ellipsises inside the preview's
+   own track instead, and it is deliberately NOT stood down at 380px: its
+   whole point is to be visible while browsing. */
+.item-attach {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-attach .icon { width: 11px; height: 11px; align-self: auto; margin-top: 0; vertical-align: -1px; }
+
 .item-rule { margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap; }
 
 .chip {
@@ -726,14 +745,19 @@ body {
   height: 100%;
   object-fit: cover;
 }
-.media-video-tag {
+/* Thumbs for records the engine could not render as a picture: videos carry
+   the play glyph, documents (PDF and other files, v34) carry their type label.
+   Same tile geometry, different glyph. */
+.media-video-tag,
+.media-file-tag {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  font-size: 20px;
   color: var(--text-dim);
 }
+.media-video-tag { font-size: 20px; }
+.media-file-tag { font-size: 12px; font-weight: 650; letter-spacing: .04em; padding: 0 3px; }
 .media-remove {
   position: absolute;
   top: 2px;
@@ -773,7 +797,13 @@ body {
    loses to it and both viewer elements would paint at once. */
 .media-view.hidden { display: none; }
 
-/* One line, never a second row. The user asked for Delete, Add photo/video and
+/* The document viewer (v34): PDFs render inline through the iframe on the
+   same object URL as pictures. Engines that cannot -- some Android browsers
+   embed PDFs nowhere -- still have Save to device, which #media-hint names. */
+#media-frame { width: min(640px, 88vw); height: 64vh; }
+.media-hint { margin: 6px 0 0; color: var(--text-faint); font-size: 11.5px; }
+
+/* One line, never a second row. The user asked for Delete, Add attachment and
    Save to share a single line, so the row is nowrap and the buttons compact
    down instead: smaller padding, and a label that ellipsises under pressure
    rather than pushing Save off the row. */

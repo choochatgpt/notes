@@ -28,6 +28,7 @@ import {
   nextRatio,
   nextFolderRatio,
   noteSnippet,
+  attachmentBadge,
   RATIOS,
   ratioToTracks,
   FOLDER_RATIOS,
@@ -320,16 +321,28 @@ async function renderNoteList() {
     return;
   }
 
+  // The attachment badge needs each note's media types. Only notes that
+  // carry ids pay a read; dangling ids count nothing here (delete still names
+  // the id count, because that is what it removes) -- the badge reports what
+  // is actually on the device.
+  const mediaByNote = new Map((await Promise.all(
+    notes
+      .filter(note => note.mediaIds?.length)
+      .map(note => loadNoteMedia(note).then(records => [note.id, records]))
+  )));
+
   els.noteList.innerHTML = notes.map(note => {
     const title = note.title?.trim() || "Untitled note";
     const snippet = noteSnippet(note.body || "");
     const when = note.updatedAt ? relativeFromNow(note.updatedAt) : "";
+    const badge = attachmentBadge(mediaByNote.get(note.id) || []);
 
     return `<button class="item-row ${state.mode === "edit" && state.selectedItemId === note.id ? "active" : ""}"
                     type="button" data-item="${esc(note.id)}">
       <svg class="icon"><use href="#i-note"></use></svg>
       <span class="item-main">
         <span class="item-title">${esc(title)}</span>
+        ${badge ? `<span class="item-attach" title="${esc(badge.title)}"><svg class="icon"><use href="#i-clip"></use></svg>${esc(badge.text)}</span>` : ""}
         <span class="item-sub">${snippet ? esc(snippet) : "Empty"}</span>
       </span>
       ${when ? `<span class="when-abs">${esc(when)}</span>` : "<span></span>"}
@@ -782,13 +795,14 @@ async function deleteSelectedNote() {
   if (!note) return;
 
   const title = note.title?.trim() || "Untitled note";
-  // Photos are named when they exist: the note's bytes go with it, and the
-  // confirmation is the only warning before that happens.
-  const photoCount = (note.mediaIds || []).length;
-  const photos = photoCount
-    ? ` Its ${photoCount} attached photo${photoCount === 1 ? "" : "s"} will be removed too.`
+  // Attachments are named when they exist: the note's bytes go with it, and
+  // the confirmation is the only warning before that happens. The count is
+  // the id list -- that, not whatever the badge could load, is what goes.
+  const attachCount = (note.mediaIds || []).length;
+  const attachments = attachCount
+    ? ` Its ${attachCount} attachment${attachCount === 1 ? "" : "s"} will be removed too.`
     : "";
-  if (!confirm(`Delete “${title}”?${photos} This cannot be undone.`)) return;
+  if (!confirm(`Delete “${title}”?${attachments} This cannot be undone.`)) return;
 
   for (const id of note.mediaIds || []) {
     await remove("media", id);
@@ -902,6 +916,17 @@ async function loadNoteMedia(note) {
   return records;
 }
 
+/** The tile text for a record with no thumbnail: its type, else its extension. */
+function docTileLabel(record) {
+  const type = record?.type || "";
+  if (type === "application/pdf") return "PDF";
+  const name = String(record?.name || "");
+  const dot = name.lastIndexOf(".");
+  if (dot !== -1 && dot < name.length - 1) return name.slice(dot + 1).toUpperCase();
+  if (type.startsWith("image/")) return (type.slice("image/".length) || "IMAGE").toUpperCase();
+  return (type.split("/").pop() || "FILE").toUpperCase();
+}
+
 function renderMediaStrip(note) {
   if (!els.mediaStrip) return Promise.resolve();
   return loadNoteMedia(note).then(records => {
@@ -918,12 +943,22 @@ function renderMediaStrip(note) {
         img.src = record.thumb;
         img.alt = record.name || "Attached photo";
         cell.append(img);
-      } else {
+      } else if ((record.type || "").startsWith("video/")) {
         // Videos carry no frame thumbnail; a play glyph marks them.
         const tag = document.createElement("span");
         tag.className = "media-video-tag";
         tag.textContent = "▶";
         tag.setAttribute("aria-label", "Video");
+        cell.append(tag);
+      } else {
+        // Documents (and any record the engine could not thumbnail) get a
+        // labelled tile -- "PDF" -- rather than a broken img: the bytes are
+        // there, the strip just has no picture for them.
+        const label = docTileLabel(record);
+        const tag = document.createElement("span");
+        tag.className = "media-file-tag";
+        tag.textContent = label;
+        tag.setAttribute("aria-label", label);
         cell.append(tag);
       }
 
@@ -931,7 +966,7 @@ function renderMediaStrip(note) {
       remove.type = "button";
       remove.className = "media-remove";
       remove.title = "Remove";
-      remove.setAttribute("aria-label", "Remove this photo");
+      remove.setAttribute("aria-label", "Remove this attachment");
       remove.textContent = "×";
       remove.addEventListener("click", event => {
         event.stopPropagation();
@@ -950,7 +985,8 @@ async function addNoteMedia(fileList) {
   // Snapshot the FileList before the first await: the input can be reset
   // while the note is being read, and a cleared list would attach nothing.
   const files = [...fileList].filter(file =>
-    file && (file.type.startsWith("image/") || file.type.startsWith("video/")));
+    file && (file.type.startsWith("image/") || file.type.startsWith("video/")
+             || file.type === "application/pdf"));
   if (!files.length) return;
 
   const note = await get("notes", state.selectedItemId);
@@ -1012,10 +1048,22 @@ async function viewMedia(mediaId) {
   mediaObjectUrl = URL.createObjectURL(file);
 
   const isVideo = (record.type || "").startsWith("video/");
-  img.classList.toggle("hidden", isVideo);
+  // PDFs (v34) render through the iframe: the <img> branch would decode
+  // nothing and show its alt text instead. #media-hint names the Save to
+  // device way out for engines that embed PDFs nowhere.
+  const isPdf = (record.type || "") === "application/pdf";
+  const frame = $("#media-frame");
+  const hint = $("#media-hint");
+  if (!frame || !hint) return;
+
+  img.classList.toggle("hidden", isVideo || isPdf);
   video.classList.toggle("hidden", !isVideo);
+  frame.classList.toggle("hidden", !isPdf);
+  hint.classList.toggle("hidden", !isPdf);
   if (isVideo) {
     video.src = mediaObjectUrl;
+  } else if (isPdf) {
+    frame.src = mediaObjectUrl;
   } else {
     img.src = mediaObjectUrl;
     img.alt = record.name || "Attached photo";
@@ -1037,6 +1085,10 @@ function closeMedia() {
   mediaCurrentId = null;
   const img = $("#media-view");
   if (img) img.src = "";
+  const frame = $("#media-frame");
+  if (frame) frame.src = "";
+  const hint = $("#media-hint");
+  if (hint) hint.classList.add("hidden");
 }
 
 /**
@@ -1054,7 +1106,10 @@ async function saveMediaToDevice() {
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
-  link.download = record.name || ((record.type || "").startsWith("video/") ? "video" : "photo");
+  link.download = record.name
+    || ((record.type || "").startsWith("video/") ? "video"
+        : (record.type || "") === "application/pdf" ? "document"
+        : "photo");
   document.body.append(link);
   link.click();
   link.remove();
@@ -1242,7 +1297,8 @@ function setSyncStatus(message) {
 function syncMediaName(record) {
   const safe = String(record.name || "").replace(/[\\/:*?"<>|#\s]+/g, "-");
   const knownExt = (record.type || "").startsWith("video/") ? ".mp4"
-    : (record.type || "").startsWith("image/") ? ".jpg" : "";
+    : (record.type || "").startsWith("image/") ? ".jpg"
+    : (record.type || "") === "application/pdf" ? ".pdf" : "";
   const withExt = safe || `media${knownExt}`;
   const ext = withExt.includes(".") ? "" : knownExt;
   return `${record.id}-${withExt}${ext}`;
@@ -1350,7 +1406,7 @@ async function runRelayBackup(bundle) {
         prefix = "(Previous backup has not been picked up yet — it will be.) ";
       }
     }
-    setSyncStatus(`PC relay: ${prefix}sending backup + ${bundle.media.length} photo(s)/video(s)…`);
+    setSyncStatus(`PC relay: ${prefix}sending backup + ${bundle.media.length} attachment(s)…`);
     const result = await syncSubmit({
       csv: bundle.csv,
       media: bundle.media,
@@ -1364,7 +1420,7 @@ async function runRelayBackup(bundle) {
     const skipNote = bundle.skipped.length
       ? ` Skipped on this device (still safe here): ${bundle.skipped.join(", ")}.` : "";
     return { dest: "relay", state: "success",
-      text: `PC relay: ${prefix}Sent — backup + ${result.mediaCount} photo(s)/video(s) `
+      text: `PC relay: ${prefix}Sent — backup + ${result.mediaCount} attachment(s) `
         + `(${Math.round(result.bytes / 1024)} KB) are on the private GitHub branch; `
         + `the PC's optional watcher picks them up when it runs.${skipNote}` };
   } catch (error) {
@@ -1771,7 +1827,7 @@ async function previewRestore() {
     `<p>Backup holds <strong>${esc(incoming)}</strong>${parsed.exportedAt ? ` (exported ${esc(parsed.exportedAt)})` : ""}.</p>`,
     `<p>This device currently holds <strong>${esc(current)}</strong>.</p>`,
     ...parsed.warnings.map(warning => `<p class="warn">${esc(warning)}</p>`),
-    '<p class="muted">Restoring deletes everything on this device first. Photos are not included in a backup. Your settings are kept.</p>'
+    '<p class="muted">Restoring deletes everything on this device first. Attached files are not included in a backup. Your settings are kept.</p>'
   ].join("");
 }
 

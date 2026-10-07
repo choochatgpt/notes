@@ -149,11 +149,11 @@ it leaves that list — which is what the chip is telling you.
 ## Deleting
 
 Deleting a note or a reminder asks for confirmation naming the item. Deleting a
-note that carries photos names them too — its attached photos are removed with
-it, bytes and all:
+note that carries attachments names them too — its attached files are removed
+with it, bytes and all:
 
 ```
-Delete "Receipts"? Its 2 attached photos will be removed too. This cannot be undone.
+Delete "Receipts"? Its 2 attachments will be removed too. This cannot be undone.
 ```
 
 Deleting a **folder** deletes the folder, its subfolders and every note inside
@@ -177,9 +177,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 32"), so on any device you can
+and the release number at the bottom ("Version 34"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v32`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v34`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -277,9 +277,10 @@ served. The app now has no `navigator.share` anywhere; the static check bans it
 outright.
 
 The address is remembered in the same local database as your notes — it never
-leaves the device either. The backup is **text only**: photos ride along as an
-id list (`mediaIds`) and never as bytes. On the same device a restore therefore
-reattaches the pictures; on a new device the notes come back without them.
+leaves the device either. The backup is **text only**: attachments ride along
+as an id list (`mediaIds`) and never as bytes. On the same device a restore
+therefore reattaches the files; on a new device the notes come back without
+them.
 Folders carry their hand arrangement back too: an `order` column rides along
 (v3). A v1 backup (no mediaIds column) and a v2 backup (no order column) still
 restore — older files parse, alphabetically arranged as their releases showed
@@ -357,43 +358,52 @@ more with the counts stated before anything runs:
 ```
 Replace everything? This permanently deletes all 2 folders, 2 notes, 1 reminder
 on this device and restores 2 folders, 1 note, 1 reminder from the backup
-(exported 2026-09-29T03:09:36.905Z). Photos are not included in a backup.
-Your settings are kept. This cannot be undone.
+(exported 2026-09-29T03:09:36.905Z). Attached files are not included in a
+backup. Your settings are kept. This cannot be undone.
 ```
 
 The replace is a single database transaction: it lands completely or not at all —
 a cancelled confirmation, a re-parse failure or a mid-write error leaves the data
 exactly as it was. **"Your settings are kept" is structural, not a promise**: the
 restore writes only folders, notes and reminders, so neither the pane ratio nor
-the saved email address can be changed by an import — and any photos that exist
-later would sit in a store the restore does not touch.
+the saved email address can be changed by an import — and any attachments that
+exist later would sit in a store the restore does not touch.
 
-## Photos on notes
+## Attachments on notes
 
-Open a note, press **Add photo/video**, and pick images or videos. The
-thumbnails appear on a strip above Delete / Add photo/video / Save, the change
-is applied immediately (no need to press Save first, and nothing is orphaned if
-you close without saving), and tapping a thumbnail opens it full-size in a
-viewer. The **×** on a thumbnail removes that one photo. The viewer's **Save to
-device** button writes a copy of the full-size bytes into the phone's
-downloads/gallery under the original file name — the one way photos leave the
-app, built for the backup route below.
+Open a note, press **Add attachment** (v34: the picker accepts images, videos
+**and PDFs**). Images land as thumbnails on a strip above Delete / Add
+attachment / Save; a PDF gets a labelled tile ("PDF") instead — the strip has
+no picture to show for a document, by design. The change is applied immediately
+(no need to press Save first, and nothing is orphaned if you close without
+saving). Tapping a thumbnail or tile opens it full-size in a viewer: pictures
+inline, videos in a player, and PDFs in an embedded frame. Some engines —
+Chrome on Android notably — embed PDFs nowhere; the viewer states this and
+points at **Save to device**, which writes a copy of the full-size bytes into
+the phone's downloads/gallery under the original file name — the one way
+attachments leave the app, built for the backup route below. The **×** on a
+tile removes that one attachment.
+
+The note list shows what a note carries without opening it: a small paperclip
+line under the title — `2 png` for one kind, `7 · 5 jpg · 2 pdf` (total first)
+for a mix — plus the full breakdown in a hover title. It counts the records
+that are actually on the device, so it never shows a ghost.
 
 The storage is split so that neither half is heavier than it needs to be:
 
 - A small record per attachment — id, file name, type, size and a bounded
-  JPEG thumbnail — in the IndexedDB `media` store.
+  JPEG thumbnail (documents have none) — in the IndexedDB `media` store.
 - The full-size bytes in the browser's **OPFS** (`media/` directory, keyed by
   the same id), read only when the viewer opens.
 
-Everything is origin-scoped device storage: photos stay on the device unless
-you deliberately save one out, and
+Everything is origin-scoped device storage: attachments stay on the device
+unless you deliberately save one out, and
 the text backup carries only the id list. `replaceAll` — the restore's one
 transaction — touches neither the media store nor OPFS, so a restore can never
-destroy a photo; a same-device restore reattaches them via the ids, and a
+destroy an attachment; a same-device restore reattaches them via the ids, and a
 different device simply shows notes without them. Deleting a note deletes its
-photos (the confirmation names the count first), and the browser check proves
-the bytes actually leave OPFS when they should.
+attachments (the confirmation names the count first), and the browser check
+proves the bytes actually leave OPFS when they should.
 
 **Backing photos up (one-tap backup, asked for 2026-10-03).** The primary
 route is no longer manual: tapping **Back up notes + photos now** in the
@@ -408,9 +418,9 @@ when it is enabled.
 
 The manual fallbacks remain for a phone with no token saved yet:
 
-1. Phone: open the note → tap the photo → **Save to device**.
+1. Phone: open the note → tap the attachment → **Save to device**.
 2. Phone: github.com/choochatgpt/ask-ai-relay → `gitway/transfer_inbox/notes/media/`
-   → **Add file → Upload files** → pick the saved photo(s) → Commit changes
+   → **Add file → Upload files** → pick the saved file(s) → Commit changes
    (commit straight to main — the two mobile-web traps are written up in that
    folder's README).
 3. PC: nothing — the watcher picks it up.
@@ -418,12 +428,11 @@ The manual fallbacks remain for a phone with no token saved yet:
 Rules: private repo only; per-file cap 24 MB (the sync refuses bigger and
 names the file); the text backup CSV stays text-only in its own column.
 
-The editor's three buttons — Delete, Add photo/video, Save — are pinned to one
+The editor's three buttons — Delete, Add attachment, Save — are pinned to one
 line at every width: the row never wraps, and the labels compact down instead.
 
 ## Not built yet
 
-- PDFs and other non-image/video files (the picker accepts images and videos only).
 - Undo or a trash for a deleted folder.
 - Notification delivery, and marking a reminder as done.
 
@@ -453,7 +462,7 @@ Notes entered in one do not appear in the other.
 | `app.js` | State, rendering, and event wiring |
 | `view.js` | Pure formatting, ordering and pane-ratio helpers — no DOM, so Node can test it |
 | `backup.js` | Pure CSV backup serializer/parser and confirmation wording — no DOM, so Node can test it |
-| `storage.js` | IndexedDB wrapper (`notes-local`, v1) + the OPFS byte store for photos |
+| `storage.js` | IndexedDB wrapper (`notes-local`, v1) + the OPFS byte store for attached files |
 | `reminder.js` | Recurrence engine and `nextDueAt` calculation |
 | `sw.js` | Offline cache |
 
@@ -461,12 +470,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 156 tests
+node tests/view.test.mjs ../view.js             # 169 tests
 node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 223 checks in real Chrome (205 desktop + 18 at 380px)
+python tools/browser_check.py                   # 232 checks in real Chrome (212 desktop + 20 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -493,7 +502,7 @@ than junk rows).
 missing sections / duplicate ids refused with line numbers, dangling folder
 references repaired *and reported*, a folder whose parent is gone lifted to the
 top with a warning, the confirmation wording's counts and its
-photos-not-included clause, **v1 and v2 files still parsing** (only a file
+attachments-not-included clause, **v1 and v2 files still parsing** (only a file
 newer than the app is refused), junk order cells (`3.5`, `0x2`, words) staying
 unordered, and the mailto ceiling refusing rather than truncating.
 
@@ -515,8 +524,10 @@ too: the export panel is exactly Share CSV for backup + Export CSV (download/
 share gone; the clipboard button's label was renamed to "Share CSV for backup"
 on 2026-10-02),
 the editor action row is nowrap, the narrow layout keeps the reminder date and
-stands the relative time down, photos have their strip/viewer/OPFS plumbing,
-and backup.js is v3 with a mediaIds + folder-order columns and a parse gate
+stands the relative time down, attachments have their strip/viewer/OPFS
+plumbing (v34: a PDF tile, the document iframe branch, and
+`attachmentBadge` both defined and used), and backup.js is v3 with a mediaIds
++ folder-order columns and a parse gate
 that accepts older files. The v32 pins hold the rename/reorder work to its
 shape: the pencil/up/down/delete controls must always be on screen in both
 widths (the same no-hover-reveal rule as the delete), the folder order must be
@@ -566,17 +577,22 @@ reload — the ratio, the email address and the restored data all still there.
 That last sequence is the proof that an import replaces your notes and nothing
 else.
 
-The photo pipeline is driven end to end with synthetic files (canvas-built PNGs
-handed over through a `DataTransfer`, exactly what a real picker produces):
-two attaches land two thumbnails *and* two files in OPFS *and* two records in
-IndexedDB; removing one takes its bytes out of OPFS; save + reopen brings the
-remaining thumbnail back; deleting the note — whose confirmation is inspected
-for the photo warning — empties OPFS and the media store completely. The
+The attachment pipeline is driven end to end with synthetic files (canvas-built
+PNGs and a minimal PDF handed over through a `DataTransfer`, exactly what a
+real picker produces): two attaches land two thumbnails *and* two files in OPFS
+*and* two records in IndexedDB; removing one takes its bytes out of OPFS; save
++ reopen brings the remaining thumbnail back; a PDF attaches with its labelled
+tile and its `application/pdf` record, and the v34 note-row badge is read off
+the real list (`2 · 1 pdf · 1 png` with the full breakdown in the title);
+tapping the PDF tile opens the document viewer on a `blob:` iframe and closing
+empties it; deleting the note — whose confirmation is inspected for the
+attachment warning — empties OPFS and the media store completely. The
 380px pass measures the things layout bugs hide in: the reminder row shows the
 date with the relative time stood down and no leftover separator, all on one
-line; and Delete / Add photo/video / Save sit on one line at phone width. Since
-v33 the narrow pass also proves the folder panel is stacked above the note list
-at 380px — the same one rule serves every width.
+line; the attachment-count line renders inside the preview column (the v19
+one-word-per-line trap, guarded); and Delete / Add attachment / Save sit on one
+line at phone width. Since v33 the narrow pass also proves the folder panel is
+stacked above the note list at 380px — the same one rule serves every width.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

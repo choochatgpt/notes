@@ -32,6 +32,7 @@ const {
   nextRatio,
   nextFolderRatio,
   noteSnippet,
+  attachmentBadge,
   RATIOS,
   ratioToTracks,
   relativeFromNow,
@@ -655,6 +656,77 @@ check(
 check(
   "a five-line note keeps its first four then marks the cut",
   noteSnippet("l1\nl2\nl3\nl4\nl5") === "l1\nl2\nl3\nl4…"
+);
+
+console.log("\n=== 12d. attachmentBadge -- the note row's attachment-count line ===");
+const png = () => ({ type: "image/png", name: "a.png" });
+const jpeg = () => ({ type: "image/jpeg", name: "b.jpg" });
+const pdfRecord = () => ({ type: "application/pdf", name: "doc.pdf" });
+equal(
+  "nothing attached yields no line",
+  String(attachmentBadge([])) + "/" + String(attachmentBadge(undefined)),
+  "null/null"
+);
+equal(
+  "one kind reads as just that group -- the total would be the same number twice",
+  attachmentBadge([png(), png()]).text,
+  "2 png"
+);
+equal(
+  "the request that seeded v34: five jpegs and two PDFs",
+  attachmentBadge([
+    jpeg(), jpeg(), jpeg(), jpeg(), jpeg(), pdfRecord(), pdfRecord()
+  ]).text,
+  "7 · 5 jpg · 2 pdf"
+);
+check(
+  "...and its title always carries the full breakdown",
+  attachmentBadge([jpeg(), jpeg(), jpeg(), jpeg(), jpeg(), pdfRecord(), pdfRecord()]).title
+    === "7 attachments: 5 jpg, 2 pdf"
+);
+check(
+  "image/jpg folds in with image/jpeg -- one jpg group, not two",
+  attachmentBadge([jpeg(), { type: "image/jpg" }]).text === "2 jpg"
+);
+equal(
+  "mixed kinds lead with the total, biggest group first",
+  attachmentBadge([png(), jpeg(), jpeg()]).text,
+  "3 · 2 jpg · 1 png"
+);
+equal(
+  "a tie breaks on the label, alphabetical",
+  attachmentBadge([png(), png(), jpeg(), jpeg()]).text,
+  "4 · 2 jpg · 2 png",
+);
+equal(
+  "videos group under one word whatever their subtype",
+  attachmentBadge([{ type: "video/mp4" }, { type: "video/quicktime" }, { type: "video/mp4" }]).text,
+  "3 video"
+);
+equal(
+  "an unusual image subtype keeps its own name",
+  attachmentBadge([{ type: "image/heic" }]).text,
+  "1 heic"
+);
+equal(
+  "a typeless record falls back to its file name's extension",
+  attachmentBadge([{ type: "", name: "scan.PDF" }]).text,
+  "1 pdf"
+);
+equal(
+  "a typeless .jpeg file folds into the jpg group too",
+  attachmentBadge([{ type: "", name: "photo.jpeg" }, jpeg()]).text,
+  "2 jpg"
+);
+equal(
+  "a typeless record with no extension counts as a file",
+  attachmentBadge([{ type: "", name: "readme" }]).text,
+  "1 file"
+);
+equal(
+  "dangling/junk entries are filtered away rather than counted",
+  attachmentBadge([{ type: "application/pdf" }, null]).text,
+  "1 pdf",
 );
 
 console.log("\n=== 13. APP_VERSION -- the release number the user can see ===");

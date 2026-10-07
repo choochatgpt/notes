@@ -727,7 +727,7 @@ if 'id="open-email-btn"' not in html:
 if 'id="i-download"' in html or 'href="#i-download"' in html or 'href="#i-download"' in app:
     fails.append("the i-download glyph is back, but nothing downloads anymore")
 
-# 15b. The editor's Delete / Add photo/video / Save share one line.
+# 15b. The editor's Delete / Add attachment / Save share one line.
 editor_actions = re.search(r"\.editor-actions\s*\{([^}]*)\}", css)
 if not editor_actions:
     fails.append("no .editor-actions rule found")
@@ -735,7 +735,7 @@ elif "nowrap" not in editor_actions.group(1):
     fails.append(".editor-actions does not pin flex-wrap: nowrap, so the three "
                  "editor buttons can wrap onto a second row")
 else:
-    print("editor actions: Delete / Add photo/video / Save pinned to one line")
+    print("editor actions: Delete / Add attachment / Save pinned to one line")
 
 # 15c. The narrow layout keeps the reminder DATE and drops the relative time --
 # the reverse of what it used to do, per the 2026-10-01 request.
@@ -753,35 +753,58 @@ if ".item-row.reminder-row .when-abs::before { content: none" not in narrow_bloc
 else:
     print("reminder rows: the date survives the narrow row; the relative time stands down")
 
-# 15d. Photo attachments: strip markup, image glyph, OPFS helpers, cleanup.
+# 15d. Attachments (photos/videos + PDFs since v34): strip markup, paperclip
+# glyph, per-type tiles, the row's attachment-count line, OPFS helpers, cleanup.
 # "Save to device" in the viewer is sanctioned (2026-10-02: the user chose the
 # GitWay media route, which needs bytes to reach the phone's downloads for a
 # manual upload to the PRIVATE relay repo); the CSV download button remains
 # gone -- 15a still refuses #download-csv-btn.
 for required in ('id="media-strip"', 'id="media-input"', 'id="media-dialog"',
-                 'id="media-view"', 'id="media-video"', 'id="media-close"',
+                 'id="media-view"', 'id="media-video"', 'id="media-frame"',
+                 'id="media-hint"', 'id="media-close"',
                  'id="media-save-btn"', 'id="add-media-btn"'):
     if required not in html:
-        fails.append(f"index.html lost {required}, so photos have nowhere to render")
-if '<symbol id="i-image"' not in html:
-    fails.append("index.html has no i-image sprite symbol for the add-photo button")
-if 'href="#i-image"' not in html:
-    fails.append("the add-media button does not use the i-image glyph "
-                 "(it still points at a folder icon)")
-if 'accept="image/*,video/*"' not in html:
-    fails.append('#media-input no longer accepts image/*,video/*')
+        fails.append(f"index.html lost {required}, so attachments have nowhere to render")
+if '<symbol id="i-clip"' not in html:
+    fails.append("index.html has no i-clip sprite symbol for the add-attachment button")
+if 'href="#i-clip"' not in html:
+    fails.append("nothing uses the i-clip glyph -- the add-media button must carry it "
+                 "(and the note row's attachment-count line reuses it)")
+if 'accept="image/*,video/*,application/pdf"' not in html:
+    fails.append('#media-input no longer accepts image/*,video/*,application/pdf')
 for helper in ("export async function opfsPut(", "export async function opfsGet(",
                "export async function opfsDelete("):
     if helper not in storage:
         fails.append(f"storage.js lost {helper.split('(')[0].replace('export async function ', '')}() "
-                     "-- photo bytes have nowhere to live")
+                     "-- attachment bytes have nowhere to live")
 for called in ("opfsPut(", "opfsGet(", "opfsDelete("):
     if called not in app:
         fails.append(f"app.js never calls {called}, so the OPFS layer is dead code")
 delete_note = body_of("deleteSelectedNote")
 if "opfsDelete(" not in delete_note or '"media"' not in delete_note:
-    fails.append("deleteSelectedNote leaves the photos behind: it must remove each "
+    fails.append("deleteSelectedNote leaves the attachments behind: it must remove each "
                  "media record and its OPFS bytes with the note")
+if "attachment" not in delete_note:
+    fails.append('deleteSelectedNote no longer names the attachments in its warning '
+                 '(the wording moved from "attached photos" to "attachment(s)" in v34)')
+add_note_media = body_of("addNoteMedia")
+if 'file.type === "application/pdf"' not in add_note_media:
+    fails.append("addNoteMedia no longer accepts PDFs -- documents would die in the picker")
+media_strip = body_of("renderMediaStrip")
+if "media-file-tag" not in media_strip:
+    fails.append("renderMediaStrip has no document tile -- a PDF would paint as a broken img")
+view_media = body_of("viewMedia")
+if 'media-frame' not in view_media or '"application/pdf"' not in view_media:
+    fails.append("viewMedia lost the PDF iframe branch -- documents open to nothing")
+close_media = body_of("closeMedia")
+if "media-frame" not in close_media:
+    fails.append("closeMedia never clears the document iframe, so the next view "
+                 "could flash the last PDF's bytes")
+if "attachmentBadge(" not in view or "attachmentBadge(" not in app:
+    fails.append("attachmentBadge is not both defined (view.js) and used (app.js) -- "
+                 "the note rows cannot render their attachment counts")
+if "application/pdf" not in body_of("syncMediaName"):
+    fails.append("syncMediaName lost the .pdf extension -- a nameless PDF relay-zips unrecognisably")
 if "makeThumbnail(" not in app or "renderMediaStrip(" not in app:
     fails.append("app.js lost the thumbnail/strip pipeline")
 if 'URL.revokeObjectURL' not in app:
@@ -791,8 +814,14 @@ if 'on("#media-save-btn"' not in app:
     fails.append('app.js never wires #media-save-btn, so "Save to device" is a dead button')
 if "link.download" not in save_media or "URL.createObjectURL" not in save_media:
     fails.append("saveMediaToDevice no longer hands the OPFS bytes to a download anchor")
+if ".item-attach" not in css:
+    fails.append("app.css has no .item-attach rule -- the note rows' attachment "
+                 "count line would render unstyled")
+if not re.search(r"#media-frame\s*\{[^}]*width:", css):
+    fails.append("app.css never sizes #media-frame -- a document viewer with no box")
 else:
-    print("photos: strip + viewer wired; bytes in OPFS; delete and revoke paths pinned")
+    print("attachments: strip + PDF iframe wired; rows carry attachmentBadge; "
+          "bytes in OPFS; delete and revoke paths pinned")
 
 # 15e. Backup v3: the notes section carries mediaIds, folders carry order, and
 # OLDER files (v1 and v2) parse.
@@ -812,12 +841,15 @@ if "if (result.version > SCHEMA_VERSION)" not in backup:
     fails.append("parseBackupCsv does not accept OLDER backups (the gate must be "
                  "version > SCHEMA_VERSION, not !==: a v1 file has no mediaIds "
                  "column but is otherwise readable)")
-if "Photos are not included" not in backup:
-    fails.append("describeRestore no longer states that photos are not included, "
-                 "so a restore could look like it lost someone's photos")
+if "Attached files are not " not in backup or "included in a backup." not in backup:
+    fails.append("describeRestore no longer states that attached files are not "
+                 "included, so a restore could look like it lost someone's files")
+if "Attached files are not included in a backup." not in app:
+    fails.append("the restore panel's own preview paragraph lost the attachment "
+                 "exclusion sentence (v34: it must say attached FILES, not photos)")
 else:
     print("backup: v3 with mediaIds + order columns; v1 and v2 files still parse; "
-          "the photo exclusion is stated in the restore confirmation")
+          "the attachment exclusion is stated in the restore confirmation")
 
 # 15f. One-tap backup (2026-10-03; destination-independent since v28): the
 # export panel's primary action runs every configured destination. The relay

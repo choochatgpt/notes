@@ -373,8 +373,8 @@ export function describeRestore({ current = {}, incoming = {}, exportedAt = null
   ].join(", ");
   const stamp = exportedAt ? ` (exported ${exportedAt})` : "";
   return `Replace everything? This permanently deletes all ${now} on this device `
-    + `and restores ${then} from the backup${stamp}. Photos are not included in a `
-    + "backup. Your settings are kept. This cannot be undone.";
+    + `and restores ${then} from the backup${stamp}. Attached files are not `
+    + "included in a backup. Your settings are kept. This cannot be undone.";
 }
 
 /**

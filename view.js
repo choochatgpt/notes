@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "36";
+export const APP_VERSION = "37";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -376,6 +376,28 @@ function attachmentLabel(record) {
     return ext || "file";
   }
   return "file";
+}
+
+/**
+ * The title a note displays (v37): its own title, else the name of the FOLDER
+ * it lives in -- an untitled note is the folder's content, so the folder's
+ * name is the title the row and the delete confirmation both show. Not a
+ * stored title: the label follows the note's CURRENT folder, so moving the
+ * note moves its name with it. Unfiled is the pseudo-folder's own label (the
+ * tree, the picker and the breadcrumb all use the same word); a folder that
+ * is not in the tree, or whose name cannot be read, degrades to the old
+ * "Untitled note" placeholder rather than an invented one.
+ */
+export function noteDisplayTitle(note, folders) {
+  const own = String(note?.title ?? "").trim();
+  if (own) return own;
+  if (note == null) return "Untitled note";
+  if (note.folderId == null) return "Unfiled";
+  const folder = Array.isArray(folders)
+    ? folders.find(f => f && f.id === note.folderId)
+    : null;
+  const name = typeof folder?.name === "string" ? folder.name.trim() : "";
+  return name || "Untitled note";
 }
 
 /**

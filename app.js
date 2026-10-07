@@ -29,6 +29,7 @@ import {
   nextRatio,
   nextFolderRatio,
   noteSnippet,
+  noteDisplayTitle,
   attachmentBadge,
   RATIOS,
   ratioToTracks,
@@ -358,7 +359,9 @@ async function renderNoteList() {
   )));
 
   els.noteList.innerHTML = notes.map(note => {
-    const title = note.title?.trim() || "Untitled note";
+    // v37: an untitled row is named after the folder the list is browsing --
+    // the same helper the delete confirmation uses, so row and wording agree.
+    const title = noteDisplayTitle(note, state.folders);
     const snippet = noteSnippet(note.body || "");
     const when = note.updatedAt ? relativeFromNow(note.updatedAt) : "";
     const badge = attachmentBadge(mediaByNote.get(note.id) || []);
@@ -834,7 +837,9 @@ async function deleteSelectedNote() {
   const note = await get("notes", state.selectedItemId);
   if (!note) return;
 
-  const title = note.title?.trim() || "Untitled note";
+  // v37: the confirmation names what the row names -- for an untitled note
+  // that is the folder it lives in (noteDisplayTitle owns that rule).
+  const title = noteDisplayTitle(note, state.folders);
   // Attachments are named when they exist: the note's bytes go with it, and
   // the confirmation is the only warning before that happens. The count is
   // the id list -- that, not whatever the badge could load, is what goes.

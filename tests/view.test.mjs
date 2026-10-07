@@ -33,6 +33,7 @@ const {
   nextRatio,
   nextFolderRatio,
   noteSnippet,
+  noteDisplayTitle,
   attachmentBadge,
   RATIOS,
   ratioToTracks,
@@ -789,6 +790,40 @@ console.log("\n=== 12e. folderBadgeCounts -- the folder row's chips (v35) ===");
   ];
   check("a parent cycle terminates into a bounded count",
         JSON.stringify(folderBadgeCounts(looped, notes, "a")) !== undefined);
+}
+
+console.log("\n=== 12f. noteDisplayTitle -- an untitled note is titled after its folder (v37) ===");
+{
+  // A titled note keeps its own title -- the folder only answers for the
+  // untitled ones, whatever folder they sit in.
+  equal("a titled note keeps its own (trimmed) title",
+        noteDisplayTitle({ title: "  BD -Alton ", folderId: "f" },
+          [{ id: "f", name: "2024" }]),
+        "BD -Alton");
+  equal("an untitled unfiled note reads Unfiled -- the pseudo-folder's own label",
+        noteDisplayTitle({ title: "", folderId: null }, [{ id: "f", name: "2024" }]),
+        "Unfiled");
+  equal("...and one with no folderId field at all does too (older rows)",
+        noteDisplayTitle({ title: null }, [{ id: "f", name: "2024" }]),
+        "Unfiled");
+  equal("an untitled note in a folder reads the folder's name",
+        noteDisplayTitle({ title: "", folderId: "f" }, [{ id: "f", name: "2024" }]),
+        "2024");
+  equal("a folder outside the tree degrades to the placeholder",
+        noteDisplayTitle({ title: "", folderId: "gone" }, [{ id: "f", name: "2024" }]),
+        "Untitled note");
+  equal("a whitespace-only folder name degrades to the placeholder too",
+        noteDisplayTitle({ title: "", folderId: "f" }, [{ id: "f", name: "   " }]),
+        "Untitled note");
+  equal("no folders to look in degrades rather than crashing",
+        noteDisplayTitle({ title: "", folderId: "f" }, null),
+        "Untitled note");
+  equal("undefined folders degrades the same way",
+        noteDisplayTitle({ title: "", folderId: "f" }, undefined),
+        "Untitled note");
+  equal("a null note degrades to the placeholder",
+        noteDisplayTitle(null, [{ id: "f", name: "2024" }]),
+        "Untitled note");
 }
 
 console.log("\n=== 13. APP_VERSION -- the release number the user can see ===");

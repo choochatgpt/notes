@@ -399,6 +399,9 @@ if "describeDeletion(" not in body_of("deleteFolder"):
     fails.append("deleteFolder does not state the counts in its confirmation")
 elif "collectSubtree(" not in body_of("deleteFolder"):
     fails.append("deleteFolder does not collect the subtree, so subfolders would be orphaned")
+elif "noteDisplayTitle(" not in body_of("deleteSelectedNote"):
+    fails.append("the note's delete confirmation no longer names what the row names "
+                 "-- it must go through noteDisplayTitle (v37)")
 else:
     print("destructive paths: folder (recursive, counted), note and reminder all confirmed")
 
@@ -1196,6 +1199,33 @@ elif "border: 0" not in agenda_kill.group(1) \
                  "the shadow while the agenda is collapsed")
 else:
     print("agenda: steps aside while a note is edited (pure CSS on body[data-*])")
+
+# --- 17. An untitled note is titled after its folder (v37) -------------------
+title_helper_pos = view.find("export function noteDisplayTitle(")
+if title_helper_pos == -1:
+    fails.append("view.js has no noteDisplayTitle -- the untitled-after-folder "
+                 "rule has no single owner")
+else:
+    # The helper's own chunk: from its signature to the next export, so the
+    # branch literals cannot be argued to live somewhere else.
+    next_export = view.find("export", title_helper_pos + 10)
+    helper_chunk = view[title_helper_pos:
+                        next_export if next_export != -1 else len(view)]
+    if "noteDisplayTitle(" not in app:
+        fails.append("app.js never calls noteDisplayTitle")
+    elif "noteDisplayTitle(" not in body_of("renderNoteList"):
+        fails.append("renderNoteList no longer titles rows through "
+                     "noteDisplayTitle")
+    elif '"Unfiled"' not in helper_chunk:
+        fails.append("noteDisplayTitle lost the Unfiled branch -- an untitled "
+                     "unfiled note must read Unfiled, the pseudo-folder's own "
+                     "label")
+    elif '"Untitled note"' not in helper_chunk:
+        fails.append("noteDisplayTitle lost the honest Untitled-note "
+                     "degradation for a folder that cannot be read")
+    else:
+        print("untitled note: titled after its folder -- one helper owns the "
+              "row and the delete confirmation")
 
 print()
 if notes:

@@ -210,9 +210,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 36"), so on any device you can
+and the release number at the bottom ("Version 37"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v36`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v37`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -517,7 +517,7 @@ node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # ~253 checks in real Chrome (~223 desktop + ~30 at 380px)
+python tools/browser_check.py                   # ~256 checks in real Chrome (~225 desktop + ~31 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -597,7 +597,13 @@ and after enough notes are seeded the list scrolls inside its own panel while
 the tree's top and `.pane-body`'s scroll position stay exactly where they
 were. v36 adds the editor-open pair: an open note editor measured to have
 collapsed the agenda, a reminder edit measured to have kept it, the agenda
-measured back on close, and the two action rows ordered pickers-first. The
+measured back on close, and the two action rows ordered pickers-first. Since
+v37 an untitled note's row reads the name of the folder it lives in ("Unfiled"
+for the pseudo-folder — a note titles itself after its home, exactly the way
+the screenshot the user sent asked for): the desktop pass reads that title
+before and after a move to prove the label follows the CURRENT folder rather
+than being a one-time copy, and the placeholder survives only where the folder
+cannot be named. The
 brand-mark reload runs last in the whole flow, deliberately — a reload kills
 every stub in the frame — and its headless Chrome asserts a genuinely fresh
 document whose header chip reads this checkout's version. Static

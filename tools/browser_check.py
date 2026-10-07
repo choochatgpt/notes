@@ -1251,6 +1251,13 @@ PROBE = """<!doctype html>
     check("the note starts out in Unfiled", unfiledRows.length === 1,
           "unfiled rows=" + unfiledRows.length);
     if (unfiledRows.length) {
+      // v37: the row's title is the name of the folder the note lives in --
+      // here Unfiled, the pseudo-folder's own label, not "Untitled note".
+      const untitledTitle = unfiledRows[0].querySelector(".item-title");
+      check("an untitled note is titled after its folder (v37)",
+            !!untitledTitle && untitledTitle.textContent.trim() === "Unfiled",
+            "title=" + (untitledTitle ? untitledTitle.textContent.trim() : "missing"));
+
       unfiledRows[0].click();
       await sleep(700);
 
@@ -1285,6 +1292,14 @@ PROBE = """<!doctype html>
           const arrived = doc.querySelectorAll("#note-list .item-row").length;
           check("the note is now in the folder it moved to", arrived === 1,
                 "destination rows=" + arrived);
+          // v37: the untitled note's label follows its CURRENT folder -- after
+          // the move it reads the destination's name, so the label is not a
+          // one-time copy of where the note was born.
+          const movedRow = doc.querySelectorAll("#note-list .item-row")[0];
+          const movedTitle = movedRow ? movedRow.querySelector(".item-title") : null;
+          check("the moved note's row title follows the new folder (v37)",
+                !!movedTitle && movedTitle.textContent.trim() === "Probe Folder",
+                "title=" + (movedTitle ? movedTitle.textContent.trim() : "missing"));
           movedOk = arrived === 1;
         } else {
           check("the destination folder can be opened", false, "row not found");
@@ -2565,6 +2580,21 @@ PROBE_NARROW = """<!doctype html>
       check("narrow: the editor action buttons all exist",
             false, "missing=" + pickButtons.concat(endButtons).map(b => !!b).join(","));
     }
+
+    // --- v37: the untitled note this block created reads its folder ---
+    // createNote() persists title:"" immediately, so the note is in the store
+    // untitled; back in the list its row must read "Unfiled" -- the name of
+    // the folder it lives in -- while Narrow Probe/Attached/Gallery are titled
+    // and cannot collide with it.
+    q("#editor-back").click();
+    await sleep(600);
+    const unfiledNamed = [...doc.querySelectorAll("#note-list .item-row")]
+      .filter(row => {
+        const t = row.querySelector(".item-title");
+        return t && t.textContent.trim() === "Unfiled";
+      }).length;
+    check("narrow: an untitled note reads the folder it lives in (v37)",
+          unfiledNamed === 1, "rows-titled-Unfiled=" + unfiledNamed);
   } catch (error) {
     check("narrow probe ran to completion", false, String(error && error.message || error));
   }

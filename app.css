@@ -510,6 +510,9 @@ body {
 }
 
 .count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   flex: none;
   padding: 0 4px;
   border-radius: 999px;
@@ -519,6 +522,9 @@ body {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
+/* The v35 chips carry their own glyph (folder count, attachment count), which
+   would otherwise be the raw svg default and blow the pill out of shape. */
+.count .icon { width: 10px; height: 10px; }
 .folder-row.active .count { background: var(--surface); }
 
 /* ----------------------------------------------------------- item lists */
@@ -648,6 +654,37 @@ body {
 /* -------------------------------------------------------------- editors */
 
 .editor-host { height: 100%; min-height: 0; }
+
+/* The note editor lives IN the list's panel (v35): the folder tree above stays
+   while a note is open, so the editor inherits the list's own grid track and
+   scrolls inside it -- the same scroll-the-panel rule the list already has.
+   height:100% would size it against the track's container, so flex:1 is the
+   correct fill inside a flex column; min-height:0 keeps it within the track
+   instead of overflowing it. */
+.list-col .editor { flex: 1; height: auto; min-height: 0; }
+
+/* The attachment count at the top of the open note (v35): the same badge text
+   the rows show, so what swaps in announces what it is carrying before the
+   strip is even read. Flex row with an ellipsising span, since the line sits
+   across the panel's full width at 380px. */
+.editor-attach {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  margin: 0;
+}
+.editor-attach .icon { width: 11px; height: 11px; flex: none; color: var(--text-faint); }
+.editor-attach-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .editor {
   display: flex;

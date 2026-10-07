@@ -23,6 +23,7 @@ import {
   describeRule,
   esc,
   folderOptions,
+  folderBadgeCounts,
   folderPath,
   localInputValue,
   nextRatio,
@@ -164,6 +165,12 @@ async function renderFolders() {
     counts.set(key, (counts.get(key) || 0) + 1);
   }
   const rootCount = counts.get(null) || 0;
+  // Unfiled has no child folders (the tree's root folders are not "inside"
+  // it), so its only extra chip is the attachment load of its own notes.
+  const unfiledBadges = folderBadgeCounts(folders, notes, null);
+  const unfiledAttachChip = unfiledBadges.attachments
+    ? `<span class="count" title="${esc(unfiledBadges.attachments)} attachment${unfiledBadges.attachments === 1 ? "" : "s"} in Unfiled"><svg class="icon"><use href="#i-clip"></use></svg>${unfiledBadges.attachments}</span>`
+    : "";
   state.folderChip = state.selectedFolderId
     ? `${folderPath(state.selectedFolderId, folders)} · ${countLabel(counts.get(state.selectedFolderId) || 0, "note") || "0 notes"}`
     : `Unfiled · ${countLabel(rootCount, "note") || "0 notes"}`;
@@ -186,14 +193,31 @@ async function renderFolders() {
          <span class="folder-name">Unfiled</span>
        </span>
        ${rootCount ? `<span class="count">${rootCount}</span>` : ""}
+       ${unfiledAttachChip}
      </div>`
   ];
+
+  // The v35 row chips beside the note count: the direct child-folder count
+  // and the attachment load of the WHOLE subtree (a collapsed folder still
+  // says what it carries). Zero chips stay hidden -- the row is already
+  // crowded at phone width.
+  const badgesOf = folder => {
+    const badges = folderBadgeCounts(folders, notes, folder.id);
+    const folderChip = badges.subfolders
+      ? `<span class="count" title="${esc(badges.subfolders)} subfolder${badges.subfolders === 1 ? "" : "s"}"><svg class="icon"><use href="#i-folder"></use></svg>${badges.subfolders}</span>`
+      : "";
+    const attachChip = badges.attachments
+      ? `<span class="count" title="${esc(badges.attachments)} attachment${badges.attachments === 1 ? "" : "s"} in this folder"><svg class="icon"><use href="#i-clip"></use></svg>${badges.attachments}</span>`
+      : "";
+    return { folderChip, attachChip };
+  };
 
   const walk = (parentId, depth) => {
     for (const folder of byParent.get(parentId) || []) {
       const hasChildren = (byParent.get(folder.id) || []).length > 0;
       const open = hasChildren && !state.collapsed.has(folder.id);
       const count = counts.get(folder.id) || 0;
+      const badges = badgesOf(folder);
 
       if (folder.id === state.renamingFolderId) {
         // The rename row swaps the row controls for a small form. There is no
@@ -232,6 +256,8 @@ async function renderFolders() {
              <span class="folder-name">${esc(folder.name)}</span>
            </button>
            ${count ? `<span class="count">${count}</span>` : ""}
+           ${badges.folderChip}
+           ${badges.attachChip}
            <button class="folder-up" type="button" data-up="${esc(folder.id)}"
                    title="Move up" aria-label="Move ${esc(folder.name)} up">
              <svg class="icon"><use href="#i-chevron"></use></svg>
@@ -449,10 +475,17 @@ function backToBrowse() {
 
 /* ------------------------------------------------------------------ editors */
 
-/** Upper-pane visibility: which browser is showing, or the editor instead. */
+/**
+ * Upper-pane visibility. Since v35 the two editors swap differently:
+ * the note editor takes over the note LIST's panel -- the folder tree above
+ * it stays, so you keep your bearings while a note is open -- while the
+ * reminder editor still replaces the reminder manager wholesale, because
+ * reminders have no tree to keep.
+ */
 function syncUpper() {
   const notes = state.activeKind === "notes";
   const editing = state.mode === "edit";
+  const remindersEditing = editing && !notes;
 
   document.body.dataset.kind = state.activeKind;
   document.body.dataset.mode = state.mode;
@@ -462,13 +495,16 @@ function syncUpper() {
   els.notesTab.setAttribute("aria-selected", String(notes));
   els.remindersTab.setAttribute("aria-selected", String(!notes));
 
-  els.browseNotes.classList.toggle("hidden", !notes || editing);
-  els.browseReminders.classList.toggle("hidden", notes || editing);
-  els.editorHost.classList.toggle("hidden", !editing);
-  els.editorBack.classList.toggle("hidden", !editing);
-
+  // The notes browser (tree + list slot) now shows whenever the notes tab is
+  // on; inside it, the list and the editor swap. The reminders side keeps the
+  // old full-pane swap.
+  els.browseNotes.classList.toggle("hidden", !notes);
+  els.noteList.classList.toggle("hidden", editing);
   els.noteEditor.classList.toggle("hidden", !editing || !notes);
-  els.reminderEditor.classList.toggle("hidden", !editing || notes);
+  els.browseReminders.classList.toggle("hidden", notes || remindersEditing);
+  els.editorHost.classList.toggle("hidden", !remindersEditing);
+  els.editorBack.classList.toggle("hidden", !editing);
+  els.reminderEditor.classList.toggle("hidden", !remindersEditing);
 
   els.listContext.textContent = editing
     ? state.editChip
@@ -520,7 +556,11 @@ async function loadEditor() {
       : null;
     renderFolderPicker(folderId);
     state.editChip = folderId ? folderPath(folderId, state.folders) : "Unfiled";
-    await renderMediaStrip(item);
+    // Load the records once: the strip and the top attach line must render
+    // from the same snapshot, or they can disagree mid-flight.
+    const records = await loadNoteMedia(item);
+    renderMediaStrip(records);
+    renderEditorAttach(records);
     return;
   }
 
@@ -927,57 +967,74 @@ function docTileLabel(record) {
   return (type.split("/").pop() || "FILE").toUpperCase();
 }
 
-function renderMediaStrip(note) {
-  if (!els.mediaStrip) return Promise.resolve();
-  return loadNoteMedia(note).then(records => {
-    els.mediaStrip.replaceChildren();
-    els.mediaStrip.classList.toggle("hidden", records.length === 0);
-    for (const record of records) {
-      const cell = document.createElement("div");
-      cell.className = "media-thumb";
-      cell.dataset.media = record.id;
-      cell.title = record.name || "Attached media";
+function renderMediaStrip(records) {
+  if (!els.mediaStrip) return;
+  els.mediaStrip.replaceChildren();
+  els.mediaStrip.classList.toggle("hidden", records.length === 0);
+  for (const record of records) {
+    const cell = document.createElement("div");
+    cell.className = "media-thumb";
+    cell.dataset.media = record.id;
+    cell.title = record.name || "Attached media";
 
-      if (record.thumb) {
-        const img = document.createElement("img");
-        img.src = record.thumb;
-        img.alt = record.name || "Attached photo";
-        cell.append(img);
-      } else if ((record.type || "").startsWith("video/")) {
-        // Videos carry no frame thumbnail; a play glyph marks them.
-        const tag = document.createElement("span");
-        tag.className = "media-video-tag";
-        tag.textContent = "▶";
-        tag.setAttribute("aria-label", "Video");
-        cell.append(tag);
-      } else {
-        // Documents (and any record the engine could not thumbnail) get a
-        // labelled tile -- "PDF" -- rather than a broken img: the bytes are
-        // there, the strip just has no picture for them.
-        const label = docTileLabel(record);
-        const tag = document.createElement("span");
-        tag.className = "media-file-tag";
-        tag.textContent = label;
-        tag.setAttribute("aria-label", label);
-        cell.append(tag);
-      }
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "media-remove";
-      remove.title = "Remove";
-      remove.setAttribute("aria-label", "Remove this attachment");
-      remove.textContent = "×";
-      remove.addEventListener("click", event => {
-        event.stopPropagation();
-        removeNoteMedia(record.id);
-      });
-      cell.append(remove);
-
-      cell.addEventListener("click", () => viewMedia(record.id));
-      els.mediaStrip.append(cell);
+    if (record.thumb) {
+      const img = document.createElement("img");
+      img.src = record.thumb;
+      img.alt = record.name || "Attached photo";
+      cell.append(img);
+    } else if ((record.type || "").startsWith("video/")) {
+      // Videos carry no frame thumbnail; a play glyph marks them.
+      const tag = document.createElement("span");
+      tag.className = "media-video-tag";
+      tag.textContent = "▶";
+      tag.setAttribute("aria-label", "Video");
+      cell.append(tag);
+    } else {
+      // Documents (and any record the engine could not thumbnail) get a
+      // labelled tile -- "PDF" -- rather than a broken img: the bytes are
+      // there, the strip just has no picture for them.
+      const label = docTileLabel(record);
+      const tag = document.createElement("span");
+      tag.className = "media-file-tag";
+      tag.textContent = label;
+      tag.setAttribute("aria-label", label);
+      cell.append(tag);
     }
-  });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "media-remove";
+    remove.title = "Remove";
+    remove.setAttribute("aria-label", "Remove this attachment");
+    remove.textContent = "×";
+    remove.addEventListener("click", event => {
+      event.stopPropagation();
+      removeNoteMedia(record.id);
+    });
+    cell.append(remove);
+
+    cell.addEventListener("click", () => viewMedia(record.id));
+    els.mediaStrip.append(cell);
+  }
+}
+
+/**
+ * The attachment count at the top of the open note (v35). Same badge as the
+ * rows show, same records as the strip -- so the line the panel swaps in
+ * says what it is carrying, and it recounts live when files are attached or
+ * removed (addNoteMedia/removeNoteMedia re-run loadEditor's renders).
+ */
+function renderEditorAttach(records) {
+  const line = $("#editor-attach");
+  if (!line) return;
+  const badge = attachmentBadge(records);
+  line.classList.toggle("hidden", !badge);
+  if (!badge) {
+    line.removeAttribute("title");
+    return;
+  }
+  line.querySelector(".editor-attach-text").textContent = badge.text;
+  line.setAttribute("title", badge.title);
 }
 
 /** Attach the picked files to the open note, bytes first, then the record. */

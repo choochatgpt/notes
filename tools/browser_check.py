@@ -1115,6 +1115,26 @@ PROBE = """<!doctype html>
             "mode=" + body.dataset.mode);
       check("back arrow is offered while editing",
             !q("#editor-back").classList.contains("hidden"));
+
+      // --- v35: the folder tree stays while the note is open ---
+      // The editor now lives in the list's panel; the tree above must remain
+      // on screen and above it, and the list must be the thing that left.
+      {
+        const treePanel = q(".browse-notes .folders-col");
+        const treeBox = treePanel && treePanel.getBoundingClientRect();
+        const editorBox = q("#note-editor").getBoundingClientRect();
+        const editorVisible = !q("#note-editor").classList.contains("hidden");
+        check("a note edit keeps the folder tree on screen",
+              !!treePanel && !treePanel.classList.contains("hidden")
+              && treeBox.height > 0 && editorVisible
+              && treeBox.top < editorBox.top,
+              "treeH=" + (treeBox ? Math.round(treeBox.height) : -1)
+              + " treeTop=" + (treeBox ? Math.round(treeBox.top) : -1)
+              + " editorTop=" + Math.round(editorBox.top)
+              + " editorVisible=" + editorVisible);
+        check("the open editor replaced the note list in its panel",
+              editorVisible && q("#note-list").classList.contains("hidden"));
+      }
     } else {
       check("a note row exists to tap", false, "note-list is empty");
     }
@@ -1400,6 +1420,18 @@ PROBE = """<!doctype html>
             "img=" + !!reopened);
       photosOk = !!reopened;
 
+      // v35: the top of the open panel states what the note carries -- the
+      // same badge the rows show, from the same records as the strip.
+      {
+        const attachLine = doc.querySelector("#editor-attach");
+        check("the open note shows its attachment count at the top",
+              !!attachLine && !attachLine.classList.contains("hidden")
+              && /1 png/.test(attachLine.textContent)
+              && /1 attachment:/.test(attachLine.getAttribute("title") || ""),
+              "line=" + (attachLine ? attachLine.textContent.trim() : "missing")
+              + " title=" + (attachLine ? attachLine.getAttribute("title") : ""));
+      }
+
       // The viewer: tapping a thumb opens the OPFS copy through an object URL,
       // and "Save to device" is present and clickable without breaking the
       // dialog (the headless download itself is the browser's to do; the pin
@@ -1451,6 +1483,16 @@ PROBE = """<!doctype html>
             "img=" + !!(pdfTile && pdfTile.querySelector("img")));
       check("...and its bytes landed in OPFS",
             (await opfsCount()).length === 2, "files=" + (await opfsCount()).length);
+
+      // The attach happened WHILE the editor is open -- the top line must have
+      // recounted to the same badge the rows now show, live.
+      {
+        const attachLine = doc.querySelector("#editor-attach");
+        check("the top attach line recounts when a PDF attaches mid-edit",
+              !!attachLine && !attachLine.classList.contains("hidden")
+              && /2 · 1 pdf · 1 png/.test(attachLine.textContent),
+              "line=" + (attachLine ? attachLine.textContent.trim() : "missing"));
+      }
 
       const attachRow = [...doc.querySelectorAll("#note-list .item-row")]
         .find(row => row.textContent.includes("Photo Note"));
@@ -2191,8 +2233,8 @@ PROBE_NARROW = """<!doctype html>
     }
 
     // --- v32: folder controls at phone width ---
-    // Placed BEFORE the editor block below on purpose: opening an editor hides
-    // the browse pane, and the folder tree does not exist inside it. The row's
+    // Placed BEFORE the editor blocks below (flow convenience since v35: the
+    // tree now stays visible even while a note is open). The row's
     // move/rename/delete buttons must remain on screen at 380px -- they are
     // never hover-revealed, and no narrow rule may hide them.
     q("#notes-tab").click();
@@ -2292,6 +2334,56 @@ PROBE_NARROW = """<!doctype html>
             + " mainW=" + Math.round(mainBox.width));
     }
 
+    // --- v35: folder rows carry child-folder and attachment chips ---
+    // Narrow Folder gains a child; its row then shows the folder chip. The
+    // Unfiled row shows the clip chip for the 2 pngs of "Narrow Attached"
+    // above. Chips sit beside the name at 380px without starving it.
+    {
+      const freshRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+        .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
+      const selectBtn = freshRow && freshRow.querySelector(".folder-select");
+      if (freshRow && selectBtn) {
+        selectBtn.click();
+        await sleep(600);
+        q("#new-folder-btn").click();
+        await sleep(400);
+        q("#new-folder-name").value = "Narrow Kid";
+        q("#new-folder-form").requestSubmit();
+        await sleep(800);
+
+        const parentRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+          .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
+        const kidRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+          .find(r => r.dataset.folder && /Narrow Kid/.test(r.textContent));
+        check("narrow: the child folder was created inside the selection",
+              !!parentRow && !!kidRow, "kid=" + !!kidRow);
+        if (parentRow) {
+          const chipUse = chip => {
+            const use = chip.querySelector("use");
+            return use ? use.getAttribute("href") : null;
+          };
+          const folderChip = [...parentRow.querySelectorAll(".count")]
+            .find(chip => chipUse(chip) === "#i-folder");
+          check("narrow: the parent row counts its child folders",
+                !!folderChip && /1/.test(folderChip.textContent),
+                "chips=" + [...parentRow.querySelectorAll(".count")]
+                  .map(c => chipUse(c) + ":" + c.textContent.trim()).join(","));
+        }
+        const unfiledRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+          .find(r => r.dataset.folder === "");
+        const clipChip = unfiledRow && [...unfiledRow.querySelectorAll(".count")]
+          .find(chip => {
+            const use = chip.querySelector("use");
+            return use && use.getAttribute("href") === "#i-clip";
+          });
+        check("narrow: the Unfiled row counts its notes' attachments",
+              !!clipChip && /2/.test(clipChip.textContent),
+              "chips=" + (unfiledRow ? unfiledRow.querySelectorAll(".count").length : -1));
+      } else {
+        check("narrow: the folder row is selectable for the chip checks", false);
+      }
+    }
+
     // --- the editor's three buttons share one line at phone width ---
     // Same-line is a layout fact: the tops of Delete, Add attachment and Save
     // must agree, and the row must be one button tall, not two stacked.
@@ -2315,6 +2407,10 @@ PROBE_NARROW = """<!doctype html>
             !q("#media-strip") || q("#media-strip").classList.contains("hidden"),
             "stripVisible=" + (q("#media-strip")
               ? !q("#media-strip").classList.contains("hidden") : "missing"));
+      check("narrow: the top attach line stays hidden on a note without photos",
+            !q("#editor-attach") || q("#editor-attach").classList.contains("hidden"),
+            "visible=" + (q("#editor-attach")
+              ? !q("#editor-attach").classList.contains("hidden") : "missing"));
     } else {
       check("narrow: the three editor buttons all exist",
             false, "missing=" + buttons.map(b => !!b).join(","));

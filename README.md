@@ -18,17 +18,25 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 │ Notes  [New folder] [New note] [New reminder] [Settings]
 ├──────────────────────────────────────────────┤
 │ (Notes) (Reminders)          Work / Projects │  <- upper half:
-│ ┌───────────┬──────────────────────────────┐ │     browse or edit
-│ │ Folders   │ Notes in the selected folder │ │
-│ │  Work  12 │ Apollo kickoff      3d ago   │ │
-│ │  Home   4 │ Budget draft        1w ago   │ │
-│ └───────────┴──────────────────────────────┘ │
+│ ┌──────────────────────────────────────────┐ │     browse or edit
+│ │ Folders                                  │ │
+│ │  Work  12  📁2  📎3                      │ │
+│ │  Home   4                                │ │
+│ └──────────────────────────────────────────┘ │
+│ ┌──────────────────────────────────────────┐ │
+│ │ Notes in the selected folder             │ │
+│ │  Apollo kickoff      3d ago              │ │
+│ │  Budget draft        1w ago              │ │
+│ └──────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────┤
 │ Upcoming reminders         7 · soonest first  │  <- lower half:
 │  🕐 Standup   [Weekly·Tue,Thu]  in 2h · Mon 29 Sep 15:00
 │  🕐 Passport  [Every 5 years]   in 3y · Fri 2 Oct 2027
 └──────────────────────────────────────────────┘
 ```
+
+While a note is open for editing, the top box still shows the tree and the
+bottom box shows the editor instead of the list.
 
 **The split is half and half by default — the notes region above, the agenda
 below.** The agenda is never scrolled off: a reminder coming due stays in view
@@ -66,14 +74,30 @@ and Settings "Folder/Content display ratio for notes" cycles it 30%–70%. A
 long note list scrolls inside its own bottom panel, so the tree above stays
 put, and each panel carries its own header and controls.
 
+**Opening a note keeps that tree on screen (v35).** The note editor takes over
+the note list's own panel — the tree above stays put, so you keep your bearings
+while you type. Reminders keep the older wholesale swap, because they have no
+tree to keep. The editor's top line states what the open note carries:
+`2 · 1 pdf · 1 png` — the same badge the rows show, and it recounts the
+moment a file is attached or removed, before Save.
+
+**Folder rows state their contents (v35).** Beside each name sit up to three
+small badges: how many notes are directly in the folder, how many folder
+children it has (🛈 folder glyph), and how many attachments the whole subtree
+carries (📎 paperclip glyph) — an empty-looking parent that holds a branch full
+of photographs still says so. Zero badges stay hidden. Selecting a folder means
+browsing it, so any open note editor closes — the same discard rule as
+switching tabs.
+
 **The chrome is deliberately thin.** Small gaps, small padding, compact buttons —
 every pixel spent on margin is a folder name that gets cut off.
 
 **The top bar is one row that never wraps.** On a narrow screen the button
 labels collapse and the icons carry the action.
 
-**The upper half browses, then edits in place.** Tapping a note (or a reminder)
-swaps that area into its editor with a back arrow.
+**The upper half browses, then edits in place.** Tapping a note swaps the list
+panel into its editor under the still-visible tree; tapping a reminder swaps
+that whole area into its editor with a back arrow.
 
 **Two tabs in the upper area.** *Notes* shows the folder tree above the note
 list. *Reminders* is where reminders are managed — created, edited and deleted.
@@ -177,9 +201,9 @@ a control that exists but cannot be found is a control that does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 34"), so on any device you can
+and the release number at the bottom ("Version 35"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v34`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v35`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -387,7 +411,10 @@ tile removes that one attachment.
 The note list shows what a note carries without opening it: a small paperclip
 line under the title — `2 png` for one kind, `7 · 5 jpg · 2 pdf` (total first)
 for a mix — plus the full breakdown in a hover title. It counts the records
-that are actually on the device, so it never shows a ghost.
+that are actually on the device, so it never shows a ghost. Since v35 the
+same badge sits at the top of the open editor (v35), where the list used to
+be, so the swap announces what it is carrying — and it recounts live when a
+file is attached or removed while the note is open.
 
 The storage is split so that neither half is heavier than it needs to be:
 
@@ -470,12 +497,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 169 tests
+node tests/view.test.mjs ../view.js             # 183 tests
 node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 232 checks in real Chrome (212 desktop + 20 at 380px)
+python tools/browser_check.py                   # ~240 checks in real Chrome (~216 desktop + ~24 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -483,17 +510,11 @@ rule normalisation. `view.test.mjs` covers reminder ordering (including that a
 spent one-off sorts last rather than as an epoch date), recurrence labels, the
 relative-time buckets, folder paths, HTML escaping, subtree collection for a
 recursive folder delete (including that a parent cycle terminates), the wording
-of the delete confirmation, that every recurrence label names its period as well as its frequency, the folder picker's contents — tree order,
-indent depth, and that a folder whose parent is missing is still offered, since
-a folder the picker cannot name is one no note can be moved out of — the
-sibling order shared by the tree and the picker (`sortFoldersSiblings`), so
-that arranged folders lead in hand order and everything else trails
-alphabetically — the
-pane-ratio cycle (ten-percent steps, the 50% even split as default and
-fallback), and the folder-ratio cycle (since v33 the 30%–70% stops are the
-folder panel's **top** share in a stacked notes pane, the 40% default, wrap
-at the ends, and a junk stored value falling back to real 40/60 tracks rather
-than junk rows).
+of the delete confirmation, the v35 folder-chip counts (`folderBadgeCounts`: a
+row's note chip is direct-only, its folder chip direct-only children, its clip
+chip the whole subtree's attachments — Unfiled included, zeros not undefined,
+and a looped parent chain terminates), the attachment badge text its rows and editor share, the
+folder picker's contents — tree order,
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
 (nesting, commas/quotes/newlines in note bodies, weekday rules, the v2

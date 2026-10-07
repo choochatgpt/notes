@@ -302,12 +302,51 @@ elif "flex-direction: row" not in when_rule.group(1):
 # --- 7. Folders are scoped to notes, and the editor swaps in place -----------
 if 'document.body.dataset.kind' not in app:
     fails.append("app.js never sets body[data-kind]")
-if 'els.browseNotes.classList.toggle("hidden"' not in app:
-    fails.append("app.js never hides the notes browser, so folders are not scoped to notes")
+if 'els.browseNotes.classList.toggle("hidden", !notes)' not in app:
+    fails.append("app.js does not hide the notes browser with the notes tab alone: "
+                 "since v35 the folder tree must stay on screen while a note is "
+                 "open, with only the list slot swapping to the editor")
+if 'els.noteList.classList.toggle("hidden", editing)' not in app:
+    fails.append("app.js never swaps the note list out of its slot while a note "
+                 "is open, so the editor has nowhere to appear under the tree")
+if 'els.noteEditor.classList.toggle("hidden"' not in app:
+    fails.append("app.js never toggles the note editor itself")
+if 'els.editorHost.classList.toggle("hidden", !remindersEditing)' not in app:
+    fails.append("app.js does not scope the editor host to reminder edits: since "
+                 "v35 it holds only the reminder editor (the note editor moved "
+                 "into the notes browser)")
 if 'els.editorBack.classList.toggle("hidden"' not in app:
     fails.append("app.js never toggles the back arrow, so the editor cannot swap in place")
 else:
-    print("browse/edit swap in place: notes browser, editor and back arrow all toggled")
+    print("browse/edit swap: the folder tree stays, the list slot swaps, "
+          "reminders keep the full-pane swap")
+
+# The note editor's markup must live inside the list column (the pane-body's
+# .list-col holds both the list and the editor as siblings), and the top
+# attach line must exist and be styled -- the swap-from-list announces what
+# the open note carries.
+list_col = re.search(r'<div class="list-col">(.*?)</div>\s*</div>', html, re.S)
+if not list_col or 'id="note-list"' not in list_col.group(1) \
+        or 'id="note-editor"' not in list_col.group(1):
+    fails.append("the note editor is not inside the list column beside the note "
+                 "list -- v35 keeps the folder tree visible above open notes")
+if 'id="editor-attach"' not in html:
+    fails.append("no editor-attach line: the open note must state its attachment "
+                 "count at the top of the panel")
+if ".editor-attach" not in css or ".list-col .editor" not in css:
+    fails.append("the editor-in-list-slot and its attach line have no CSS rules, "
+                 "so the swap would render unstyled")
+
+# The v35 folder chips: a pure count helper and the tree rendering it.
+if "export function folderBadgeCounts(" not in view:
+    fails.append("view.js has no folderBadgeCounts, so the folder chips have no "
+                 "testable source of truth")
+elif "folderBadgeCounts(" not in app:
+    fails.append("renderFolders never calls folderBadgeCounts, so the folder rows "
+                 "would show no child/attachment chips")
+else:
+    print("folder chips: notes (direct), child folders (direct) and "
+          "attachments (subtree) all counted, hidden at zero")
 
 # --- 8. Every destructive path is behind a confirmation ----------------------
 for fn in ("deleteFolder", "deleteSelectedNote", "deleteSelectedReminder"):

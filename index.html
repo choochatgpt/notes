@@ -85,8 +85,11 @@
 
   <main class="app-shell">
 
-    <!-- Upper half: browse or edit. The editor replaces the browser in place and
-         a back arrow returns, so the reminder agenda below never scrolls away. -->
+    <!-- Upper half: browse or edit. Since v35 the notes browser never leaves
+         the pane while a note is open -- the folder tree stays, and the editor
+         swaps into the note list's panel below it (reminders keep the
+         full-pane swap, since they have no tree). A back arrow returns to the
+         list either way, so the reminder agenda below never scrolls away. -->
     <section class="pane" aria-label="Notes and reminders">
       <div class="panel-head">
         <button id="editor-back" class="icon-btn hidden" type="button" title="Back" aria-label="Back to the list">
@@ -123,6 +126,43 @@
 
           <div class="list-col">
             <div id="note-list" class="item-list"></div>
+
+            <!-- The note editor (v35) lives IN the list's panel: opening a note
+                 swaps it for the list while the folder tree above stays put, so
+                 you keep your bearings while you type. -->
+            <form id="note-editor" class="editor hidden">
+              <!-- What the open note carries, stated at the top where the swap
+                   from the list happens: the same badge the rows show ("2 · 1
+                   pdf · 1 png"), filled with the records the note actually
+                   has, so it always agrees with the strip below. -->
+              <p id="editor-attach" class="editor-attach hidden">
+                <svg class="icon"><use href="#i-clip"></use></svg>
+                <span class="editor-attach-text"></span>
+              </p>
+              <input id="note-title" class="title-input" type="text" placeholder="Title" autocomplete="off">
+              <!-- Where the note lives. Changing this and saving moves the note,
+                   which is the only way a note changes folder. -->
+              <div class="form-grid">
+                <label>
+                  Folder
+                  <select id="note-folder"></select>
+                </label>
+              </div>
+              <textarea id="note-body" class="body-input" placeholder="Write a note..."></textarea>
+              <!-- Attached photos/videos/documents. Thumbnails render here; the
+                   full bytes stay in this device's OPFS and are never backed up. -->
+              <div id="media-strip" class="media-strip hidden"></div>
+              <div class="editor-actions">
+                <button id="delete-note-btn" class="btn danger" type="button">
+                  <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
+                </button>
+                <button id="add-media-btn" class="btn" type="button">
+                  <svg class="icon"><use href="#i-clip"></use></svg><span>Add attachment</span>
+                </button>
+                <button id="save-note-btn" class="btn primary" type="submit">Save</button>
+              </div>
+              <input id="media-input" type="file" accept="image/*,video/*,application/pdf" multiple hidden>
+            </form>
           </div>
         </div>
 
@@ -133,34 +173,10 @@
           <div id="reminder-manage-list" class="item-list"></div>
         </div>
 
-        <!-- Editors, shown in place of whichever browser is active. -->
+        <!-- The reminder editor, shown in place of the reminder manager. Since
+             v35 it is this host's only occupant: the note editor moved into
+             the notes browser, which keeps its folder tree on screen. -->
         <div id="editor-host" class="editor-host hidden">
-          <form id="note-editor" class="editor hidden">
-            <input id="note-title" class="title-input" type="text" placeholder="Title" autocomplete="off">
-            <!-- Where the note lives. Changing this and saving moves the note,
-                 which is the only way a note changes folder. -->
-            <div class="form-grid">
-              <label>
-                Folder
-                <select id="note-folder"></select>
-              </label>
-            </div>
-            <textarea id="note-body" class="body-input" placeholder="Write a note..."></textarea>
-            <!-- Attached photos/videos/documents. Thumbnails render here; the
-                 full bytes stay in this device's OPFS and are never backed up. -->
-            <div id="media-strip" class="media-strip hidden"></div>
-            <div class="editor-actions">
-              <button id="delete-note-btn" class="btn danger" type="button">
-                <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
-              </button>
-              <button id="add-media-btn" class="btn" type="button">
-                <svg class="icon"><use href="#i-clip"></use></svg><span>Add attachment</span>
-              </button>
-              <button id="save-note-btn" class="btn primary" type="submit">Save</button>
-            </div>
-            <input id="media-input" type="file" accept="image/*,video/*,application/pdf" multiple hidden>
-          </form>
-
           <form id="reminder-editor" class="editor hidden">
             <input id="reminder-title" class="title-input" type="text" placeholder="Reminder">
             <textarea id="reminder-body" class="body-input short" placeholder="Details"></textarea>

@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "34";
+export const APP_VERSION = "35";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -376,6 +376,56 @@ function attachmentLabel(record) {
     return ext || "file";
   }
   return "file";
+}
+
+/**
+ * The three counts a folder row's chips display (v35): the notes directly
+ * inside it, its DIRECT subfolders, and the attachments carried by the whole
+ * subtree -- "the folder as a whole" is what a row says when it is collapsed.
+ *
+ * Notes and subfolders are direct counts on purpose: the row already answers
+ * the drill-down question (the child is one tap away in the tree), while the
+ * attachment load is a property of the branch as a whole -- a folder with no
+ * direct note can still sit on top of a subtree of photos, and that is what
+ * the clip chip is for. The subtree walk is collectSubtree, the same
+ * cycle-safe walk delete uses, so a hand-edited parent cycle cannot hang the
+ * tree. Unfiled (null) has notes by definition and no child folders.
+ */
+export function folderBadgeCounts(folders, notes, folderId) {
+  const folderList = folders || [];
+  const noteList = notes || [];
+
+  // Unfiled is a leaf pseudo-folder: the root folders appear BESIDE it in the
+  // tree and the picker (both walk null at depth 0), not beneath it, so it has
+  // no child folders -- only the notes that name no folder, and whatever
+  // those notes carry. (collectSubtree cannot answer this: the children table
+  // keys on parentId, and Unfiled is not a parent.)
+  if (folderId == null) {
+    const own = noteList.filter(note => (note.folderId ?? null) === null);
+    return {
+      notes: own.length,
+      subfolders: 0,
+      attachments: own.reduce((sum, note) => sum + (note.mediaIds || []).length, 0)
+    };
+  }
+
+  const subtree = new Set(collectSubtree(folderId, folderList));
+
+  const directNotes = noteList.filter(
+    note => (note.folderId ?? null) === (folderId ?? null)
+  ).length;
+  const directFolders = folderList.filter(
+    folder => (folder.parentId ?? null) === (folderId ?? null)
+      && folder.id !== (folderId ?? null)
+  ).length;
+  const attachments = noteList.reduce(
+    (sum, note) => subtree.has(note.folderId)
+      ? sum + (note.mediaIds || []).length
+      : sum,
+    0
+  );
+
+  return { notes: directNotes, subfolders: directFolders, attachments };
 }
 
 /** "Work / Projects / Apollo", built by walking parents up to the root. */

@@ -25,6 +25,7 @@ const {
   describeRule,
   esc,
   folderOptions,
+  folderBadgeCounts,
   folderPath,
   FOLDER_RATIOS,
   folderRatioToTracks,
@@ -728,6 +729,67 @@ equal(
   attachmentBadge([{ type: "application/pdf" }, null]).text,
   "1 pdf",
 );
+
+console.log("\n=== 12e. folderBadgeCounts -- the folder row's chips (v35) ===");
+{
+  // Root: Parent; two children; one grandchild under C2. The subtree carries
+  // the attachments of every note below, no matter how deep it nests.
+  const folders = [
+    { id: "p", parentId: null, name: "Parent" },
+    { id: "c1", parentId: "p", name: "Child 1" },
+    { id: "c2", parentId: "p", name: "Child 2" },
+    { id: "g", parentId: "c2", name: "Grandchild" }
+  ];
+  const notes = [
+    { id: "n1", folderId: "p", mediaIds: ["m1"] },
+    { id: "n2", folderId: "c1", mediaIds: ["m2", "m3", "m4"] },
+    { id: "n3", folderId: "g", mediaIds: ["m5"] },
+    { id: "n4", folderId: null, mediaIds: ["m6"] },
+    { id: "n5", folderId: "p" } // unlisted mediaIds -> 0
+  ];
+
+  const parent = folderBadgeCounts(folders, notes, "p");
+  equal("a folder's note chip counts only the notes directly inside it",
+        parent.notes, 2);
+  equal("the folder chip counts direct subfolders only",
+        parent.subfolders, 2);
+  equal("the clip chip sums the whole subtree's attachments, depth included",
+        parent.attachments, 5); // m1 + m2,m3,m4 + m5
+
+  equal("a leaf counts what it directly holds",
+        folderBadgeCounts(folders, notes, "c1").attachments, 3);
+  equal("a mid-branch folder reaches past its own children to the leaves",
+        folderBadgeCounts(folders, notes, "c2").attachments, 1);
+  equal("...and its own direct note count is zero",
+        folderBadgeCounts(folders, notes, "c2").notes, 0);
+  equal("...and its direct subfolder count is one",
+        folderBadgeCounts(folders, notes, "c2").subfolders, 1);
+
+  const unfiled = folderBadgeCounts(folders, notes, null);
+  equal("Unfiled counts its own notes", unfiled.notes, 1);
+  equal("Unfiled has no child folders -- root folders are not inside it",
+        unfiled.subfolders, 0);
+  equal("Unfiled's clip chip covers the notes it holds",
+        unfiled.attachments, 1);
+
+  equal("a folder with nothing in it reports zeros, not undefined",
+        JSON.stringify(folderBadgeCounts(folders, notes, "nowhere")),
+        JSON.stringify({ notes: 0, subfolders: 0, attachments: 0 }));
+  equal("empty world, empty counts",
+        JSON.stringify(folderBadgeCounts([], [])),
+        JSON.stringify({ notes: 0, subfolders: 0, attachments: 0 }));
+  equal("notes without a mediaIds entry still parse as zero attachments",
+        folderBadgeCounts(folders, notes, "c1").attachments, 3);
+
+  // The same hand-edited hazard collectSubtree was built for: a looped parent
+  // chain must terminate -- the tree rendering cannot outlive the probe.
+  const looped = [
+    { id: "a", parentId: "b" },
+    { id: "b", parentId: "a" }
+  ];
+  check("a parent cycle terminates into a bounded count",
+        JSON.stringify(folderBadgeCounts(looped, notes, "a")) !== undefined);
+}
 
 console.log("\n=== 13. APP_VERSION -- the release number the user can see ===");
 check("APP_VERSION is a bare number the dialog can show verbatim",

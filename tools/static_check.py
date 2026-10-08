@@ -76,7 +76,7 @@ for match in re.findall(r'class="([^"$]*)"', app):
 # Classes present in the static markup too.
 for match in re.findall(r'class="([^"]*)"', html):
     emitted |= set(match.split())
-dynamic = {"active", "open", "leaf", "past", "hidden"}
+dynamic = {"active", "current", "past", "hidden"}
 missing_css = sorted(c for c in (emitted | dynamic) if c and c not in css_classes)
 if missing_css:
     fails.append(f"classes emitted with no CSS rule: {missing_css}")
@@ -215,63 +215,15 @@ if 'setSetting("paneRatio"' not in app:
 if 'getSetting("paneRatio"' not in app:
     fails.append("app.js never reads the pane ratio back, so the stored choice is ignored")
 
-# The folder/contents split inside the notes pane (v31; v33 stacked it): cycle
-# 30..70, default the shipped 40:60 -- now of the pane's HEIGHT (tree above,
-# list below). The split is ONE grid rule at every width: app.js reaches it
-# through --folder-track/--content-track, and the narrow block must not
-# re-declare the template (a re-introduced columns override is the failed
-# layout trying to come back).
-folder_ratio_match = re.search(r"FOLDER_RATIOS\s*=\s*\[([^\]]+)\]", view)
-folder_offered = re.findall(r'"([^"]+)"', folder_ratio_match.group(1)) if folder_ratio_match else []
-folder_required = ["30%", "40%", "50%", "60%", "70%"]
-if folder_offered != folder_required:
-    fails.append(f"view.js FOLDER_RATIOS must be {folder_required} in order "
-                 f"(the requested folder/contents stops), found {folder_offered}")
-elif "function nextFolderRatio(" not in view:
-    fails.append("view.js has no nextFolderRatio, so the folder ratio button cannot cycle")
-elif "function folderRatioToTracks(" not in view:
-    fails.append("view.js has no folderRatioToTracks, so a chosen folder ratio cannot reach the grid")
-elif 'DEFAULT_FOLDER_RATIO = "40%"' not in view:
-    fails.append('view.js must define DEFAULT_FOLDER_RATIO = "40%" -- the shipped '
-                 "folder:contents split is where a fresh device starts and what an "
-                 "unreadable value falls back to")
-elif 'DEFAULT_FOLDER_RATIO' not in app:
-    fails.append("app.js never uses DEFAULT_FOLDER_RATIO, so the chip and the "
-                 "store can drift from view.js")
-elif '<span id="folder-ratio-value" class="chip accent">40%</span>' not in html:
-    fails.append("the folder ratio chip must START at 40%, so the dialog opens "
-                 "showing the shipped split before any click")
-elif 'setProperty("--folder-track"' not in app or 'setProperty("--content-track"' not in app:
-    fails.append("app.js never writes --folder-track/--content-track, so the chosen "
-                 "folder ratio never reaches the layout")
-elif 'setSetting("folderRatio"' not in app:
-    fails.append("app.js never persists the folder ratio, so the choice resets on every launch")
-elif 'getSetting("folderRatio"' not in app:
-    fails.append("app.js never reads the folder ratio back, so the stored choice is ignored")
-else:
-    print(f"folder ratio cycle: {' -> '.join(folder_offered)} -> (wrap); "
-          "default 40:60 top/bottom (v33 stacked)")
-css = read("app.css")
-stacked_narrow = css.split("@media (max-width: 760px)", 1)
-if not re.search(r"\.browse-notes\s*\{[^}]*grid-template-rows:\s*"
-                 r"minmax\(0, var\(--folder-track, 4fr\)\)\s*"
-                 r"minmax\(0, var\(--content-track, 6fr\)\)", css, re.S):
-    fails.append("app.css's .browse-notes must carry ONE stacked grid-template-rows rule "
-                 "reading minmax(0, var(--folder-track, 4fr)) / "
-                 "minmax(0, var(--content-track, 6fr)), or the chosen folder ratio "
-                 "never reaches the layout and the old columns are still there")
-elif re.search(r"\.browse-notes[^{]*\{[^}]*grid-template-columns", css):
-    fails.append("a .browse-notes rule still declares grid-template-columns -- the "
-                 "notes pane is stacked (top/bottom) since v33; a columns rule "
-                 "reintroduces the side-by-side layout")
-elif len(stacked_narrow) > 1 and re.search(r"\.browse-notes\s*\{", stacked_narrow[1]):
-    fails.append("the <=760px block still overrides .browse-notes -- the stacked "
-                 "split is one rule at every width; nothing to re-declare")
-for required_label in ("Folder/Content display ratio for notes",):
-    if required_label not in html:
-        fails.append(f'the Settings dialog is missing the "{required_label}" control')
-if 'on("#folder-ratio-btn"' not in app:
-    fails.append("app.js never wires #folder-ratio-btn, so the control is inert")
+# Since v38 the pane ratio is the ONE split left: the folder tree and its own
+# ratio cycle went with the tree when the notes screen became one drill-down
+# list. If the folder-ratio machinery ever returns (a Settings control, a
+# --folder-track variable), it must be a deliberate user-visible re-shipping,
+# not an accretion -- the same failure the tree itself died of being "always
+# more".
+if 'id="folder-ratio-btn"' in html or "FOLDER_RATIOS" in view or "--folder-track" in css:
+    fails.append("v38 removed the folder tree and its ratio cycle; "
+                 "folder-ratio machinery has reappeared (see v38 plan, notes screen)")
 
 for required_label in (
     "Notes/Reminders panel display ratio",
@@ -339,13 +291,16 @@ elif "flex-direction: row" not in when_rule.group(1):
 # --- 7. Folders are scoped to notes, and the editor swaps in place -----------
 if 'document.body.dataset.kind' not in app:
     fails.append("app.js never sets body[data-kind]")
+if 'els.crumbs.classList.toggle("hidden", !notes)' not in app:
+    fails.append("app.js does not hide the crumbs bar off the reminders tab -- "
+                 "folders are a notes concept (v38)")
 if 'els.browseNotes.classList.toggle("hidden", !notes)' not in app:
     fails.append("app.js does not hide the notes browser with the notes tab alone: "
-                 "since v35 the folder tree must stay on screen while a note is "
+                 "since v35 the notes browser stays on screen while a note is "
                  "open, with only the list slot swapping to the editor")
 if 'els.noteList.classList.toggle("hidden", editing)' not in app:
     fails.append("app.js never swaps the note list out of its slot while a note "
-                 "is open, so the editor has nowhere to appear under the tree")
+                 "is open, so the editor has nowhere to appear in its place")
 if 'els.noteEditor.classList.toggle("hidden"' not in app:
     fails.append("app.js never toggles the note editor itself")
 if 'els.editorHost.classList.toggle("hidden", !remindersEditing)' not in app:
@@ -355,18 +310,13 @@ if 'els.editorHost.classList.toggle("hidden", !remindersEditing)' not in app:
 if 'els.editorBack.classList.toggle("hidden"' not in app:
     fails.append("app.js never toggles the back arrow, so the editor cannot swap in place")
 else:
-    print("browse/edit swap: the folder tree stays, the list slot swaps, "
+    print("browse/edit swap: the crumbs bar stays, the list slot swaps, "
           "reminders keep the full-pane swap")
-
-# The note editor's markup must live inside the list column (the pane-body's
-# .list-col holds both the list and the editor as siblings), and the top
-# attach line must exist and be styled -- the swap-from-list announces what
-# the open note carries.
 list_col = re.search(r'<div class="list-col">(.*?)</div>\s*</div>', html, re.S)
 if not list_col or 'id="note-list"' not in list_col.group(1) \
         or 'id="note-editor"' not in list_col.group(1):
     fails.append("the note editor is not inside the list column beside the note "
-                 "list -- v35 keeps the folder tree visible above open notes")
+                 "list -- v38 keeps the drill-down list and the editor in one panel")
 if 'id="editor-attach"' not in html:
     fails.append("no editor-attach line: the open note must state its attachment "
                  "count at the top of the panel")
@@ -374,16 +324,71 @@ if ".editor-attach" not in css or ".list-col .editor" not in css:
     fails.append("the editor-in-list-slot and its attach line have no CSS rules, "
                  "so the swap would render unstyled")
 
-# The v35 folder chips: a pure count helper and the tree rendering it.
-if "export function folderBadgeCounts(" not in view:
-    fails.append("view.js has no folderBadgeCounts, so the folder chips have no "
-                 "testable source of truth")
-elif "folderBadgeCounts(" not in app:
-    fails.append("renderFolders never calls folderBadgeCounts, so the folder rows "
-                 "would show no child/attachment chips")
+# --- 7b. The breadcrumb bar and the drill-down list (v38) --------------------
+# The notes screen is ONE list now: crumbs on top, subfolders then notes in
+# the single scrolling panel. The pieces are small, so they are pinned: the
+# helpers must exist in view.js, app.js must render the crumbs on the notes
+# tab, and the list markup must carry the folder-row + menu contract.
+if "export function folderChain(" not in view:
+    fails.append("view.js has no folderChain, so the crumbs have no testable "
+                 "source of truth for their segments")
+if "folderChain(" not in app:
+    fails.append("app.js never calls folderChain, so the crumbs would not render")
+if "function renderCrumbs(" not in app or 'els.crumbs.innerHTML' not in app:
+    fails.append("app.js has no renderCrumbs writing els.crumbs, so the breadcrumb "
+                 "bar stays empty")
+if 'els.crumbs.classList.toggle("hidden", !notes)' not in app:
+    fails.append("renderCrumbs visibility is not wired in syncUpper -- the crumbs "
+                 "must show on the notes tab and hide on reminders")
+if 'id="crumbs"' not in html or 'class="crumbs"' not in html:
+    fails.append("index.html has no #crumbs breadcrumb bar in the notes browser")
+if ".crumbs" not in css or ".crumbs .crumb" not in css:
+    fails.append("the breadcrumb bar renders unstyled -- .crumbs has no CSS rule")
+if "function loadFolders(" not in app:
+    fails.append("app.js has no loadFolders -- renderFolders (the tree) must be gone")
+if "async function renderFolders(" in app:
+    fails.append("app.js still defines renderFolders -- the v38 drill-down list "
+                 "rendered folder rows in renderNoteList instead")
+if "state.collapsed" in app or "folderChip" in app or "renamingFolderId" not in app:
+    if "state.collapsed" in app:
+        fails.append("state.collapsed survived -- the tree's collapse state died with it (v38)")
+    if "folderChip" in app:
+        fails.append("state.folderChip survived -- browsing shows crumbs now, not a chip (v38)")
+if "renderFolders()" in app or "els.folderTree" in app:
+    fails.append("app.js still calls renderFolders()/els.folderTree -- v38 removed the tree")
+browse = app.split("async function renderNoteList", 1)
+if len(browse) > 1:
+    body = browse[1].split("\nasync function ", 1)[0]
+    if "folderRowHtml(" not in body:
+        fails.append("renderNoteList does not render folder rows (folderRowHtml) -- "
+                     "the drill-down list must lead with subfolders")
+    if "sortFoldersSiblings(" not in body:
+        fails.append("renderNoteList does not order subfolders with sortFoldersSiblings")
+    if "noteDisplayTitle(" not in body:
+        fails.append("renderNoteList stopped using noteDisplayTitle -- untitled notes "
+                     "must keep naming their folder (v37)")
 else:
-    print("folder chips: notes (direct), child folders (direct) and "
-          "attachments (subtree) all counted, hidden at zero")
+    fails.append("app.js has no renderNoteList")
+if 'on("#note-list", "click", onNoteListClick)' not in app:
+    fails.append("the drill-down list has no delegated click handler -- it must be "
+                 'wired as on("#note-list", "click", onNoteListClick)')
+for marker, why in (
+    ("[data-menu]", "the folder rows carry no menu trigger"),
+    ("function openFolderMenu(", "no openFolderMenu -- the ellipsis button would be inert"),
+    ("function openMenuDialog(", "no openMenuDialog helper -- the v38 dialogs would not show"),
+    ("function closeMenuDialog(", "no closeMenuDialog helper -- the v38 dialogs would never close"),
+    ("function moveFolderTo(", "no moveFolderTo -- the move sheet would be inert"),
+    ("collectSubtree(folderId, folders).includes(target)", "moveFolderTo does not refuse to move a folder into its own subtree"),
+):
+    if marker not in app:
+        fails.append(f"app.js: {why}")
+if 'id="folder-menu"' not in html or 'id="folder-move-sheet"' not in html:
+    fails.append("index.html lost #folder-menu / #folder-move-sheet -- the folder "
+                 "menu and move sheet must exist as dialogs")
+if 'id="attach-menu"' not in html:
+    fails.append("index.html lost #attach-menu -- the editor's single attach button "
+                 "opens a menu, not three buttons")
+print("drill-down: crumbs bar + subfolder rows + menus wired (v38)")
 
 # --- 8. Every destructive path is behind a confirmation ----------------------
 for fn in ("deleteFolder", "deleteSelectedNote", "deleteSelectedReminder"):
@@ -449,23 +454,24 @@ for button, handler in (
 ):
     if f'on("#{button}", "click", {handler})' not in app:
         fails.append(f"#{button} exists in the markup but is never wired to {handler}")
-if "data-del=" not in app or ".folder-del" not in app:
-    fails.append("folder rows carry no delete control")
-if ".folder-del" not in css:
-    fails.append(".folder-del has no CSS rule, so the folder delete would be invisible")
+if "data-menu=" not in app:
+    fails.append("folder rows carry no menu trigger -- v38 moves rename/move/delete "
+                 "behind the row's ellipsis button")
+if ".folder-menu" not in css:
+    fails.append(".folder-menu has no CSS rule, so the folder menu trigger would be invisible")
 else:
-    # It used to be hover-revealed. That was the bug the user hit: the control
-    # existed but could not be found, and on a touch screen (no hover) it could
-    # not be reached at all. It must be on screen at rest.
-    del_rule = re.search(r"\.folder-del\s*\{([^}]*)\}", css).group(1)
+    # It used to be hover-revealed (the .folder-del bug the user hit): the
+    # control existed but could not be found, and on a touch screen (no hover)
+    # it could not be reached at all. It must be on screen at rest.
+    menu_rule = re.search(r"\.folder-menu\s*\{([^}]*)\}", css).group(1)
     for hidden in ("opacity: 0", "opacity:0", "pointer-events: none", "visibility: hidden",
                    "display: none"):
-        if hidden in del_rule:
+        if hidden in menu_rule:
             fails.append(
-                f".folder-del is hidden at rest ({hidden}); a folder delete that only "
+                f".folder-menu is hidden at rest ({hidden}); a folder menu that only "
                 f"appears on hover is undiscoverable and unreachable on a touch screen")
-    if "color:" not in del_rule:
-        fails.append(".folder-del sets no resting colour, so it would be invisible")
+    if "color:" not in menu_rule:
+        fails.append(".folder-menu sets no resting colour, so it would be invisible")
 
 # --- 10. Controls must be wired before anything that can fail ---------------
 # A publish can briefly pair a new index.html with a still-cached app.js. When
@@ -806,10 +812,10 @@ if 'id="open-email-btn"' not in html:
 if 'id="i-download"' in html or 'href="#i-download"' in html or 'href="#i-download"' in app:
     fails.append("the i-download glyph is back, but nothing downloads anymore")
 
-# 15b. The editor actions are two nowrap rows (v36): the three attachment
-# pickers on the first, Delete + Save on the second. The v19 rule gave all
-# three buttons one line; three pickers cannot fit beside Delete and Save at
-# phone width, so each row is still nowrap and the two-row order is pinned.
+# 15b. The editor actions are ONE nowrap row since v38: Attach (the menu
+# trigger), Delete, Save. Three pickers could not fit beside Delete and Save
+# at phone width, which is why v36 used two rows; collapsing the pickers
+# behind one paperclip fits, so the two-row exception is gone with it.
 editor_actions = re.search(r"\.editor-actions\s*\{([^}]*)\}", css)
 if not editor_actions:
     fails.append("no .editor-actions rule found")
@@ -822,27 +828,20 @@ if not note_form:
 else:
     rows = re.findall(r'<div class="editor-actions">(.*?)</div>',
                       note_form.group(1), re.S)
-    if len(rows) != 2:
-        fails.append("the note editor must have exactly two action rows (the "
-                     f"pickers, then Delete + Save), found {len(rows)}")
+    if len(rows) != 1:
+        fails.append("the note editor must have exactly one action row (Attach, "
+                     f"Delete, Save), found {len(rows)}")
     else:
-        if not all(row_id in rows[0] for row_id in
-                   ('id="add-gallery-btn"', 'id="add-doc-btn"', 'id="add-camera-btn"')) \
-                or 'id="delete-note-btn"' in rows[0] or 'id="save-note-btn"' in rows[0]:
-            fails.append("the FIRST editor-actions row must hold the three "
-                         "attachment pickers and only them")
-        elif ('id="delete-note-btn"' not in rows[1]
-              or 'id="save-note-btn"' not in rows[1] or 'id="add-' in rows[1]):
-            fails.append("the SECOND editor-actions row must hold Delete and Save "
-                         "only -- Save stays the form's submit")
-        elif ('>Add picture/video</span>' not in rows[0]
-              or '>Add document</span>' not in rows[0]
-              or '>Camera</span>' not in rows[0]):
-            fails.append('the picker labels ("Add picture/video", "Add document", '
-                         '"Camera") are the user\'s names verbatim and must survive')
+        row = rows[0]
+        if ('id="attach-menu-btn"' not in row or 'id="delete-note-btn"' not in row
+                or 'id="save-note-btn"' not in row or 'id="add-' in row):
+            fails.append("the editor-actions row must hold exactly Attach "
+                         "(#attach-menu-btn), Delete and Save -- Save stays the "
+                         "form's submit")
+        elif '>Attach</span>' not in row or '>Delete</span>' not in row:
+            fails.append('the action labels "Attach" and "Delete" must survive')
         else:
-            print("editor actions: two nowrap rows -- Add picture/video / Add "
-                  "document / Camera, then Delete + Save")
+            print("editor actions: one nowrap row -- Attach (menu), Delete, Save")
 
 # 15c. The narrow layout keeps the reminder DATE and drops the relative time --
 # the reverse of what it used to do, per the 2026-10-01 request.
@@ -862,30 +861,34 @@ else:
 
 # 15d. Attachments (photos/videos + PDFs since v34): strip markup, paperclip
 # glyph, per-type tiles, the row's attachment-count line, OPFS helpers, cleanup.
-# "Save to device" in the viewer is sanctioned (2026-10-02: the user chose the
-# GitWay media route, which needs bytes to reach the phone's downloads for a
-# manual upload to the PRIVATE relay repo); the CSV download button remains
-# gone -- 15a still refuses #download-csv-btn.
+# Since v38 the THREE pickers fire from ONE menu (#attach-menu); the hidden
+# inputs and the change ritual are unchanged. "Save to device" in the viewer
+# is sanctioned (2026-10-02: the user chose the GitWay media route, which needs
+# bytes to reach the phone's downloads for a manual upload to the PRIVATE
+# relay repo); the CSV download button remains gone -- 15a still refuses
+# #download-csv-btn.
 for required in ('id="media-strip"', 'id="media-input"', 'id="media-dialog"',
                  'id="media-view"', 'id="media-video"', 'id="media-frame"',
                  'id="media-hint"', 'id="media-close"',
-                 'id="media-save-btn"', 'id="add-gallery-btn"',
-                 'id="add-doc-btn"', 'id="add-camera-btn"',
+                 'id="media-save-btn"', 'id="attach-menu-btn"',
+                 'id="menu-gallery-btn"', 'id="menu-camera-btn"', 'id="menu-doc-btn"',
                  'id="gallery-input"', 'id="camera-input"'):
     if required not in html:
         fails.append(f"index.html lost {required}, so attachments have nowhere to render")
 if '<symbol id="i-clip"' not in html:
     fails.append("index.html has no i-clip sprite symbol for the attachments layer")
 if 'href="#i-clip"' not in html:
-    fails.append("nothing uses the i-clip glyph -- the Add document button and the "
-                 "attachment-count lines carry it")
+    fails.append("nothing uses the i-clip glyph -- the Attach button, the Document "
+                 "menu item and the attachment-count lines carry it")
 if '<symbol id="i-image"' not in html or 'href="#i-image"' not in html:
-    fails.append("the Add picture/video button has no i-image sprite symbol in use")
+    fails.append("the gallery menu item has no i-image sprite symbol in use")
 if '<symbol id="i-camera"' not in html or 'href="#i-camera"' not in html:
-    fails.append("the Camera button has no i-camera sprite symbol in use")
-if 'on("#add-media-btn"' in app or 'id="add-media-btn"' in html:
-    fails.append("the old single Add attachment button survived -- v36 replaced it "
-                 "with the three pickers")
+    fails.append("the camera menu item has no i-camera sprite symbol in use")
+if 'on("#add-media-btn"' in app or 'id="add-media-btn"' in html \
+        or 'id="add-gallery-btn"' in html or 'id="add-gallery-btn"' in app \
+        or 'id="add-doc-btn"' in html or 'id="add-camera-btn"' in html:
+    fails.append("the three picker buttons survived -- v38 replaced them with the "
+                 "single Attach menu")
 if 'accept="image/*,video/*,application/pdf"' not in html:
     fails.append('#media-input no longer accepts image/*,video/*,application/pdf')
 if html.count('accept="image/*,video/*,application/pdf"') != 1:
@@ -893,22 +896,25 @@ if html.count('accept="image/*,video/*,application/pdf"') != 1:
                  "gallery and camera pickers are media-only")
 gallery_input = re.search(r'<input id="gallery-input"[^>]*>', html)
 if not gallery_input:
-    fails.append("the gallery input vanished -- Add picture/video has nowhere to pick into")
+    fails.append("the gallery input vanished -- the attach menu's gallery item has "
+                 "nowhere to pick into")
 elif ('accept="image/*,video/*"' not in gallery_input.group(0)
       or "multiple" not in gallery_input.group(0) or "hidden" not in gallery_input.group(0)):
     fails.append("#gallery-input must accept image/*,video/* (the gallery picker) "
                  "and stay hidden")
 camera_input = re.search(r'<input id="camera-input"[^>]*>', html)
 if not camera_input:
-    fails.append("the camera input vanished -- the Camera button has nowhere to pick into")
+    fails.append("the camera input vanished -- the attach menu's camera item has "
+                 "nowhere to pick into")
 elif ('capture="environment"' not in camera_input.group(0)
       or 'accept="image/*,video/*"' not in camera_input.group(0)
       or "hidden" not in camera_input.group(0)):
     fails.append('#camera-input must pin capture="environment" so Chrome on Android '
                  "opens the camera itself, and stay hidden")
-for wired in ('on("#add-gallery-btn", "click", () => $("#gallery-input")?.click());',
-              'on("#add-doc-btn", "click", () => $("#media-input")?.click());',
-              'on("#add-camera-btn", "click", () => $("#camera-input")?.click());',
+for wired in ('on("#attach-menu-btn", "click", () => openMenuDialog("#attach-menu"));',
+              'on("#menu-gallery-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#gallery-input")?.click(); });',
+              'on("#menu-camera-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#camera-input")?.click(); });',
+              'on("#menu-doc-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#media-input")?.click(); });',
               'on("#gallery-input", "change", attachFromInput);',
               'on("#media-input", "change", attachFromInput);',
               'on("#camera-input", "change", attachFromInput);'):
@@ -1098,72 +1104,69 @@ else:
           "(config.js); backup identity is per user; destinations independent; "
           "auto-run pinned to driveAllowed:false; sign-in confined to drive.js")
 
-# 15h. Folder rename + reorder (v32): per-row pencil / up / down controls, one
-# shared sibling order, and positions that only ever come from a move.
+# 15h. Folder rename + move (v38): the per-row pencil/up/down chip row went
+# with the tree; rename opens from the row's ellipsis menu and STAYS an inline
+# editing form; moving is across parents now (moveFolderTo). The arranged
+# order field and its one shared sibling sort survive untouched -- folders the
+# user already arranged keep their order in the list and the picker.
 if '<symbol id="i-pencil" viewBox="0 0 24 24">' not in html:
-    fails.append('index.html lost the i-pencil symbol -- the rename button '
+    fails.append('index.html lost the i-pencil symbol -- the rename menu item '
                  "renders an empty glyph without it")
-for required in ('data-rename="${esc(folder.id)}"', 'data-up="${esc(folder.id)}"',
-                 'data-down="${esc(folder.id)}"',
-                 ".folder-rename-form", "folder-rename-input",
-                 "folder-rename-cancel", 'class="folder-row editing"'):
+for required in ('id="folder-menu-rename"', 'id="folder-menu-move"',
+                 'id="folder-menu-delete"', 'id="folder-move-list"',
+                 'id="folder-move-cancel"'):
+    if required not in html:
+        fails.append(f"index.html lost the folder-menu button {required!r}")
+for required in (".folder-rename-form", "folder-rename-input",
+                 "folder-rename-cancel", 'data-renaming="${esc(folder.id)}"'):
     if required not in app:
-        fails.append(f"app.js lost the rename/reorder row markup piece {required!r}")
-for function_name in ("moveFolder", "beginFolderRename", "submitRenameFolder",
-                      "cancelFolderRename", "clearRenameState", "wireRenameRow"):
+        fails.append(f"app.js lost the rename row piece {required!r}")
+for function_name in ("onFolderMenuAction", "openFolderMenu", "openFolderMoveSheet",
+                      "onFolderMoveListClick", "moveFolderTo", "beginFolderRename",
+                      "submitRenameFolder", "cancelFolderRename", "clearRenameState",
+                      "wireRenameRow"):
     if f"function {function_name}(" not in app:
-        fails.append(f"app.js lost {function_name}() -- the rename/reorder flow "
+        fails.append(f"app.js lost {function_name}() -- the rename/move flow "
                      "is incomplete")
 if "renamingFolderId" not in app:
     fails.append("app.js lost state.renamingFolderId -- a rename edit would "
                  "vanish on the next re-render")
 if "function sortFoldersSiblings(" not in view:
-    fails.append("view.js lost sortFoldersSiblings() -- the tree and the picker "
-                 "must sort through one helper")
+    fails.append("view.js lost sortFoldersSiblings() -- the drill list and the "
+                 "picker must sort through one helper")
 if "sortFoldersSiblings(" not in app:
     fails.append("app.js does not render through sortFoldersSiblings -- the "
-                 "folder tree would reorder itself back to alphabetical")
+                 "list would reorder itself back to alphabetical")
 if "sortFoldersSiblings(children)" not in view or "sortFoldersSiblings(" not in view:
-    fails.append("folderOptions does not mirror the arranged tree through "
+    fails.append("folderOptions does not mirror the arranged list through "
                  "sortFoldersSiblings")
 if 'setSetting("folderOrder"' in app or 'getSetting("folderOrder"' in app:
     fails.append("folder order is a note-record field, not a device setting -- "
                  "it must ride the folders store and the backup CSV")
-# The new controls repeat the .folder-del doctrine: never hover-revealed. The
-# shared rule must be present as one block (both rotate rules and hidden forms
-# would defeat it per-class otherwise).
-controls_rule = re.search(
-    r"\.folder-up,\s*\n\.folder-down,\s*\n\.folder-rename,\s*\n\.folder-rename-cancel\s*\{([^}]*)\}",
-    css)
-if not controls_rule:
-    fails.append("app.css lost the shared .folder-up/.folder-down/.folder-rename "
-                 "rule block (the move/rename controls need the .folder-del "
-                 "geometry: always on screen, quiet at rest)")
-else:
-    shared = controls_rule.group(1)
+if re.search(r"\bfunction moveFolder\b\(", app):
+    fails.append("the old sibling-shuffle moveFolder survived -- v38 replaced it "
+                 "with moveFolderTo (move between parents)")
+# The arrow glyphs never appear as row controls again.
+if 'data-up="${esc(folder.id)}"' in app or 'data-down="${esc(folder.id)}"' in app \
+        or ".folder-up" in css or ".folder-down" in css:
+    fails.append("the up/down reorder controls survived -- v38 removed the arrows "
+                 "(arranged order data still sorts, but nothing rewrites it)")
+# The menu trigger repeats the .folder-del doctrine: never hover-revealed.
+menu_rule = re.search(r"\.folder-menu\s*\{([^}]*)\}", css)
+if menu_rule:
     for banned in ("opacity: 0", "opacity:0", "pointer-events: none",
                    "visibility: hidden", "display: none"):
-        if banned in shared:
-            fails.append(f'the folder move/rename rule hides its controls at rest '
+        if banned in menu_rule.group(1):
+            fails.append(f'the folder-menu rule hides its control at rest '
                          f'("{banned}") -- the .folder-del anti-hover-reveal doctrine')
-    if "color:" not in shared:
-        fails.append("the folder move/rename rule has no resting color -- a "
-                     "control with no visible state reads as dead")
-if ".folder-up .icon { transform: rotate(-90deg); }" not in css \
-        or ".folder-down .icon { transform: rotate(90deg); }" not in css:
-    fails.append("app.css lost the arrow rotation -- the up/down buttons would "
-                 "draw the tree's forward chevron instead of arrows")
-if re.search(r"@media \(max-width: 760px\)", css) and \
-        re.search(r"\.folder-rename\s*\{[^}]*?(display:\s*none|opacity: 0|visibility: hidden)", css):
-    fails.append("the move/rename controls must stay on screen at narrow width "
-                 "too -- that is where phones hit them")
 for cleanup_call in ("cancelFolderRename();", "clearRenameState();"):
     if cleanup_call not in app:
         fails.append(f"app.js lost the {cleanup_call} cleanup call")
-else:
-    print("rename/reorder: pencil + up/down on every folder row, always on "
-          "screen; one shared sibling order (view.js); first move freezes the "
-          "alphabetical baseline; backup v3 carries the order column")
+if ".folder-row.editing" in app and ".folder-row.editing" not in css:
+    fails.append("the inline rename row has no CSS")
+print("rename/move: rename stays an inline editing row (menu-opened); move "
+      "crosses parents via the sheet, never its own subtree; arranged order "
+      "sorts but only the sheet rewrites folders; no arrows (v38)")
 
 # --- 16. The agenda steps aside while a NOTE is edited (v36) ------------------
 # Pure CSS: syncUpper already writes body[data-kind]/[data-mode], so "a note

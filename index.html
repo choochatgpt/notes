@@ -62,6 +62,9 @@
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
       <circle cx="12" cy="13" r="4"/>
     </symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
+    </symbol>
   </svg>
 
   <header class="topbar">
@@ -101,12 +104,11 @@
   <main class="app-shell">
 
     <!-- Upper half: browse or edit. Since v35 the notes browser never leaves
-         the pane while a note is open -- the folder tree stays, and the editor
-         swaps into the note list's panel below it (reminders keep the
-         full-pane swap, since they have no tree). A back arrow returns to the
-         list either way. Since v36 the agenda below steps aside while a NOTE
-         is edited, so the editor gets the whole shell (the reminder editor
-         keeps the agenda visible). -->
+         the pane while a note is open -- the editor swaps into the list's
+         panel (reminders keep the full-pane swap, since they have no tree). A
+         back arrow returns to the list either way. Since v36 the agenda below
+         steps aside while a NOTE is edited, so the editor gets the whole shell
+         (the reminder editor keeps the agenda visible). -->
     <section class="pane" aria-label="Notes and reminders">
       <div class="panel-head">
         <button id="editor-back" class="icon-btn hidden" type="button" title="Back" aria-label="Back to the list">
@@ -122,31 +124,29 @@
       </div>
 
       <div class="pane-body">
-        <!-- Notes browser: the folder tree above the note list (v33),
-             both panels full width. -->
+        <!-- Notes browser (v38): ONE drill-down panel. A breadcrumb bar sits on
+             top; below it, in one scrolling list, the current folder's
+             subfolders (each with an ellipsis actions menu) then its notes.
+             Tapping a folder drills in; tapping a crumb jumps back up.
+             The old stacked tree panel and its Settings ratio cycle are gone. -->
         <div id="browse-notes" class="browse browse-notes">
-          <div class="folders-col">
-            <div class="col-head">
-              <span class="panel-title">Folders</span>
-              <button id="add-folder-inline" class="icon-btn" type="button" title="New folder" aria-label="New folder">
-                <svg class="icon"><use href="#i-folder-plus"></use></svg>
-              </button>
-            </div>
+          <!-- The path of folders above the one being browsed, plus the
+               pseudo-root "Notes". Rendered by app.js. -->
+          <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
 
-            <form id="new-folder-form" class="inline-form hidden" autocomplete="off">
-              <input id="new-folder-name" type="text" placeholder="Folder name" aria-label="Folder name">
-              <button class="btn small primary" type="submit">Add</button>
-            </form>
-
-            <div id="folder-tree" class="folder-tree"></div>
-          </div>
+          <!-- A new folder files into the folder being browsed; the +/New
+               folder button in the topbar reveals this form. -->
+          <form id="new-folder-form" class="inline-form hidden" autocomplete="off">
+            <input id="new-folder-name" type="text" placeholder="Folder name" aria-label="Folder name">
+            <button class="btn small primary" type="submit">Add</button>
+          </form>
 
           <div class="list-col">
             <div id="note-list" class="item-list"></div>
 
-            <!-- The note editor (v35) lives IN the list's panel: opening a note
-                 swaps it for the list while the folder tree above stays put, so
-                 you keep your bearings while you type. -->
+            <!-- The note editor (v35 to v38) lives IN the list's panel: opening
+                 a note swaps it for the whole drill-down list, so one full-screen
+                 form is what you type into. -->
             <form id="note-editor" class="editor hidden">
               <!-- What the open note carries, stated at the top where the swap
                    from the list happens: the same badge the rows show ("2 · 1
@@ -169,23 +169,17 @@
               <!-- Attached photos/videos/documents. Thumbnails render here; the
                    full bytes stay in this device's OPFS and are never backed up. -->
               <div id="media-strip" class="media-strip hidden"></div>
-              <!-- Three pickers feed ONE pipeline. The picture button opens the
-                   gallery/file picker; the document button keeps the broad
-                   accept (images, videos, PDFs); the camera input pins
-                   capture="environment" so Chrome on Android opens the camera
-                   itself (desktop browsers ignore it and open a picker). -->
+              <!-- ONE attach button now opens a small menu whose three actions
+                   fire the SAME hidden pickers, which feed ONE pipeline. The
+                   gallery item opens the gallery/file picker; the document item
+                   keeps the broad accept (images, videos, PDFs); the camera
+                   input pins capture="environment" so Chrome on Android opens
+                   the camera itself (desktop browsers ignore it and open a
+                   picker). -->
               <div class="editor-actions">
-                <button id="add-gallery-btn" class="btn" type="button">
-                  <svg class="icon"><use href="#i-image"></use></svg><span>Add picture/video</span>
+                <button id="attach-menu-btn" class="btn" type="button" title="Attach" aria-label="Attach a photo, video or document">
+                  <svg class="icon"><use href="#i-clip"></use></svg><span>Attach</span>
                 </button>
-                <button id="add-doc-btn" class="btn" type="button">
-                  <svg class="icon"><use href="#i-clip"></use></svg><span>Add document</span>
-                </button>
-                <button id="add-camera-btn" class="btn" type="button">
-                  <svg class="icon"><use href="#i-camera"></use></svg><span>Camera</span>
-                </button>
-              </div>
-              <div class="editor-actions">
                 <button id="delete-note-btn" class="btn danger" type="button">
                   <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
                 </button>
@@ -207,7 +201,7 @@
 
         <!-- The reminder editor, shown in place of the reminder manager. Since
              v35 it is this host's only occupant: the note editor moved into
-             the notes browser, which keeps its folder tree on screen. -->
+             the notes browser, which since v38 is one drill-down list. -->
         <div id="editor-host" class="editor-host hidden">
           <form id="reminder-editor" class="editor hidden">
             <input id="reminder-title" class="title-input" type="text" placeholder="Reminder">
@@ -286,18 +280,9 @@
       </button>
     </div>
 
-    <!-- Cycles the folder/contents split INSIDE the notes pane (v31; v33
-         made it top/bottom): 30% is a tall contents list under the folder
-         tree, 70% a tall tree over a short list; the default stays the
-         shipped 40:60 of the pane's height. The chip shows where you are. -->
-    <div class="dialog-row">
-      <button id="folder-ratio-btn" class="btn" type="button"
-              aria-label="Folder/Content display ratio for notes">
-        Folder/Content display ratio for notes
-        <span id="folder-ratio-value" class="chip accent">40%</span>
-      </button>
-    </div>
-
+    <!-- Since v38 there is ONE split left to cycle: the notes/agenda pane
+         ratio above. The folder tree and its own ratio cycle went away with
+         the tree (the notes screen is one drill-down list). -->
     <div class="dialog-actions">
       <button id="export-btn" class="btn primary" type="button">Export notes/reminders to email</button>
       <button id="import-btn" class="btn" type="button">Import notes/reminders</button>
@@ -401,6 +386,47 @@
     <!-- The visible release number (the user asked for it): if this ever
          disagrees with sw.js's cache name, static_check.py fails the build. -->
     <p class="dialog-version">Version <span id="app-version"></span></p>
+  </dialog>
+
+  <!-- The folder actions menu (v38): the one way a folder row in the drill-down
+       list is renamed, moved or deleted. A native <dialog> for the same
+       Escape/backdrop behaviour as Settings; nothing here submits. -->
+  <dialog id="folder-menu" class="menu-dialog" aria-label="Folder actions">
+    <button id="folder-menu-rename" class="btn menu-item" type="button">
+      <svg class="icon"><use href="#i-pencil"></use></svg><span>Rename</span>
+    </button>
+    <button id="folder-menu-move" class="btn menu-item" type="button">
+      <svg class="icon"><use href="#i-folder"></use></svg><span>Move to folder…</span>
+    </button>
+    <button id="folder-menu-delete" class="btn danger menu-item" type="button">
+      <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
+    </button>
+  </dialog>
+
+  <!-- The move sheet (v38): where the folder being moved goes. Lists every
+       folder the note picker shows (folderOptions) minus the folder's own
+       subtree, so a folder can never become its own ancestor. -->
+  <dialog id="folder-move-sheet" class="menu-dialog" aria-labelledby="folder-move-title">
+    <h2 id="folder-move-title" class="dialog-title">Move folder</h2>
+    <div id="folder-move-list" class="menu-list"></div>
+    <div class="dialog-actions">
+      <button id="folder-move-cancel" class="btn small" type="button">Cancel</button>
+    </div>
+  </dialog>
+
+  <!-- The attach menu (v38): one paperclip in the editor, three actions firing
+         the same three hidden inputs the old three-button row drove -- only the
+         trigger changed, the pipeline (addNoteMedia/attachFromInput) stays. -->
+  <dialog id="attach-menu" class="menu-dialog" aria-label="Attach a file">
+    <button id="menu-gallery-btn" class="btn menu-item" type="button">
+      <svg class="icon"><use href="#i-image"></use></svg><span>Photo or video (gallery)</span>
+    </button>
+    <button id="menu-camera-btn" class="btn menu-item" type="button">
+      <svg class="icon"><use href="#i-camera"></use></svg><span>Take photo or video</span>
+    </button>
+    <button id="menu-doc-btn" class="btn menu-item" type="button">
+      <svg class="icon"><use href="#i-clip"></use></svg><span>Document</span>
+    </button>
   </dialog>
 
   <!-- Attachment viewer. The bytes live in this device's OPFS; the dialog

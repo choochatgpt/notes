@@ -17,16 +17,14 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 ┌──────────────────────────────────────────────┐
 │ Notes  [New folder] [New note] [New reminder] [Settings]
 ├──────────────────────────────────────────────┤
-│ (Notes) (Reminders)          Work / Projects │  <- upper half:
-│ ┌──────────────────────────────────────────┐ │     browse or edit
-│ │ Folders                                  │ │
-│ │  Work  12  📁2  📎3                      │ │
-│ │  Home   4                                │ │
-│ └──────────────────────────────────────────┘ │
-│ ┌──────────────────────────────────────────┐ │
-│ │ Notes in the selected folder             │ │
-│ │  Apollo kickoff      3d ago              │ │
-│ │  Budget draft        1w ago              │ │
+│ (Notes) (Reminders)                          │  <- upper half:
+│ ┌──────────────────────────────────────────┐ │     ONE drill-down list
+│ │ Notes › Work › Projects                  │ │
+│ ├──────────────────────────────────────────┤ │
+│ │ HR                              ⋯        │ │  <- subfolders first
+│ │ IT                              ⋯        │ │
+│ │ Apollo kickoff       3d ago      📎2      │ │  <- then notes
+│ │ Budget draft         1w ago               │ │
 │ └──────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────┤
 │ Upcoming reminders         7 · soonest first  │  <- lower half:
@@ -35,13 +33,18 @@ Open <https://choochatgpt.github.io/notes/> and use your browser's
 └──────────────────────────────────────────────┘
 ```
 
-While a note is open for editing, the top box still shows the tree and the
-bottom box shows the editor instead of the list.
+The notes screen is **one drill-down list** (v38): a breadcrumb bar on top
+naming the path to the folder being browsed, then a single scrollable list in
+which the folder's subfolders come first and its notes after. Tapping a folder
+row drills in; tapping a crumb jumps back up. *Notes* is always the first crumb
+and the way home. Tapping a note swaps the whole list for its full-screen
+editor — the crumbs stay above it (while a reminder is edited the crumbs give
+way, since reminders have no path).
 
-Since v36 an open **note** editor goes one further: the agenda steps aside
-entirely (a pure-CSS rule keyed on the editor-open state), so the editor gets
-the whole shell — and it returns the moment you leave the editor. Reminder
-edits keep the agenda, and while you browse it is always there.
+Since v36 an open **note** editor also steps the agenda aside entirely (a
+pure-CSS rule keyed on the editor-open state), so the editor gets the whole
+shell — and it returns the moment you leave the editor. Reminder edits keep the
+agenda, and while you browse it is always there.
 
 **The split is half and half by default — the notes region above, the agenda
 below.** While you browse, the agenda is never scrolled off: a reminder coming
@@ -72,27 +75,18 @@ but leaves you to infer whether it repeats weekly or fortnightly, which is the
 inference the label exists to remove. A one-off reads `Once`; a spent one-off
 reads `Past` and carries no due time, because it does not have one.
 
-**Inside the notes half, the folder tree sits ABOVE the note list, both full
-width** (v33, asked for so the tree reads at full width instead of a narrow
-left panel). The default split gives the tree 40% of the notes pane's height,
-and Settings "Folder/Content display ratio for notes" cycles it 30%–70%. A
-long note list scrolls inside its own bottom panel, so the tree above stays
-put, and each panel carries its own header and controls.
+**Inside the notes half there is one list, not two panels** (v38). The stacked
+folder tree that sat above the note list — and its Settings ratio cycle — are
+gone. The folder being browsed is *everywhere on the screen at once*: its name
+ends the breadcrumb path, its subfolders and notes fill the list below it, and
+drilling in is simply tapping a subfolder row. The pane itself, notes above the
+agenda, is the one split left.
 
-**Opening a note keeps that tree on screen (v35).** The note editor takes over
-the note list's own panel — the tree above stays put, so you keep your bearings
-while you type. Reminders keep the older wholesale swap, because they have no
-tree to keep. The editor's top line states what the open note carries:
+**Opening a note is full-screen.** The editor takes over the whole list —
+there is no tree to keep beside it now — with the crumbs holding your place
+above it. The editor's top line states what the open note carries:
 `2 · 1 pdf · 1 png` — the same badge the rows show, and it recounts the
 moment a file is attached or removed, before Save.
-
-**Folder rows state their contents (v35).** Beside each name sit up to three
-small badges: how many notes are directly in the folder, how many folder
-children it has (🛈 folder glyph), and how many attachments the whole subtree
-carries (📎 paperclip glyph) — an empty-looking parent that holds a branch full
-of photographs still says so. Zero badges stay hidden. Selecting a folder means
-browsing it, so any open note editor closes — the same discard rule as
-switching tabs.
 
 **The chrome is deliberately thin.** Small gaps, small padding, compact buttons —
 every pixel spent on margin is a folder name that gets cut off.
@@ -104,14 +98,14 @@ phone picks up a new release without re-pasting the URL, and the recovery path
 when a startup died (a reload re-runs boot against the fresh, network-first
 shell). Like every navigation here, it silently discards unsaved edits.
 
-**The upper half browses, then edits in place.** Tapping a note swaps the list
-panel into its editor under the still-visible tree; tapping a reminder swaps
-that whole area into its editor with a back arrow.
+**The upper half browses, then edits in place.** Tapping a note swaps the whole
+drill-down list into its editor, full height, under the still-visible crumbs;
+tapping a reminder swaps that whole area into its editor with a back arrow.
 
-**Two tabs in the upper area.** *Notes* shows the folder tree above the note
-list. *Reminders* is where reminders are managed — created, edited and deleted.
-The agenda below is read-only, which keeps exactly one place able to change a
-reminder.
+**Two tabs in the upper area.** *Notes* is the drill-down list. *Reminders* is
+where reminders are managed — created, edited and deleted, with no folders and
+no crumbs. The agenda below is read-only, which keeps exactly one place able to
+change a reminder.
 
 ## How the data is organised
 
@@ -129,22 +123,35 @@ Home
   Relatives
 ```
 
-Branches expand and collapse, each folder shows how many notes are directly in
-it, and a breadcrumb chip shows the path (`Work / Projects / Apollo`). Notes
-filed at no folder live under **Unfiled**.
+Branches nest to any depth and you walk them by drilling in, exactly like a
+file manager: tap a folder row to enter it, tap a crumb to leave it. The
+crumbs always read the path you are inside (`Notes › Work › Projects`), so you
+always know both where you are and how to get back. Notes filed at no folder
+live under **Unfiled**, and the first crumb is always *Notes* — the pseudo-root
+every path starts from.
 
-**Folders can be renamed and re-ordered by hand (v32).** Every row carries
-always-on **↑ / ↓ / rename** buttons beside the delete — no hover hunting, and
-the same at 380px as at 900px. A rename edits the row in place: prefilled
-input, **Save** (or Enter) commits, **✕** (or Escape) cancels, an empty name
-just keeps the old one, and the breadcrumb chip updates with it. The arrows
-re-order one slot per tap within the row's own sibling group — the note-picker
-mirrors the arranged tree, so "Move note…" reads the same list the tree shows.
-Until the first arrow tap a group is plain alphabetical; that first tap freezes
-the arrangement, and afterwards a newly created folder lands at the end of its
-group instead of shuffling the ones already arranged. The hand arrangement
-rides the backup: the folders section carries an `order` column, so a restore
-and a new device both put folders back where you put them.
+**Folders are renamed, moved and deleted through one ⋯ menu (v38).** Every
+folder row carries an always-visible ⋯ button — same at 380px as at 900px,
+never hidden behind hover — that opens a small menu with the three actions:
+
+- **Rename** edits the row in place: prefilled input, **Save** (or Enter)
+  commits, **✕** (or Escape) cancels, an empty name just keeps the old one, and
+  the crumbs update with it.
+- **Move** opens a bottom sheet listing every folder, indented, with *Unfiled*
+  at the top — except the folder's own subtree, which cannot contain itself.
+  Moving keeps the folder's contents and writes a new parent; this is new in
+  v38: before, a folder could only be re-ordered within its own siblings, never
+  re-parented.
+- **Delete** is the same counted recursive confirmation it has always been.
+
+Re-order by hand is gone. The small ↑/↓ arrows were the fiddliest controls on
+the screen and never worked well on a phone; folders now simply sort
+alphabetically. (Folders created by an older release may still carry the
+arrangement that release stored — they are shown in that order, and the
+`order` column still rides the backup — but nothing in the app re-arranges
+them any more.) A new folder is created with the **New folder** button in the
+top bar, and files into the folder you are browsing — no parent picker to
+reason about.
 
 **Reminders are a flat list.** They are deliberately not filed into folders. Both
 the agenda and the Reminders tab are ordered by the soonest upcoming reminder,
@@ -175,9 +182,10 @@ folder, indented to show nesting, with *Unfiled* at the top for no folder at all
 A note is created in whichever folder you were browsing, and this is the only way
 it changes folder afterwards.
 
-The context chip above the editor shows where the note lives, so it updates the
-moment a move is saved. If you move a note out of the folder you are browsing,
-it leaves that list — which is what the chip is telling you.
+While the editor is open, the path beside the tabs shows where the note lives,
+so it updates the moment a move is saved. If you move a note out of the folder
+you were browsing, it leaves that folder's list the moment you go back — which
+is what the path is telling you.
 
 ## Deleting
 
@@ -200,40 +208,36 @@ Delete "Work"? This also deletes 3 subfolders and 12 notes. This cannot be undon
 There is no undo and no trash, so the counts are stated first rather than
 discovered afterwards.
 
-The delete control sits on every folder row **at rest** — always on screen, never
-revealed only on hover. It is quiet grey against the row and turns red on hover
-or focus. It used to appear only on hover, which made it impossible to find on a
-desktop and impossible to reach at all on a touch screen, where there is no
-hover. Two checks now hold that open, one static and one in the browser, because
-a control that exists but cannot be found is a control that does not work.
+Folder actions live behind the ⋯ button that sits on every folder row **at
+rest** — always on screen, never revealed only on hover. It is quiet grey
+against the row and darkens on hover or focus, and Delete is one tap inside its
+menu. It used to be a hover-revealed delete control, which made it impossible
+to find on a desktop and impossible to reach at all on a touch screen, where
+there is no hover. Two checks now hold that open, one static and one in the
+browser, because a control that exists but cannot be found is a control that
+does not work.
 
 ## Settings: the ratio, export, import
 
-The **Settings** button in the top bar opens one dialog with three controls —
-and the release number at the bottom ("Version 37"), so on any device you can
+The **Settings** button in the top bar opens one dialog with two controls —
+and the release number at the bottom ("Version 38"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v37`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v38`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
 `CACHE_NAME` in `sw.js` together, every release.
 
-**Notes/Reminders panel display ratio.** Each click moves the split to the next
-top-pane share — `10% → 20% → … → 90%` and back around, in ten-percent steps
-(the 2026-10-05 revision; it previously cycled 20/40/60/80). The
-choice is stored on the device and applied again on the next launch (the browser
-check proves this by reloading the app and re-measuring the panes). A fresh
-device starts at the even split (50%), which is the value the chip shows until
-the first click — the four shares are the whole offer, and 50% is the fallback
-an unreadable stored value degrades to.
-
-**Folder/Content display ratio for notes** (added v31; a vertical split since
-v33). Each click moves the share of the notes pane's **height** that the folder
-tree claims above the note list — `30% → 40% → 50% → 60% → 70%` and back around.
-The choice is stored on the device and applied again on the next launch; a
-fresh device starts at the shipped 40% (40/60 of the pane's height), which is
-also the CSS fallback an unreadable stored value degrades to. The chip shows
-where you are in the cycle.
+**Notes/Reminders panel display ratio.** The one split this app still has —
+notes above, agenda below. Each click moves the split to the next top-pane
+share — `10% → 20% → … → 90%` and back around, in ten-percent steps (the
+2026-10-05 revision; it previously cycled 20/40/60/80). The choice is stored on
+the device and applied again on the next launch (the browser check proves this
+by reloading the app and re-measuring the panes). A fresh device starts at the
+even split (50%), which is the value the chip shows until the first click, and
+50% is the fallback an unreadable stored value degrades to. The second ratio —
+the folder/content split inside the notes pane — died with the folder tree
+itself in v38: there is no second panel to size.
 
 **Export notes/reminders to email.** The panel builds the whole database —
 nested folders with their parenting, notes, and reminders — as one text CSV
@@ -404,12 +408,15 @@ exist later would sit in a store the restore does not touch.
 
 ## Attachments on notes
 
-Open a note and pick one of three (v36): **Add picture/video** opens the
-gallery-style picker (images and videos), **Add document** is the original
-broad picker (images, videos **and PDFs**), and **Camera** opens the camera
-applet on a phone — desktop Chrome ignores the capture hint and behaves like
-the gallery. All three feed the same pipeline. Images land as thumbnails on a
-strip above the action rows; a PDF gets a labelled tile ("PDF") instead — the strip has
+Open a note and tap the one **Attach** button (v38): a small menu offers
+**Photo or video (gallery)** / **Take photo or video (camera)** / **Document**.
+Gallery opens the gallery-style picker (images and videos), Document is the
+original broad picker (images, videos **and PDFs**), and Camera opens the
+camera applet on a phone — desktop Chrome ignores the capture hint and behaves
+like the gallery. The three menu items fire the same three hidden pickers that
+the old button row did, so all three feed the same pipeline — only the trigger
+shrank from two rows of buttons to one button. Images land as thumbnails on a
+strip above the actions; a PDF gets a labelled tile ("PDF") instead — the strip has
 no picture to show for a document, by design. The change is applied immediately
 (no need to press Save first, and nothing is orphaned if you close without
 saving). Tapping a thumbnail or tile opens it full-size in a viewer: pictures
@@ -467,11 +474,12 @@ The manual fallbacks remain for a phone with no token saved yet:
 Rules: private repo only; per-file cap 24 MB (the sync refuses bigger and
 names the file); the text backup CSV stays text-only in its own column.
 
-The editor's actions are two rows as of v36 — the three pickers (Add
-picture/video, Add document, Camera), then Delete and Save — and each row is
-pinned to one line at every width: rows never wrap, and the labels compact down
-instead. While the editor is open the agenda below steps aside (see the split
-above), so the rows have the room.
+The editor's actions are one row as of v38 — **Attach** (the 📎 menu above),
+Delete, Save — pinned to one line at every width: the row never wraps, and the
+labels compact down instead. The three pickers it replaced are the same three
+hidden inputs, unchanged and still pinned by the checks. While the editor is
+open the agenda below steps aside (see the split above), so the row has the
+room.
 
 ## Not built yet
 
@@ -512,12 +520,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 183 tests
+node tests/view.test.mjs ../view.js             # 169 tests
 node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # ~256 checks in real Chrome (~225 desktop + ~31 at 380px)
+python tools/browser_check.py                   # 254 checks in real Chrome (225 desktop + 29 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -525,10 +533,9 @@ rule normalisation. `view.test.mjs` covers reminder ordering (including that a
 spent one-off sorts last rather than as an epoch date), recurrence labels, the
 relative-time buckets, folder paths, HTML escaping, subtree collection for a
 recursive folder delete (including that a parent cycle terminates), the wording
-of the delete confirmation, the v35 folder-chip counts (`folderBadgeCounts`: a
-row's note chip is direct-only, its folder chip direct-only children, its clip
-chip the whole subtree's attachments — Unfiled included, zeros not undefined,
-and a looped parent chain terminates), the attachment badge text its rows and editor share, the
+of the delete confirmation, the v38 breadcrumb chain (`folderChain`: root-first
+segments, a looped parent chain terminates, a missing parent stops cleanly),
+the attachment badge text its rows and editor share, the
 folder picker's contents — tree order,
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
@@ -559,45 +566,45 @@ app module may contain `fetch`, `XMLHttpRequest`, `sendBeacon` or
 too: the export panel is exactly Share CSV for backup + Export CSV (download/
 share gone; the clipboard button's label was renamed to "Share CSV for backup"
 on 2026-10-02),
-the editor action rows are nowrap (two rows since v36), the narrow layout keeps the reminder date and
+the editor actions are one nowrap row since v38 (Attach's menu button first,
+then Delete, Save), the narrow layout keeps the reminder date and
 stands the relative time down, attachments have their strip/viewer/OPFS
 plumbing (v34: a PDF tile, the document iframe branch, and
 `attachmentBadge` both defined and used), and backup.js is v3 with a mediaIds
 + folder-order columns and a parse gate
-that accepts older files. The v32 pins hold the rename/reorder work to its
-shape: the pencil/up/down/delete controls must always be on screen in both
-widths (the same no-hover-reveal rule as the delete), the folder order must be
-a record field rather than a device setting, the picker must read through the
-same `sortFoldersSiblings` as the tree, and every rename/reorder interaction
-must leave the edit state behind (tab switch, delete, restore, commit and
-cancel all clear it). And the v33 pins state the stacked layout itself: the
-notes grid carries exactly one `grid-template-rows` rule with the
-`--folder-track`/`--content-track` variables, declares no
-`grid-template-columns` anywhere, the ≤760px block does not override
-`.browse-notes` (one split at every width), and `#note-list` is styled as its
-own scroller.
+that accepts older files. The v38 pins hold the drill-down screen to its shape:
+`view.js` exports `folderChain` and app.js renders it into `#crumbs` (with the
+bar hidden off the reminders tab), index.html carries the `#folder-menu` /
+`#folder-move-sheet` dialogs and every menu button they need, the ⋯ trigger
+(`.folder-menu`) is visible at rest in both widths — the same no-hover-reveal
+rule the delete once broke — no `state.folderChip` survived the chips'
+removal, and the note list stays one delegated click contract
+(`on("#note-list", "click", …)`) rather than a listener per row. The old v32
+rename/reorder pins and the v33 stacked-layout pins died with the controls and
+the layout they described.
 
 `tools/browser_check.py` is the only check that runs the app for real. It serves
 the app, opens it in headless Chrome, clicks every control and inspects the
 resulting DOM — including moving a note and confirming it left the folder it was
-in (not just that it arrived in the new one), deleting a folder: that the
-control is on screen without hovering, that cancelling the confirmation keeps the
-folder, that the confirmation names the folder and counts the notes inside it,
-and that confirming removes both — and the v32 rename/reorder flow: starting
-alphabetical, one arrow tap moving exactly one slot, the inline rename
-(prefill, save, chip refresh, Escape-cancel, empty-name no-op), the always-on
-controls, the folder `order` column riding the exported CSV back through a
-restore, and the arrangement + name surviving a reload. It also measures the two panes' rendered
+in (not just that it arrived in the new one), deleting a folder through the v38
+⋯ menu: that the ellipsis button is visible on the row without hovering
+(desktop AND 380px widths), that opening it really opens the menu dialog, that
+cancelling the confirmation keeps the folder, that the confirmation names the
+folder and counts the notes inside it, and that confirming removes both — and
+the v38 organise flow: folder rows first inside the browsed list, drilling in
+updates the crumbs, two folders start alphabetical, the rename menu edits a row
+in place (prefill, save, Escape-cancel, empty-name no-op), the move sheet offers
+every folder *except the moved folder itself*, a sheet move re-parents a folder
+under another one, moving out of the browsed folder updates the crumbs, a new
+folder files into the folder being browsed, and the renames + moves survive a
+restore and a reload. It also measures the two panes' rendered
 heights, because equal rows in the source do not prove equal panes on screen —
-a `min-height` on either one breaks the split without touching the rule. The
-v33 stacked layout is measured, not pinned: the folder panel renders as the
-row above the note list with both panels as wide as the notes grid itself, a
-folder-ratio click re-balances the two rows' heights (chip text AND geometry),
-and after enough notes are seeded the list scrolls inside its own panel while
-the tree's top and `.pane-body`'s scroll position stay exactly where they
-were. v36 adds the editor-open pair: an open note editor measured to have
-collapsed the agenda, a reminder edit measured to have kept it, the agenda
-measured back on close, and the two action rows ordered pickers-first. Since
+a `min-height` on either one breaks the split without touching the rule — and
+after enough notes are seeded the list scrolls inside its own panel while the
+crumb bar's screen position stays exactly where it was. v36 adds the
+editor-open pair: an open note editor measured to have collapsed the agenda, a
+reminder edit measured to have kept it, and the agenda measured back on close.
+Since
 v37 an untitled note's row reads the name of the folder it lives in ("Unfiled"
 for the pseudo-folder — a note titles itself after its home, exactly the way
 the screenshot the user sent asked for): the desktop pass reads that title
@@ -611,9 +618,8 @@ checks can prove an id exists and a listener is attached in the source; they
 cannot prove a click *does anything*, which is the failure this project actually
 hit — see "Releasing" below.
 
-For Settings it walks the whole story: every ratio click measured against the
-fraction of the screen it should claim (the pane ratio against the top pane's
-height, the folder ratio against the tree panel's height in its row), the export panel carrying exactly
+For Settings it walks the whole story: every pane-ratio click measured against
+the fraction of the screen the top pane should claim, the export panel carrying exactly
 Share CSV for backup + Export CSV with the removed buttons proven absent, the export CSV
 built and read back (the mail link's attribute only — a clicked `mailto:` hangs
 headless Chrome forever), a garbage paste refused, a previewed backup armed, an
@@ -633,19 +639,19 @@ tile and its `application/pdf` record, and the v34 note-row badge is read off
 the real list (`2 · 1 pdf · 1 png` with the full breakdown in the title);
 tapping the PDF tile opens the document viewer on a `blob:` iframe and closing
 empties it; deleting the note — whose confirmation is inspected for the
-attachment warning — empties OPFS and the media store completely. The v36
-narrow pass drives the picture picker (`#gallery-input`) through that same
+attachment warning — empties OPFS and the media store completely. The narrow
+pass drives the picture picker (`#gallery-input`) through that same
 `DataTransfer` route and asserts the three-input picker recipe statically —
 the camera input is capture-pinned but never driven (headless Chrome has no
 camera). The
 380px pass measures the things layout bugs hide in: the reminder row shows the
 date with the relative time stood down and no leftover separator, all on one
 line; the attachment-count line renders inside the preview column (the v19
-one-word-per-line trap, guarded); and the editor's two action rows keep their
-own lines at phone width — the three pickers on the first, Delete / Save on the
-second — with the agenda collapsed under an open editor. Since v33 the narrow
-pass also proves the folder panel is
-stacked above the note list at 380px — the same one rule serves every width.
+one-word-per-line trap, guarded); the editor's one action row keeps its line at
+phone width (Attach's menu button, Delete, Save tops aligned, no wrap) with the
+agenda collapsed under an open editor; the 📎 opens its menu dialog and
+choosing gallery closes it and fires the picker; and browsing into a folder at
+380px updates the crumbs — the drill-down is one layout at every width.
 
 It stubs `alert()` and `confirm()` inside the frame — a real modal blocks headless
 Chrome forever — but answers `confirm()` from a variable, so the destructive path

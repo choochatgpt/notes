@@ -345,47 +345,70 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
 
 .browse { height: 100%; min-height: 0; }
 
-/* Notes browser: the folder tree ABOVE the note list (v33, on request) --
-   both full width. 40:60 by default still, but the share is now of the
-   notes pane's HEIGHT: the tree needs enough room for nested names, and the
-   panels' WIDTH is what the user wanted back. Since v31 the split is cycled
-   in Settings between 30% and 70%; since v33 it is top/bottom. The custom
-   properties --folder-track/--content-track carry the choice (track, not
-   column/row: the orientation lives in this one template) and the 4fr/6fr
-   fallback is the default state. */
+/* Notes browser (v38): ONE column. A breadcrumb bar on top, then the single
+   scrolling panel that holds the drill-down list and (while a note is open)
+   the editor. The old stacked tree panel and its Settings ratio cycle are
+   gone -- depth now lives in the crumbs, not in a second panel. */
 .browse-notes {
-  display: grid;
-  grid-template-rows: minmax(0, var(--folder-track, 4fr))
-                      minmax(0, var(--content-track, 6fr));
-  gap: 0;
-}
-
-.folders-col {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  min-width: 0;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--surface-2);
 }
 
-.col-head {
+/* The breadcrumb bar: "Notes › Work › Apollo", tap a segment to jump back up
+   there. It never scrolls the page -- a deep trail scrolls inside its own
+   strip, newest (rightmost) segment uppermost in view. */
+.crumbs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 1px;
   flex: none;
-  padding: 2px 3px 2px 6px;
+  padding: 3px 4px;
   border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
-.col-head .panel-title { flex: 1; }
+.crumbs::-webkit-scrollbar { display: none; }
+
+.crumbs .crumb {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 46%;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.crumbs .crumb:hover { background: var(--accent-soft); }
+.crumbs .crumb.current {
+  color: var(--text);
+  cursor: default;
+}
+.crumbs .crumb-sep {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.crumbs .crumb-sep .icon { width: 11px; height: 11px; }
+.crumb.current { font-weight: 650; }
 
 .list-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
-/* The note list scrolls INSIDE its own panel (v33, required): without this the
-   flex item grows past its row (measured 683px content in a 308px track) and
-   .pane-body becomes the scroller again, which would slide the tree above off
-   screen the moment a long list is scrolled. The tree's own panel already
-   scrolls the same way. */
+/* The drill-down list scrolls INSIDE its own panel (v33, required and still
+   true with the tree gone): without this the flex item grows past its row and
+   .pane-body becomes the scroller again, which would slide the crumbs above
+   off screen the moment a long list is scrolled. */
 .list-col .item-list { flex: 1; overflow: auto; overscroll-behavior: contain; }
 
 .inline-form {
@@ -398,64 +421,24 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
 }
 .inline-form input { flex: 1; min-width: 0; }
 
-.folder-tree { flex: 1; min-height: 0; overflow: auto; padding: 3px; overscroll-behavior: contain; }
+/* ------------------------------------------------------------ folders */
 
-/* --------------------------------------------------------------- folders */
+/* A folder inside the drill-down list (v38) is an .item-row DIV: the row tap
+   drills into it, the ellipsis button opens the folder menu. The count chips
+   and the pencil/up/down/Trash chip row are gone -- the menu carries rename,
+   move and delete for the whole tree panel's worth of controls. */
+.folder-row { cursor: pointer; }
+.folder-row .icon { color: var(--accent); align-self: center; margin-top: 0; }
+.folder-row .item-title { color: var(--text); }
+.folder-row:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
 
-.folder-row {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  border-radius: 6px;
-  transition: background .13s;
-}
-.folder-row:hover { background: var(--surface-3); }
-.folder-row.active { background: var(--accent-soft); }
-.folder-row.active .folder-name { color: var(--accent); font-weight: 650; }
-@media (prefers-color-scheme: dark) { .folder-row.active .folder-name { color: var(--accent-2); } }
-
-.folder-toggle {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  flex: none;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: transform .16s var(--ease), color .15s;
-}
-.folder-toggle .icon { width: 12px; height: 12px; }
-.folder-toggle:hover { color: var(--text); }
-.folder-toggle.open { transform: rotate(90deg); }
-/* A childless folder still gets the spacer, so names stay on one left edge. */
-.folder-toggle.leaf { visibility: hidden; }
-
-.folder-select {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-  padding: 4px 2px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-.folder-select .icon { width: 13px; height: 13px; color: var(--text-faint); }
-.folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Always on screen, never hover-revealed. A control that appears only on hover
-   is easy to miss on a desktop and unreachable on a touch screen, and hiding it
-   with opacity alone would leave a destructive target tappable while invisible.
-   At rest it is quiet, so it reads as available rather than as an alarm. */
-.folder-del {
+/* The ellipsis trigger: same doctrine the old delete chip wrote down --
+   always on screen, never hover-revealed (a control that appears only on
+   hover is easy to miss on a desktop and unreachable on a touch screen, and
+   hiding it with opacity alone would leave a destructive target tappable
+   while invisible). At rest it is quiet, so it reads as available rather
+   than as an alarm. */
+.folder-menu {
   display: grid;
   place-items: center;
   width: 20px;
@@ -469,17 +452,11 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
   cursor: pointer;
   transition: background .13s, color .13s;
 }
-.folder-del .icon { width: 12px; height: 12px; }
-.folder-del:hover { background: var(--danger-soft); color: var(--danger); }
-.folder-del:focus-visible { outline: 2px solid var(--danger); outline-offset: 1px; }
-.folder-row.active .folder-del { color: var(--text-dim); }
+.folder-menu .icon { width: 14px; height: 14px; }
+.folder-menu:hover { background: var(--accent-soft); color: var(--accent); }
+.folder-menu:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* The move and rename controls live by the same doctrine as .folder-del above:
-   always on screen, quiet at rest, tappable when invisible would be a lie. The
-   arrows reuse the right-pointing chevron glyph, rotated here. */
-.folder-up,
-.folder-down,
-.folder-rename,
+/* The cancel tick on the rename row keeps its old small-print style. */
 .folder-rename-cancel {
   display: grid;
   place-items: center;
@@ -491,30 +468,11 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
   border-radius: 5px;
   background: transparent;
   color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
   cursor: pointer;
   transition: background .13s, color .13s;
-}
-.folder-up .icon,
-.folder-down .icon {
-  width: 12px;
-  height: 12px;
-  transition: transform .13s;
-}
-.folder-up .icon { transform: rotate(-90deg); }
-.folder-down .icon { transform: rotate(90deg); }
-.folder-rename .icon { width: 12px; height: 12px; }
-.folder-rename-cancel { font-size: 12px; font-weight: 650; line-height: 1; }
-.folder-up:hover,
-.folder-down:hover,
-.folder-rename:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.folder-up:focus-visible,
-.folder-down:focus-visible,
-.folder-rename:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 .folder-rename-cancel:hover {
   background: var(--surface-3);
@@ -524,12 +482,9 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
   outline: 2px solid var(--text-dim);
   outline-offset: 1px;
 }
-.folder-row.active .folder-up,
-.folder-row.active .folder-down,
-.folder-row.active .folder-rename { color: var(--text-dim); }
 
 /* The editing row swaps the row controls for one small form. */
-.folder-row.editing { gap: 0; }
+.folder-row.editing { gap: 0; cursor: default; }
 .folder-rename-form {
   display: flex;
   align-items: center;
@@ -542,24 +497,6 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
   min-width: 0;
   font-size: 12.5px;
 }
-
-.count {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--text-faint);
-  font-size: 10.5px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-/* The v35 chips carry their own glyph (folder count, attachment count), which
-   would otherwise be the raw svg default and blow the pill out of shape. */
-.count .icon { width: 10px; height: 10px; }
-.folder-row.active .count { background: var(--surface); }
 
 /* ----------------------------------------------------------- item lists */
 
@@ -689,12 +626,12 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
 
 .editor-host { height: 100%; min-height: 0; }
 
-/* The note editor lives IN the list's panel (v35): the folder tree above stays
-   while a note is open, so the editor inherits the list's own grid track and
-   scrolls inside it -- the same scroll-the-panel rule the list already has.
-   height:100% would size it against the track's container, so flex:1 is the
-   correct fill inside a flex column; min-height:0 keeps it within the track
-   instead of overflowing it. */
+/* The note editor lives IN the list's panel (v35-v38): the list panel's flex
+   column hosts it while a note is open, and it scrolls inside that panel --
+   the same scroll-the-panel rule the list already has. height:100% would size
+   it against the panel's container, so flex:1 is the correct fill inside a
+   flex column; min-height:0 keeps it within the panel instead of overflowing
+   it. */
 .list-col .editor { flex: 1; height: auto; min-height: 0; }
 
 /* The attachment count at the top of the open note (v35): the same badge text
@@ -874,13 +811,13 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
 #media-frame { width: min(640px, 88vw); height: 64vh; }
 .media-hint { margin: 6px 0 0; color: var(--text-faint); font-size: 11.5px; }
 
-/* Two rows since v36: the three attachment pickers on the first, Delete +
-   Save on the second. The v19 rule said all three buttons shared one line;
-   three pickers cannot fit beside Delete and Save at phone width, so the
-   actions became two rows and each row still never wraps -- buttons compact
-   down instead: smaller padding, and a label that ellipsises under pressure
-   rather than pushing Save off its row. The reminder editor's single actions
-   row keeps using the same rule, so it gains nothing. */
+/* One row since v38: Attach (menu trigger), Delete, Save. The v36 two-row
+   layout existed because three pickers could not fit beside Delete and Save
+   at phone width; collapsing the pickers behind one Attach button does fit,
+   and the row still never wraps -- buttons compact down instead: smaller
+   padding, and a label that ellipsises under pressure rather than pushing
+   Save off its row. The reminder editor's row keeps using the same rule, so
+   it gains nothing. */
 .editor-actions {
   display: flex;
   align-items: center;
@@ -920,6 +857,55 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
   overflow: auto;
 }
 .dialog::backdrop { background: rgba(10, 15, 25, .45); }
+
+/* The small menus (v38): the folder row's ellipsis menu, the move sheet and
+   the attach menu. Same native dialog behaviour as Settings (Escape, backdrop
+   tap, focus) but narrow -- a phone-width list of big, easy targets. */
+.menu-dialog {
+  width: min(300px, calc(100vw - 28px));
+  max-height: calc(100dvh - 40px);
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  overflow: auto;
+}
+.menu-dialog::backdrop { background: rgba(10, 15, 25, .35); }
+.menu-dialog .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  padding: 9px 10px;
+  font-size: 13.5px;
+}
+.menu-dialog .menu-item + .menu-item { margin-top: 2px; }
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 55vh;
+  overflow: auto;
+}
+.menu-list .btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 6px;
+  text-align: left;
+  font-size: 13px;
+}
+.menu-list .btn span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .dialog-head {
   display: flex;
@@ -1085,14 +1071,11 @@ body[data-fatal="true"] .pane { opacity: .55; }
   .topbar-actions .btn { padding: 7px; gap: 0; }
   .topbar { gap: 8px; padding-left: 6px; padding-right: 6px; }
 
-  /* The folder/contents split is ONE rule at every width since v33: the base
-     .browse-notes row template serves the phone as well, so there is nothing
-     to override here and the Settings choice cannot dead-end at any width.
-     (A re-declared template here used to duplicate the desktop rule.) */
+  /* The notes browser is one flex column at every width since v38, so its
+     layout carries to the phone with nothing to override here. */
   .app-shell { padding: 3px 4px 0; gap: 4px; }
   .editor { padding: 6px; }
   .item-row { padding: 4px 6px; gap: 5px; }
-  .folder-select { font-size: 12.5px; }
   .context-chip { max-width: 46%; }
 
   /* Keep the reminder row on one line, but keep the DATE (the user asked for

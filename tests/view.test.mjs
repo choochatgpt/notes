@@ -20,18 +20,14 @@ const {
   absoluteLabel,
   collectSubtree,
   DEFAULT_RATIO,
-  DEFAULT_FOLDER_RATIO,
   describeDeletion,
   describeRule,
   esc,
   folderOptions,
-  folderBadgeCounts,
+  folderChain,
   folderPath,
-  FOLDER_RATIOS,
-  folderRatioToTracks,
   localInputValue,
   nextRatio,
-  nextFolderRatio,
   noteSnippet,
   noteDisplayTitle,
   attachmentBadge,
@@ -202,6 +198,61 @@ console.log("\n=== 4. folderPath -- nested names ===");
   ];
   const path = folderPath("x", cyc);
   check("a parent cycle terminates instead of hanging", path === "Y / X" || path === "X / Y");
+}
+
+console.log("\n=== 4b. folderChain -- the breadcrumb's tappable segments ===");
+{
+  // folderPath for the drill-down era (v38): the same walk, but the segments
+  // keep their ids and the pseudo-root "Notes" always leads, because the
+  // browser must offer a way back even at the top of the tree.
+  const folders = [
+    { id: "w", parentId: null, name: "Work" },
+    { id: "p", parentId: "w", name: "Projects" },
+    { id: "a", parentId: "p", name: "Apollo" },
+    { id: "h", parentId: null, name: "Home" }
+  ];
+
+  equal("at the root the chain is just the pseudo-root",
+        JSON.stringify(folderChain(null, folders)),
+        JSON.stringify([{ id: null, name: "Notes" }]));
+  equal("...and undefined degrades the same way",
+        JSON.stringify(folderChain(undefined, folders)),
+        JSON.stringify([{ id: null, name: "Notes" }]));
+
+  const chain = folderChain("a", folders);
+  equal("a deep folder chains root-first",
+        chain.map(seg => seg.name).join(" › "), "Notes › Work › Projects › Apollo");
+  equal("every segment keeps its id, null's segment as null",
+        chain.map(seg => String(seg.id)).join("|"), "null|w|p|a");
+
+  equal("a mid-depth folder chains exactly its ancestors",
+        folderChain("p", folders).map(seg => seg.name).join(" › "),
+        "Notes › Work › Projects");
+  equal("missing ids degrade to the bare root",
+        JSON.stringify(folderChain("nope", folders)),
+        JSON.stringify([{ id: null, name: "Notes" }]));
+  equal("a missing folder list degrades to the bare root",
+        JSON.stringify(folderChain("a", undefined)),
+        JSON.stringify([{ id: null, name: "Notes" }]));
+
+  // A dangling parentId must not hang the bar either -- the walker stops
+  // where the parents stop, which is one chain that simply lacks its top.
+  const dangling = [{ id: "o", parentId: "gone", name: "Orphan" }];
+  equal("a folder whose parent is missing chains up to where the parents stop",
+        folderChain("o", dangling).map(seg => seg.name).join(" › "),
+        "Notes › Orphan");
+
+  // The same hand-edited hazard folderPath guards: a looped parent chain
+  // must terminate and every id must appear once.
+  const cyc = [
+    { id: "x", parentId: "y", name: "X" },
+    { id: "y", parentId: "x", name: "Y" }
+  ];
+  const looped = folderChain("x", cyc);
+  check("a parent cycle terminates with each id appearing once",
+        looped.length === 3 && looped[0].name === "Notes"
+          && ["X", "Y"].includes(looped[1].name)
+          && ["X", "Y"].includes(looped[2].name));
 }
 
 console.log("\n=== 5. esc -- safe in text and in attributes ===");
@@ -545,64 +596,6 @@ console.log("\n=== 12. ratioToTracks -- top share to grid tracks ===");
         /^(1fr)$/.test(ratioToTracks("junk!").top));
 }
 
-console.log("\n=== 12b. folder ratio cycle -- 30..70 folder (top) share inside the notes pane ===");
-{
-  // The user's requested folder/contents stops (2026-10-06). The default is
-  // the shipped 40:60 from the v25 density pass, so a fresh device starts
-  // at the split it already had, and the default is one of the offered
-  // stops: the first click simply advances 40% -> 50%.
-  equal("the offered folder ratios, in cycle order",
-        FOLDER_RATIOS.join(","), "30%,40%,50%,60%,70%");
-  equal("the default is the shipped folder:contents split",
-        DEFAULT_FOLDER_RATIO, "40%");
-  check("the default is one of the offered stops",
-        FOLDER_RATIOS.includes(DEFAULT_FOLDER_RATIO));
-
-  equal("the first click from the shipped split advances to 50%",
-        nextFolderRatio(DEFAULT_FOLDER_RATIO), "50%");
-  equal("mid-cycle advances", nextFolderRatio("50%"), "60%");
-  equal("the last stop wraps to the first", nextFolderRatio("70%"), "30%");
-
-  const visited = [];
-  let cursor = "40%";
-  for (let i = 0; i < FOLDER_RATIOS.length; i += 1) {
-    cursor = nextFolderRatio(cursor);
-    visited.push(cursor);
-  }
-  equal("five clicks from the shipped split return to it", cursor, "40%");
-  equal("...having visited every offered share exactly once (the 70->30 step is the wrap)",
-        visited.join(","), "50%,60%,70%,30%,40%");
-
-  equal("an unknown stored value restarts at the first stop",
-        nextFolderRatio("banana"), "30%");
-  equal("a missing value is treated the same way", nextFolderRatio(null), "30%");
-  equal("a stored value from before this release restarts too",
-        nextFolderRatio("2:3"), "30%");
-
-  const folderTracks = folderRatioToTracks("30%");
-  equal("the wide-contents stop splits 30/70",
-        folderTracks.folder + "/" + folderTracks.content, "30fr/70fr");
-  equal("the wide-folder stop splits 70/30",
-        folderRatioToTracks("70%").folder + "/" + folderRatioToTracks("70%").content,
-        "70fr/30fr");
-  equal("the default 40% is the shipped 40:60",
-        folderRatioToTracks(DEFAULT_FOLDER_RATIO).folder + "/"
-          + folderRatioToTracks(DEFAULT_FOLDER_RATIO).content,
-        "40fr/60fr");
-  equal("an unparseable value falls back to the shipped split, not junk",
-        folderRatioToTracks("banana").folder + "/" + folderRatioToTracks("banana").content,
-        "4fr/6fr");
-  equal("undefined falls back too",
-        folderRatioToTracks(undefined).folder + "/" + folderRatioToTracks(undefined).content,
-        "4fr/6fr");
-  equal("an out-of-range share is refused rather than asked for",
-        folderRatioToTracks("140%").folder + "/" + folderRatioToTracks("140%").content,
-        "4fr/6fr");
-  check("the fallback names real fractions, so the rows never get junk",
-        /^(4fr)$/.test(folderRatioToTracks("junk!").folder)
-          && /^(6fr)$/.test(folderRatioToTracks("junk!").content));
-}
-
 console.log("\n=== 12. noteSnippet -- the list preview keeps the author's line breaks ===");
 equal(
   "empty bodies yield an empty preview",
@@ -730,67 +723,6 @@ equal(
   attachmentBadge([{ type: "application/pdf" }, null]).text,
   "1 pdf",
 );
-
-console.log("\n=== 12e. folderBadgeCounts -- the folder row's chips (v35) ===");
-{
-  // Root: Parent; two children; one grandchild under C2. The subtree carries
-  // the attachments of every note below, no matter how deep it nests.
-  const folders = [
-    { id: "p", parentId: null, name: "Parent" },
-    { id: "c1", parentId: "p", name: "Child 1" },
-    { id: "c2", parentId: "p", name: "Child 2" },
-    { id: "g", parentId: "c2", name: "Grandchild" }
-  ];
-  const notes = [
-    { id: "n1", folderId: "p", mediaIds: ["m1"] },
-    { id: "n2", folderId: "c1", mediaIds: ["m2", "m3", "m4"] },
-    { id: "n3", folderId: "g", mediaIds: ["m5"] },
-    { id: "n4", folderId: null, mediaIds: ["m6"] },
-    { id: "n5", folderId: "p" } // unlisted mediaIds -> 0
-  ];
-
-  const parent = folderBadgeCounts(folders, notes, "p");
-  equal("a folder's note chip counts only the notes directly inside it",
-        parent.notes, 2);
-  equal("the folder chip counts direct subfolders only",
-        parent.subfolders, 2);
-  equal("the clip chip sums the whole subtree's attachments, depth included",
-        parent.attachments, 5); // m1 + m2,m3,m4 + m5
-
-  equal("a leaf counts what it directly holds",
-        folderBadgeCounts(folders, notes, "c1").attachments, 3);
-  equal("a mid-branch folder reaches past its own children to the leaves",
-        folderBadgeCounts(folders, notes, "c2").attachments, 1);
-  equal("...and its own direct note count is zero",
-        folderBadgeCounts(folders, notes, "c2").notes, 0);
-  equal("...and its direct subfolder count is one",
-        folderBadgeCounts(folders, notes, "c2").subfolders, 1);
-
-  const unfiled = folderBadgeCounts(folders, notes, null);
-  equal("Unfiled counts its own notes", unfiled.notes, 1);
-  equal("Unfiled has no child folders -- root folders are not inside it",
-        unfiled.subfolders, 0);
-  equal("Unfiled's clip chip covers the notes it holds",
-        unfiled.attachments, 1);
-
-  equal("a folder with nothing in it reports zeros, not undefined",
-        JSON.stringify(folderBadgeCounts(folders, notes, "nowhere")),
-        JSON.stringify({ notes: 0, subfolders: 0, attachments: 0 }));
-  equal("empty world, empty counts",
-        JSON.stringify(folderBadgeCounts([], [])),
-        JSON.stringify({ notes: 0, subfolders: 0, attachments: 0 }));
-  equal("notes without a mediaIds entry still parse as zero attachments",
-        folderBadgeCounts(folders, notes, "c1").attachments, 3);
-
-  // The same hand-edited hazard collectSubtree was built for: a looped parent
-  // chain must terminate -- the tree rendering cannot outlive the probe.
-  const looped = [
-    { id: "a", parentId: "b" },
-    { id: "b", parentId: "a" }
-  ];
-  check("a parent cycle terminates into a bounded count",
-        JSON.stringify(folderBadgeCounts(looped, notes, "a")) !== undefined);
-}
 
 console.log("\n=== 12f. noteDisplayTitle -- an untitled note is titled after its folder (v37) ===");
 {

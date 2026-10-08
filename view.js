@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "37";
+export const APP_VERSION = "38";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -254,6 +254,8 @@ export function noteSnippet(body) {
  * The pane splits offered in Settings, in cycle order: the share of the screen
  * the top (notes) pane claims. The user's ten-percent steps from 10% through
  * 90%, wrapping 90% -> 10% (2026-10-05 revision; before it was 20/40/60/80).
+ * Since v38 this is the ONE split left: the folder tree and its own ratio
+ * cycle went with the tree when the notes screen became one drill-down list.
  */
 export const RATIOS = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%"];
 
@@ -284,44 +286,6 @@ export function ratioToTracks(ratio) {
     return { top: "1fr", bottom: "1fr" };
   }
   return { top: `${pct}fr`, bottom: `${100 - pct}fr` };
-}
-
-/**
- * The folder:contents splits offered in Settings (v31), in cycle order: the
- * share the TOP folder panel claims inside the notes pane (since v33 the
- * split is top/bottom; before that it was left/right). The user's
- * five-percent-window stops 30% through 70%, wrapping 70% -> 30% (2026-10-06).
- */
-export const FOLDER_RATIOS = ["30%", "40%", "50%", "60%", "70%"];
-
-/**
- * The split before anything is chosen: 40:60, the share the density pass
- * shipped on the user's request (2026-10-05) -- 40% of the notes pane for the
- * folder tree (its top share since v33). It is the CSS fallback (the
- * same 4fr/6fr the markup's chip carries) and the chip's value until the
- * first click, and like the pane ratio it is one of the offered stops, so
- * the first click simply advances to 50%.
- */
-export const DEFAULT_FOLDER_RATIO = "40%";
-
-/** The next folder ratio in the cycle. An unknown value (not a stop) restarts at the first. */
-export function nextFolderRatio(current) {
-  const index = FOLDER_RATIOS.indexOf(current);
-  return FOLDER_RATIOS[(index + 1) % FOLDER_RATIOS.length];
-}
-
-/**
- * CSS grid tracks for the folder (top) share: "40%" -> 40fr folder, 60fr
- * content. Anything unparseable or out of range falls back to the default
- * 40:60 rather than to junk tracks.
- */
-export function folderRatioToTracks(ratio) {
-  const match = /^(\d{1,3})%$/.exec(String(ratio ?? ""));
-  const pct = match ? Number(match[1]) : NaN;
-  if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
-    return { folder: "4fr", content: "6fr" };
-  }
-  return { folder: `${pct}fr`, content: `${100 - pct}fr` };
 }
 
 /**
@@ -400,56 +364,6 @@ export function noteDisplayTitle(note, folders) {
   return name || "Untitled note";
 }
 
-/**
- * The three counts a folder row's chips display (v35): the notes directly
- * inside it, its DIRECT subfolders, and the attachments carried by the whole
- * subtree -- "the folder as a whole" is what a row says when it is collapsed.
- *
- * Notes and subfolders are direct counts on purpose: the row already answers
- * the drill-down question (the child is one tap away in the tree), while the
- * attachment load is a property of the branch as a whole -- a folder with no
- * direct note can still sit on top of a subtree of photos, and that is what
- * the clip chip is for. The subtree walk is collectSubtree, the same
- * cycle-safe walk delete uses, so a hand-edited parent cycle cannot hang the
- * tree. Unfiled (null) has notes by definition and no child folders.
- */
-export function folderBadgeCounts(folders, notes, folderId) {
-  const folderList = folders || [];
-  const noteList = notes || [];
-
-  // Unfiled is a leaf pseudo-folder: the root folders appear BESIDE it in the
-  // tree and the picker (both walk null at depth 0), not beneath it, so it has
-  // no child folders -- only the notes that name no folder, and whatever
-  // those notes carry. (collectSubtree cannot answer this: the children table
-  // keys on parentId, and Unfiled is not a parent.)
-  if (folderId == null) {
-    const own = noteList.filter(note => (note.folderId ?? null) === null);
-    return {
-      notes: own.length,
-      subfolders: 0,
-      attachments: own.reduce((sum, note) => sum + (note.mediaIds || []).length, 0)
-    };
-  }
-
-  const subtree = new Set(collectSubtree(folderId, folderList));
-
-  const directNotes = noteList.filter(
-    note => (note.folderId ?? null) === (folderId ?? null)
-  ).length;
-  const directFolders = folderList.filter(
-    folder => (folder.parentId ?? null) === (folderId ?? null)
-      && folder.id !== (folderId ?? null)
-  ).length;
-  const attachments = noteList.reduce(
-    (sum, note) => subtree.has(note.folderId)
-      ? sum + (note.mediaIds || []).length
-      : sum,
-    0
-  );
-
-  return { notes: directNotes, subfolders: directFolders, attachments };
-}
-
 /** "Work / Projects / Apollo", built by walking parents up to the root. */
 export function folderPath(folderId, folders) {
   const byId = new Map((folders || []).map(folder => [folder.id, folder]));
@@ -464,4 +378,29 @@ export function folderPath(folderId, folders) {
     cursor = byId.get(cursor).parentId;
   }
   return parts.join(" / ");
+}
+
+/**
+ * The breadcrumb trail for the folder being browsed (v38): root-first segments
+ * ending at `folderId`, each as `{ id, name }`, with the pseudo-root -- the
+ * null id, labelled "Notes" like the app itself -- always present as the
+ * first segment, because the drill-down list needs a way back even at the top.
+ *
+ * The chip-free cousin of folderPath: same walk, same cycle guard, but the
+ * segments keep their ids so each crumb can be tapped to jump back to that
+ * folder. A `name` that is not a string still occupies its position -- the
+ * renderer decides what to show -- so the chain never silently loses a level.
+ */
+export function folderChain(folderId, folders) {
+  const byId = new Map((folders || []).map(folder => [folder.id, folder]));
+  const chain = [];
+  const seen = new Set();
+  let cursor = folderId ?? null;
+
+  while (cursor && byId.has(cursor) && !seen.has(cursor)) {
+    seen.add(cursor);
+    chain.unshift({ id: cursor, name: byId.get(cursor).name ?? "" });
+    cursor = byId.get(cursor).parentId ?? null;
+  }
+  return [{ id: null, name: "Notes" }, ...chain];
 }

@@ -19,24 +19,20 @@ import {
   APP_VERSION,
   absoluteLabel,
   collectSubtree,
+  folderChain,
   describeDeletion,
   describeRule,
   esc,
   folderOptions,
-  folderBadgeCounts,
   folderPath,
   localInputValue,
   nextRatio,
-  nextFolderRatio,
   noteSnippet,
   noteDisplayTitle,
   attachmentBadge,
   RATIOS,
   ratioToTracks,
-  FOLDER_RATIOS,
-  folderRatioToTracks,
   DEFAULT_RATIO,
-  DEFAULT_FOLDER_RATIO,
   relativeFromNow,
   sortFoldersSiblings,
   sortReminders
@@ -78,23 +74,22 @@ const state = {
   mode: "browse",
   selectedFolderId: null,
   selectedItemId: null,
-  // Folders the user has closed in the tree. Session-only: a collapsed branch is
-  // a view detail, not part of the note data.
-  collapsed: new Set(),
   folders: [],
   // The folder row currently being renamed and its in-progress text, so a
   // re-render (any action after an edit) does not swallow what was typed.
   // Cleared by tab switch, folder delete, restore and the save/cancel buttons.
   renamingFolderId: null,
   renamingDraft: null,
-  folderChip: "",
+  // The folder whose actions menu is open (rename/move/delete), so the menu
+  // buttons know which row they act for.
+  menuFolderId: null,
   reminderChip: "",
   editChip: ""
 };
 
 const $ = selector => document.querySelector(selector);
 const els = {
-  folderTree: $("#folder-tree"),
+  crumbs: $("#crumbs"),
   noteList: $("#note-list"),
   reminderManage: $("#reminder-manage-list"),
   agendaList: $("#agenda-list"),
@@ -156,180 +151,72 @@ async function refreshReminderSchedule() {
 
 /* ------------------------------------------------------------------ folders */
 
-async function renderFolders() {
-  const [folders, notes] = await Promise.all([getAll("folders"), getAll("notes")]);
-  state.folders = folders;
+/**
+ * The one folder read (v38). renderFolders used to walk the whole tree into
+ * the tree panel's markup; the drill-down list has no tree to build, so the
+ * only thing the render loop needs is the fresh folder list itself -- every
+ * folder row it shows is a child of the folder being browsed.
+ */
+async function loadFolders() {
+  state.folders = await getAll("folders");
+}
 
-  const counts = new Map();
-  for (const note of notes) {
-    const key = note.folderId ?? null;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  const rootCount = counts.get(null) || 0;
-  // Unfiled has no child folders (the tree's root folders are not "inside"
-  // it), so its only extra chip is the attachment load of its own notes.
-  const unfiledBadges = folderBadgeCounts(folders, notes, null);
-  const unfiledAttachChip = unfiledBadges.attachments
-    ? `<span class="count" title="${esc(unfiledBadges.attachments)} attachment${unfiledBadges.attachments === 1 ? "" : "s"} in Unfiled"><svg class="icon"><use href="#i-clip"></use></svg>${unfiledBadges.attachments}</span>`
-    : "";
-  state.folderChip = state.selectedFolderId
-    ? `${folderPath(state.selectedFolderId, folders)} · ${countLabel(counts.get(state.selectedFolderId) || 0, "note") || "0 notes"}`
-    : `Unfiled · ${countLabel(rootCount, "note") || "0 notes"}`;
+/**
+ * The breadcrumb bar: the path ABOVE the folder being browsed, root first, and
+ * always at least the pseudo-root "Notes". Each earlier folder is tappable to
+ * jump back up there; the current (rightmost) segment renders disabled, since
+ * you are already there.
+ */
+function renderCrumbs() {
+  const chain = folderChain(state.selectedFolderId, state.folders);
+  els.crumbs.innerHTML = chain.map((segment, index) => {
+    const last = index === chain.length - 1;
+    const value = esc(segment.id ?? "");
+    const label = esc(segment.name ?? "");
+    return `${index ? `<span class="crumb-sep"><svg class="icon"><use href="#i-chevron"></use></svg></span>` : ""}
+      <button class="crumb ${last ? "current" : ""}" type="button"
+              data-crumb="${value}" aria-label="Browse ${label}"
+              ${last ? 'aria-current="location" disabled' : ""}>${label}</button>`;
+  }).join("");
+}
 
-  const byParent = new Map();
-  for (const folder of folders) {
-    const parent = folder.parentId ?? null;
-    if (!byParent.has(parent)) byParent.set(parent, []);
-    byParent.get(parent).push(folder);
-  }
-  for (const [parent, list] of byParent) {
-    byParent.set(parent, sortFoldersSiblings(list));
-  }
+/**
+ * One folder row inside the drill-down list: an .item-row DIV (a button would
+ * wrap the ellipsis button, which is invalid HTML), where the row tap means
+ * "drill in" and the ellipsis means "folder menu". No depth indent and no
+ * count chips -- the tree panel's chrome went with the tree; the crumbs carry
+ * the depth and the folder menu carries the actions.
+ */
+function folderRowHtml(folder) {
+  return `<div class="item-row folder-row" data-folder="${esc(folder.id)}">
+    <svg class="icon"><use href="#i-folder"></use></svg>
+    <span class="item-main"><span class="item-title">${esc(folder.name)}</span></span>
+    <button class="folder-menu" type="button" data-menu="${esc(folder.id)}"
+            title="Folder actions" aria-label="Folder actions for ${esc(folder.name)}">
+      <svg class="icon"><use href="#i-dots"></use></svg>
+    </button>
+  </div>`;
+}
 
-  const rows = [
-    `<div class="folder-row ${state.selectedFolderId === null ? "active" : ""}" data-folder="">
-       <span class="folder-toggle leaf"></span>
-       <span class="folder-select">
-         <svg class="icon"><use href="#i-folder"></use></svg>
-         <span class="folder-name">Unfiled</span>
-       </span>
-       ${rootCount ? `<span class="count">${rootCount}</span>` : ""}
-       ${unfiledAttachChip}
-     </div>`
-  ];
-
-  // The v35 row chips beside the note count: the direct child-folder count
-  // and the attachment load of the WHOLE subtree (a collapsed folder still
-  // says what it carries). Zero chips stay hidden -- the row is already
-  // crowded at phone width.
-  const badgesOf = folder => {
-    const badges = folderBadgeCounts(folders, notes, folder.id);
-    const folderChip = badges.subfolders
-      ? `<span class="count" title="${esc(badges.subfolders)} subfolder${badges.subfolders === 1 ? "" : "s"}"><svg class="icon"><use href="#i-folder"></use></svg>${badges.subfolders}</span>`
-      : "";
-    const attachChip = badges.attachments
-      ? `<span class="count" title="${esc(badges.attachments)} attachment${badges.attachments === 1 ? "" : "s"} in this folder"><svg class="icon"><use href="#i-clip"></use></svg>${badges.attachments}</span>`
-      : "";
-    return { folderChip, attachChip };
-  };
-
-  const walk = (parentId, depth) => {
-    for (const folder of byParent.get(parentId) || []) {
-      const hasChildren = (byParent.get(folder.id) || []).length > 0;
-      const open = hasChildren && !state.collapsed.has(folder.id);
-      const count = counts.get(folder.id) || 0;
-      const badges = badgesOf(folder);
-
-      if (folder.id === state.renamingFolderId) {
-        // The rename row swaps the row controls for a small form. There is no
-        // Cancel button in the tree chrome around it: Escape cancels on a
-        // keyboard, and the visible ✕ answers every phone keyboard, which has
-        // no Escape key. Nothing happens on blur -- blur fires before a Save
-        // click lands and would commit half-typed text.
-        rows.push(
-          `<div class="folder-row editing" data-folder="${esc(folder.id)}"
-                data-renaming="${esc(folder.id)}" style="padding-left:${5 + depth * 8}px">
-             <span class="folder-toggle leaf"></span>
-             <form class="folder-rename-form" autocomplete="off">
-               <input class="folder-rename-input" type="text"
-                      value="${esc(state.renamingDraft ?? folder.name)}"
-                      aria-label="Folder name">
-               <button class="btn small primary" type="submit">Save</button>
-               <button class="folder-rename-cancel" type="button"
-                       title="Cancel renaming" aria-label="Cancel renaming">&#x2715;</button>
-             </form>
-           </div>`
-        );
-        if (open) walk(folder.id, depth + 1);
-        continue;
-      }
-
-      rows.push(
-        `<div class="folder-row ${state.selectedFolderId === folder.id ? "active" : ""}"
-              data-folder="${esc(folder.id)}" style="padding-left:${5 + depth * 8}px">
-           <button class="folder-toggle ${open ? "open" : ""} ${hasChildren ? "" : "leaf"}"
-                   type="button" data-toggle="${esc(folder.id)}"
-                   aria-label="${open ? "Collapse" : "Expand"} ${esc(folder.name)}">
-             <svg class="icon"><use href="#i-chevron"></use></svg>
-           </button>
-           <button class="folder-select" type="button">
-             <svg class="icon"><use href="#i-folder"></use></svg>
-             <span class="folder-name">${esc(folder.name)}</span>
-           </button>
-           ${count ? `<span class="count">${count}</span>` : ""}
-           ${badges.folderChip}
-           ${badges.attachChip}
-           <button class="folder-up" type="button" data-up="${esc(folder.id)}"
-                   title="Move up" aria-label="Move ${esc(folder.name)} up">
-             <svg class="icon"><use href="#i-chevron"></use></svg>
-           </button>
-           <button class="folder-down" type="button" data-down="${esc(folder.id)}"
-                   title="Move down" aria-label="Move ${esc(folder.name)} down">
-             <svg class="icon"><use href="#i-chevron"></use></svg>
-           </button>
-           <button class="folder-rename" type="button" data-rename="${esc(folder.id)}"
-                   title="Rename folder" aria-label="Rename folder ${esc(folder.name)}">
-             <svg class="icon"><use href="#i-pencil"></use></svg>
-           </button>
-           <button class="folder-del" type="button" data-del="${esc(folder.id)}"
-                   title="Delete folder" aria-label="Delete folder ${esc(folder.name)}">
-             <svg class="icon"><use href="#i-trash"></use></svg>
-           </button>
-         </div>`
-      );
-
-      if (open) walk(folder.id, depth + 1);
-    }
-  };
-  walk(null, 0);
-
-  els.folderTree.innerHTML = rows.join("");
-
-  els.folderTree.querySelectorAll(".folder-row").forEach(rowEl => {
-    if (rowEl.dataset.renaming) wireRenameRow(rowEl);
-    rowEl.addEventListener("click", async event => {
-      // A renaming row is one form: its submit/cancel handlers are attached
-      // above, and the select-or-toggle branches below must not fire through it.
-      if (rowEl.dataset.renaming) return;
-
-      const up = event.target.closest(".folder-up");
-      if (up?.dataset.up) {
-        await moveFolder(up.dataset.up, -1);
-        return;
-      }
-      const down = event.target.closest(".folder-down");
-      if (down?.dataset.down) {
-        await moveFolder(down.dataset.down, 1);
-        return;
-      }
-      const rename = event.target.closest(".folder-rename");
-      if (rename?.dataset.rename) {
-        await beginFolderRename(rename.dataset.rename);
-        return;
-      }
-
-      const toggle = event.target.closest(".folder-toggle");
-      if (toggle?.dataset.toggle) {
-        const id = toggle.dataset.toggle;
-        if (state.collapsed.has(id)) state.collapsed.delete(id);
-        else state.collapsed.add(id);
-        await renderFolders();
-        return;
-      }
-
-      const del = event.target.closest(".folder-del");
-      if (del?.dataset.del) {
-        await deleteFolder(del.dataset.del);
-        return;
-      }
-
-      // Selecting a folder means browsing it, so any open editor closes.
-      state.selectedFolderId = rowEl.dataset.folder || null;
-      state.mode = "browse";
-      state.selectedItemId = null;
-      await renderAll();
-    });
-  });
+/**
+ * The rename row that swaps a folder row (v31 flows, kept): the form's
+ * submit/Escape/cancel-tick wiring is re-attached to the fresh markup every
+ * render. There is no blur-commit -- blur fires before a Save click lands and
+ * would commit half-typed text.
+ */
+function renameRowHtml(folder) {
+  return `<div class="item-row folder-row editing" data-folder="${esc(folder.id)}"
+                data-renaming="${esc(folder.id)}">
+            <svg class="icon"><use href="#i-folder"></use></svg>
+            <form class="folder-rename-form" autocomplete="off">
+              <input class="folder-rename-input" type="text"
+                     value="${esc(state.renamingDraft ?? folder.name)}"
+                     aria-label="Folder name">
+              <button class="btn small primary" type="submit">Save</button>
+              <button class="folder-rename-cancel" type="button"
+                      title="Cancel renaming" aria-label="Cancel renaming">&#x2715;</button>
+            </form>
+          </div>`;
 }
 
 /* -------------------------------------------------------------------- lists */
@@ -343,7 +230,14 @@ async function renderNoteList() {
     (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "")
   );
 
-  if (!notes.length) {
+  // The drill-down list (v38) opens with the current folder's subfolders, in
+  // the one sibling order the picker shows, followed by its notes. Children
+  // key on the folder being browsed: null's children are the root folders.
+  const children = sortFoldersSiblings(state.folders.filter(
+    folder => (folder.parentId ?? null) === (state.selectedFolderId ?? null)
+  ));
+
+  if (!notes.length && !children.length) {
     els.noteList.innerHTML = `<p class="muted">No notes here yet — use “New note”.</p>`;
     return;
   }
@@ -358,7 +252,7 @@ async function renderNoteList() {
       .map(note => loadNoteMedia(note).then(records => [note.id, records]))
   )));
 
-  els.noteList.innerHTML = notes.map(note => {
+  const noteRows = notes.map(note => {
     // v37: an untitled row is named after the folder the list is browsing --
     // the same helper the delete confirmation uses, so row and wording agree.
     const title = noteDisplayTitle(note, state.folders);
@@ -376,9 +270,54 @@ async function renderNoteList() {
       </span>
       ${when ? `<span class="when-abs">${esc(when)}</span>` : "<span></span>"}
     </button>`;
-  }).join("");
+  });
 
-  wireRows(els.noteList, "notes");
+  els.noteList.innerHTML =
+    children.map(folder =>
+      folder.id === state.renamingFolderId ? renameRowHtml(folder) : folderRowHtml(folder)
+    ).join("") + noteRows.join("");
+
+  // The rename form is fresh markup on every render, so its wiring re-attaches
+  // with it (submit/Escape/cancel-tick; menu opens it, see startFolderMove etc).
+  els.noteList.querySelectorAll(".folder-row[data-renaming]").forEach(wireRenameRow);
+}
+
+/**
+ * The ONE click contract of the drill-down list (v38), delegated to the list
+ * container so every re-render is covered by the same handler:
+ *   ellipsis → folder actions menu; row tap on a folder → drill in;
+ *   row tap on a note → open it. A rename row is a form and opts out.
+ */
+async function onNoteListClick(event) {
+  if (event.target.closest(".folder-rename-form")) return;
+
+  const menu = event.target.closest("[data-menu]");
+  if (menu?.dataset.menu) {
+    openFolderMenu(menu.dataset.menu);
+    return;
+  }
+
+  const crumb = event.target.closest("[data-folder]");
+  // A renaming row is one form: its submit/cancel handlers are attached by
+  // wireRenameRow, and a stray tap outside the inputs must not drill away.
+  if (crumb && !crumb.dataset.renaming) {
+    await browseFolder(crumb.dataset.folder || null);
+    return;
+  }
+
+  const noteRow = event.target.closest("[data-item]");
+  if (noteRow) await openItem("notes", noteRow.dataset.item);
+}
+
+/**
+ * Drilling into a folder: the list re-renders under it and any open editor
+ * closes, exactly as selecting a row in the old tree did.
+ */
+async function browseFolder(folderId) {
+  state.selectedFolderId = folderId ?? null;
+  state.mode = "browse";
+  state.selectedItemId = null;
+  await renderAll();
 }
 
 /**
@@ -479,11 +418,10 @@ function backToBrowse() {
 /* ------------------------------------------------------------------ editors */
 
 /**
- * Upper-pane visibility. Since v35 the two editors swap differently:
- * the note editor takes over the note LIST's panel -- the folder tree above
- * it stays, so you keep your bearings while a note is open -- while the
- * reminder editor still replaces the reminder manager wholesale, because
- * reminders have no tree to keep.
+ * Upper-pane visibility. Since v35 the two editors swap differently: the note
+ * editor takes over the notes browser's whole list panel (v38: the crumbs bar
+ * stays above it), while the reminder editor still replaces the reminder
+ * manager wholesale, because reminders have no folders to keep.
  */
 function syncUpper() {
   const notes = state.activeKind === "notes";
@@ -498,9 +436,10 @@ function syncUpper() {
   els.notesTab.setAttribute("aria-selected", String(notes));
   els.remindersTab.setAttribute("aria-selected", String(!notes));
 
-  // The notes browser (tree + list slot) now shows whenever the notes tab is
+  // The notes browser (crumbs + list slot) now shows whenever the notes tab is
   // on; inside it, the list and the editor swap. The reminders side keeps the
-  // old full-pane swap.
+  // old full-pane swap, and the crumbs bar belongs to notes only.
+  els.crumbs.classList.toggle("hidden", !notes);
   els.browseNotes.classList.toggle("hidden", !notes);
   els.noteList.classList.toggle("hidden", editing);
   els.noteEditor.classList.toggle("hidden", !editing || !notes);
@@ -509,9 +448,12 @@ function syncUpper() {
   els.editorBack.classList.toggle("hidden", !editing);
   els.reminderEditor.classList.toggle("hidden", !remindersEditing);
 
+  // v38: while browsing notes the chip is empty -- the crumbs bar IS the
+  // context, and a folder chip repeating it would be noise. Editing still
+  // chips the note's folder path, and reminders keep their count chip.
   els.listContext.textContent = editing
     ? state.editChip
-    : (notes ? state.folderChip : state.reminderChip);
+    : (notes ? "" : state.reminderChip);
 }
 
 /** A non-breaking space: <option> collapses leading ordinary whitespace. */
@@ -519,9 +461,9 @@ const NBSP = String.fromCharCode(0xa0);
 const INDENT = NBSP + NBSP;
 
 /**
- * Fill the note editor's folder picker from the tree, marking where the note
- * currently lives. Depth becomes non-breaking-space indent, because an <option>
- * cannot be styled and leading ordinary spaces are collapsed away.
+ * Fill the note editor's folder picker from the whole folder list, marking
+ * where the note currently lives. Depth becomes non-breaking-space indent,
+ * because an <option> cannot be styled and leading ordinary spaces collapse.
  */
 function renderFolderPicker(selectedId) {
   if (!els.noteFolder) return;
@@ -583,8 +525,13 @@ async function loadEditor() {
 }
 
 async function renderAll() {
-  await renderFolders();
+  // Folders load BEFORE the note list renders (load-bearing since v37): the
+  // rows name untitled notes after the folder they sit in. The crumbs read the
+  // same folder list and are written sync after the list, so bar and list can
+  // never disagree mid-flight.
+  await loadFolders();
   await renderNoteList();
+  renderCrumbs();
   await renderReminderManage();
   await renderAgenda();
   await syncUpper();
@@ -606,7 +553,8 @@ function startNewFolder() {
   // One editing interaction at a time: an open rename row ends when the new
   // folder form takes over the column.
   clearRenameState();
-  // Folders are a notes concept; make sure the tree is on screen first.
+  // Folders are a notes concept; make sure the drill-down list is on screen
+  // first -- the new folder files into whatever the crumbs are browsing.
   if (state.activeKind !== "notes" || state.mode === "edit") {
     switchKind("notes").then(reveal);
     return;
@@ -633,8 +581,6 @@ async function submitNewFolder(event) {
 
   els.newFolderName.value = "";
   els.newFolderForm.classList.add("hidden");
-  // Reveal the folder that was just created under its parent.
-  if (parentId) state.collapsed.delete(parentId);
 
   await renderAll();
 }
@@ -662,8 +608,6 @@ async function deleteFolder(folderId) {
 
   // If anything showing was inside the deleted subtree, fall back to Unfiled.
   if (doomedIds.has(state.selectedFolderId)) state.selectedFolderId = null;
-  // Deleting an absent key is a no-op, so this needs no membership test.
-  for (const id of doomedIds) state.collapsed.delete(id);
   if (doomedNotes.some(note => note.id === state.selectedItemId)) {
     state.mode = "browse";
     state.selectedItemId = null;
@@ -684,8 +628,8 @@ async function beginFolderRename(folderId) {
   if (!folder) return;
   state.renamingFolderId = folderId;
   state.renamingDraft = null;
-  await renderFolders();
-  const input = els.folderTree.querySelector(".folder-rename-input");
+  await renderNoteList();
+  const input = els.noteList.querySelector(".folder-rename-input");
   if (input) {
     input.focus();
     input.select();
@@ -734,39 +678,112 @@ async function submitRenameFolder(folderId, name) {
 
 function cancelFolderRename() {
   clearRenameState();
-  renderFolders().catch(error => reportFailure(error, "folder rename"));
+  renderNoteList().catch(error => reportFailure(error, "folder rename"));
 }
 
 /**
- * Moves a folder one slot among its siblings, using the exact order the tree
- * displays (sortFoldersSiblings). Positions are 0..n-1 assigned across the
- * visible siblings, so the first move also freezes the previous alphabetical
- * display as the baseline; after that a brand-new folder without an order
- * appends at the end and never shuffles an arrangement already made. A lone
- * folder and a tap at the edge both write nothing: order is only ever written
- * when something actually moves. No confirmation -- rearranging is fully
- * reversible, next to a delete which absolutely is not.
+ * Moves a folder under another parent (v38 -- the first time a folder could
+ * move BETWEEN parents; the old arrows only shuffled siblings). The move sheet
+ * offers every parent the picker shows minus the folder's own subtree, so a
+ * folder can never become its own ancestor and moving into itself is not even
+ * reachable -- the guards below are the same rules restated for anything that
+ * calls this directly. The `order` field is deliberately dropped rather than
+ * carried: it ranked the OLD sibling group, which the folder is leaving, and
+ * dropping it makes the folder fall into alphabetical place among its new
+ * siblings -- the same behaviour a brand-new folder has. Moving back to the
+ * current parent writes nothing.
  */
-async function moveFolder(folderId, delta) {
+async function moveFolderTo(folderId, parentId) {
   const folders = await getAll("folders");
   const moved = folders.find(candidate => candidate.id === folderId);
   if (!moved) return;
 
-  const parent = moved.parentId ?? null;
-  const group = sortFoldersSiblings(
-    folders.filter(candidate => (candidate.parentId ?? null) === parent)
-  );
-  const index = group.indexOf(moved);
-  const target = index + delta;
-  if (group.length < 2 || target < 0 || target >= group.length) return;
+  const target = parentId ?? null;
+  if ((moved.parentId ?? null) === target) return;
+  if (collectSubtree(folderId, folders).includes(target)) return;
 
-  group.splice(target, 0, group.splice(index, 1)[0]);
-  for (let i = 0; i < group.length; i += 1) {
-    const row = group[i];
-    if (row.order === i) continue;
-    await put("folders", { ...row, order: i });
-  }
+  // Destructure out `order` rather than writing `order: undefined` -- the key
+  // is omitted entirely, same as a folder that was never arranged.
+  const { order, ...record } = moved;
+  await put("folders", { ...record, parentId: target, updatedAt: nowIso() });
   await renderAll();
+}
+
+/* ------------------------------------------------------ menus (v38) */
+
+/* Native <dialog> helpers. showModal is gated -- the same belt as the
+   settings/media dialogs elsewhere in this file -- so a test environment
+   without dialog support degrades to the open attribute. */
+
+function openMenuDialog(selector) {
+  const dialog = $(selector);
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function closeMenuDialog(selector) {
+  const dialog = $(selector);
+  if (dialog?.open && typeof dialog.close === "function") dialog.close();
+  else dialog?.removeAttribute("open");
+}
+
+/** The ellipsis on a folder row: which folder the menu acts for. */
+function openFolderMenu(folderId) {
+  state.menuFolderId = folderId ?? null;
+  openMenuDialog("#folder-menu");
+}
+
+/**
+ * The move sheet: every parent folder the note picker shows -- the same
+ * folderOptions list and the same indent convention -- MINUS the folder's own
+ * subtree, since "move Work into Projects-under-Work" would orphan it.
+ * Selecting Unfiled makes the folder a root folder.
+ */
+function openFolderMoveSheet() {
+  const folderId = state.menuFolderId;
+  const folder = state.folders.find(candidate => candidate.id === folderId);
+  if (!folderId || !folder) return;
+
+  const title = $("#folder-move-title");
+  const list = $("#folder-move-list");
+  if (!list) return;
+  if (title) title.textContent = `Move “${folder.name}”`;
+
+  const blocked = new Set(collectSubtree(folderId, state.folders));
+  const options = folderOptions(state.folders).filter(entry =>
+    entry.id !== folderId && !blocked.has(entry.id));
+  list.innerHTML = options.map(entry =>
+    `<button class="btn" type="button" data-move-target="${esc(entry.id ?? "")}"
+             aria-label="Move into ${esc(entry.name)}">
+       <span>${INDENT.repeat(entry.depth)}${esc(entry.name)}</span>
+     </button>`).join("");
+  openMenuDialog("#folder-move-sheet");
+}
+
+/** One delegated listener covers the re-rendered move list. */
+async function onFolderMoveListClick(event) {
+  const row = event.target.closest("[data-move-target]");
+  if (!row) return;
+  const folderId = state.menuFolderId;
+  closeMenuDialog("#folder-move-sheet");
+  state.menuFolderId = null;
+  if (folderId) await moveFolderTo(folderId, row.dataset.moveTarget || null);
+}
+
+/** The folder menu's one dispatch: rename stays an inline row, move opens the
+ * sheet, delete runs the counted confirmation. The remembered folder is spent
+ * on use, so a stale id can never name a row the menu no longer shows. */
+async function onFolderMenuAction(kind) {
+  const folderId = state.menuFolderId;
+  closeMenuDialog("#folder-menu");
+  if (!folderId) return;
+  // Rename and delete spend the remembered id at once; a move must KEEP it —
+  // the sheet stays open after this menu closes and its rows act on it.
+  if (kind !== "move") state.menuFolderId = null;
+  if (kind === "rename") await beginFolderRename(folderId);
+  if (kind === "move") openFolderMoveSheet();
+  if (kind === "delete") await deleteFolder(folderId);
 }
 
 async function createNote() {
@@ -1230,32 +1247,6 @@ async function cyclePaneRatio() {
   const next = nextRatio(await getSetting("paneRatio", DEFAULT_RATIO));
   await setSetting("paneRatio", next);
   applyPaneRatio(next);
-}
-
-/**
- * Put a top share on the folder/contents rows (v33: the folder tree sits
- * above the note list). The default 40:60 is the CSS fallback, so resetting
- * the properties would also be correct -- but setting them explicitly keeps
- * the chip and the tracks reading from the same value. Anything outside the
- * offered five reads as the default rather than as junk tracks.
- */
-function applyFolderRatio(ratio) {
-  const region = $(".browse-notes");
-  const tracks = folderRatioToTracks(ratio);
-  if (region) {
-    region.style.setProperty("--folder-track", tracks.folder);
-    region.style.setProperty("--content-track", tracks.content);
-  }
-  const chip = $("#folder-ratio-value");
-  if (chip) {
-    chip.textContent = FOLDER_RATIOS.includes(ratio) ? ratio : DEFAULT_FOLDER_RATIO;
-  }
-}
-
-async function cycleFolderRatio() {
-  const next = nextFolderRatio(await getSetting("folderRatio", DEFAULT_FOLDER_RATIO));
-  await setSetting("folderRatio", next);
-  applyFolderRatio(next);
 }
 
 function openSettings() {
@@ -1948,7 +1939,6 @@ async function restoreBackup() {
   state.selectedFolderId = null;
   state.selectedItemId = null;
   state.mode = "browse";
-  state.collapsed.clear();
   clearRenameState();
 
   // The backup never carries nextDueAt; it is rebuilt from startAt + rule.
@@ -2013,13 +2003,11 @@ function on(selector, event, handler) {
  */
 function wireControls() {
   on("#new-folder-btn", "click", startNewFolder);
-  on("#add-folder-inline", "click", startNewFolder);
   on("#new-note-btn", "click", createNote);
   on("#new-reminder-btn", "click", createReminder);
   on("#settings-btn", "click", openSettings);
   on("#settings-close", "click", closeSettings);
   on("#ratio-btn", "click", cyclePaneRatio);
-  on("#folder-ratio-btn", "click", cycleFolderRatio);
   on("#export-btn", "click", showExportPanel);
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
@@ -2040,24 +2028,44 @@ function wireControls() {
   on("#note-editor", "submit", saveNote);
   on("#reminder-editor", "submit", saveReminder);
   on("#reminder-repeat", "change", syncWeekdayVisibility);
+  // The drill-down list is one delegated contract (v38): folder menu, drill-in
+  // and note rows. Re-rendered markup needs no re-wiring, which is the point.
+  on("#note-list", "click", onNoteListClick);
+  // The crumbs: jump back up to an ancestor (the rightmost crumb is disabled).
+  on("#crumbs", "click", async event => {
+    const crumb = event.target.closest("[data-crumb]");
+    if (!crumb || crumb.disabled) return;
+    await browseFolder(crumb.dataset.crumb || null);
+  });
+  // The folder menu: rename / move / delete for the row it was opened from.
+  on("#folder-menu-rename", "click", () => onFolderMenuAction("rename"));
+  on("#folder-menu-move", "click", () => onFolderMenuAction("move"));
+  on("#folder-menu-delete", "click", () => onFolderMenuAction("delete"));
+  on("#folder-move-list", "click", onFolderMoveListClick);
+  on("#folder-move-cancel", "click", () => {
+    closeMenuDialog("#folder-move-sheet");
+    state.menuFolderId = null;
+  });
   // Reloading from the top-left mark (v36): a tap means the whole app starts
   // over, which is how a phone picks up a new release without re-pasting the
   // URL -- and the recovery path when startup fails. Like every navigation
   // here (tab switch, folder click), it silently discards unsaved edits.
   on("#reload-btn", "click", () => location.reload());
-  // The three pickers feed ONE pipeline. Each button opens its own input, and
-  // every input runs the same change ritual: addNoteMedia snapshots the
-  // FileList before its first await, and the input resets only AFTER the
-  // attach finishes, so re-picking the same file still fires a change event.
-  // One helper keeps that ritual in one place.
+  // The attach menu (v38): the paperclip opens the menu, and each menu item
+  // closes it and fires the SAME hidden input the old row button did. Every
+  // input runs the same change ritual: addNoteMedia snapshots the FileList
+  // before its first await, and the input resets only AFTER the attach
+  // finishes, so re-picking the same file still fires a change event. One
+  // helper keeps that ritual in one place.
   const attachFromInput = async event => {
     const input = event.target;
     if (input?.files?.length) await addNoteMedia(input.files);
     input.value = "";
   };
-  on("#add-gallery-btn", "click", () => $("#gallery-input")?.click());
-  on("#add-doc-btn", "click", () => $("#media-input")?.click());
-  on("#add-camera-btn", "click", () => $("#camera-input")?.click());
+  on("#attach-menu-btn", "click", () => openMenuDialog("#attach-menu"));
+  on("#menu-gallery-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#gallery-input")?.click(); });
+  on("#menu-camera-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#camera-input")?.click(); });
+  on("#menu-doc-btn", "click", () => { closeMenuDialog("#attach-menu"); $("#media-input")?.click(); });
   on("#gallery-input", "change", attachFromInput);
   on("#media-input", "change", attachFromInput);
   on("#camera-input", "change", attachFromInput);
@@ -2145,7 +2153,6 @@ async function init() {
   // Device preferences must be in place before the first paint: the pane split,
   // the folder/contents split, and the last address the backup was exported to.
   applyPaneRatio(await getSetting("paneRatio", DEFAULT_RATIO));
-  applyFolderRatio(await getSetting("folderRatio", DEFAULT_FOLDER_RATIO));
   const savedEmail = await getSetting("backupEmail", "");
   if (savedEmail) {
     const input = $("#backup-email");

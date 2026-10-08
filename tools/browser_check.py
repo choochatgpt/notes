@@ -1110,9 +1110,12 @@ PROBE = """<!doctype html>
     }
 
     // --- the notes half still swaps into the editor ---
+    // v38: the list also renders folder rows (drill-down), so every note-row
+    // count and lookup filters [data-item] -- the folder rows are divs without
+    // it and must never answer a note-row check.
     q("#notes-tab").click();
     await sleep(500);
-    const noteRows = doc.querySelectorAll("#note-list .item-row");
+    const noteRows = doc.querySelectorAll("#note-list .item-row[data-item]");
     if (noteRows.length) {
       noteRows[0].click();
       await sleep(600);
@@ -1122,37 +1125,40 @@ PROBE = """<!doctype html>
       check("back arrow is offered while editing",
             !q("#editor-back").classList.contains("hidden"));
 
-      // --- v35: the folder tree stays while the note is open ---
-      // The editor now lives in the list's panel; the tree above must remain
+      // --- v38: the breadcrumb bar stays while the note is open ---
+      // The editor now lives in the list's panel; the crumbs above must remain
       // on screen and above it, and the list must be the thing that left.
       {
-        const treePanel = q(".browse-notes .folders-col");
-        const treeBox = treePanel && treePanel.getBoundingClientRect();
+        const crumbBar = q("#crumbs");
+        const crumbBox = crumbBar && crumbBar.getBoundingClientRect();
         const editorBox = q("#note-editor").getBoundingClientRect();
         const editorVisible = !q("#note-editor").classList.contains("hidden");
-        check("a note edit keeps the folder tree on screen",
-              !!treePanel && !treePanel.classList.contains("hidden")
-              && treeBox.height > 0 && editorVisible
-              && treeBox.top < editorBox.top,
-              "treeH=" + (treeBox ? Math.round(treeBox.height) : -1)
-              + " treeTop=" + (treeBox ? Math.round(treeBox.top) : -1)
+        check("a note edit keeps the breadcrumb bar on screen",
+              !!crumbBar && !crumbBar.classList.contains("hidden")
+              && crumbBox.height > 0 && editorVisible
+              && crumbBox.top < editorBox.top,
+              "crumbH=" + (crumbBox ? Math.round(crumbBox.height) : -1)
+              + " crumbTop=" + (crumbBox ? Math.round(crumbBox.top) : -1)
               + " editorTop=" + Math.round(editorBox.top)
               + " editorVisible=" + editorVisible);
         check("the open editor replaced the note list in its panel",
               editorVisible && q("#note-list").classList.contains("hidden"));
 
-        // --- v36: two action rows, and the agenda steps aside ---
+        // --- v38: ONE action row -- the paperclip menu, Delete, Save ---
         const actionRows = [...doc.querySelectorAll("#note-editor .editor-actions")];
+        const actionButtons = ["#attach-menu-btn", "#delete-note-btn", "#save-note-btn"]
+          .map(sel => doc.querySelector(sel));
+        check("the note editor's actions are one row -- Attach menu, Delete, Save",
+              actionRows.length === 1
+              && actionButtons.every(b => !!b && actionRows[0].contains(b)),
+              "rows=" + actionRows.length
+              + " missing=" + actionButtons.map(b => !!b).join(","));
+        // The paperclip is a menu now; its row offers no picker buttons at all.
         const pickerButtons = ["#add-gallery-btn", "#add-doc-btn", "#add-camera-btn"]
           .map(sel => doc.querySelector(sel));
-        check("the note editor's actions are two rows -- pickers first, then Delete + Save",
-              actionRows.length === 2
-              && pickerButtons.every(b => !!b && actionRows[0].contains(b))
-              && actionRows[1].contains(doc.querySelector("#delete-note-btn"))
-              && actionRows[1].contains(doc.querySelector("#save-note-btn"))
-              && Math.round(actionRows[0].getBoundingClientRect().top)
-                 < Math.round(actionRows[1].getBoundingClientRect().top),
-              "rows=" + actionRows.length);
+        check("the three separate picker buttons are gone from the editor",
+              pickerButtons.every(b => !b),
+              "left=" + pickerButtons.map(b => !!b).join(","));
         check("an open note editor collapses the agenda",
               editorVisible && q(".pane-agenda").getBoundingClientRect().height <= 2,
               "agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
@@ -1173,81 +1179,13 @@ PROBE = """<!doctype html>
     q("#new-folder-form").requestSubmit();
     await sleep(800);
 
-    const folderRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
+    const folderRow = [...doc.querySelectorAll("#note-list .folder-row")]
       .find(row => row.dataset.folder);
-    check("the new folder appears in the tree", !!folderRow,
-          "folders=" + doc.querySelectorAll("#folder-tree .folder-row").length);
+    check("the new folder appears in the drill list", !!folderRow,
+          "folders=" + doc.querySelectorAll("#note-list .folder-row").length);
     const targetId = folderRow ? folderRow.dataset.folder : "";
 
-    // The folder:contents split, stacked top/bottom since v33 -- the folder
-    // tree sits ABOVE the note list, both panels full width (the user asked
-    // for the tree's full width instead of a left panel). Since v31 the user
-    // can cycle the share in Settings between 30% and 70%, so the Settings
-    // dialog is reopened here while the notes pane is actually browsed
-    // (.browse-notes does not exist on the agenda-only stages, which is where
-    // the dialog first opens). The split is now of the pane's HEIGHT.
-    {
-      q("#settings-btn").click();
-      await sleep(400);
-      const cycleDialog = q("#settings-dialog");
-      const dialogOk = !!(cycleDialog && cycleDialog.open);
-      check("the folder ratio cycle can open Settings over the notes stage",
-            dialogOk, "open=" + (cycleDialog ? cycleDialog.open : "no dialog"));
-
-      // Layout geometry first: the tree panel must be the row above the list
-      // panel and both must be as wide as the notes grid itself, or the
-      // top/bottom premise everything else here measures is already wrong.
-      const above = q(".browse-notes .folders-col");
-      const below = q(".browse-notes .list-col");
-      const region = q(".browse-notes");
-      const aboveRect = above ? above.getBoundingClientRect() : null;
-      const belowRect = below ? below.getBoundingClientRect() : null;
-      const regionRect = region ? region.getBoundingClientRect() : null;
-      check("the folder tree is stacked above the note list, full width",
-            !!(aboveRect && belowRect && regionRect)
-            && aboveRect.top < belowRect.top
-            && aboveRect.bottom <= belowRect.top + 1
-            && Math.abs(aboveRect.width - regionRect.width) <= 1.5
-            && Math.abs(belowRect.width - regionRect.width) <= 1.5,
-            "above=" + (aboveRect ? Math.round(aboveRect.top) + "x" + Math.round(aboveRect.width) : "missing")
-            + " below=" + (belowRect ? Math.round(belowRect.top) + "x" + Math.round(belowRect.width) : "missing")
-            + " region=" + (regionRect ? Math.round(regionRect.width) : "missing"));
-
-      const folderChipText = () => {
-        const el = q("#folder-ratio-value");
-        return el ? el.textContent.trim() : "";
-      };
-      const folderShare = () => {
-        if (!above || !below) return -1;
-        const a = above.getBoundingClientRect().height;
-        const b = below.getBoundingClientRect().height;
-        return a + b > 0 ? a / (a + b) : -1;
-      };
-      // Chip text AND the real row heights: a chip that updates while the
-      // grid does not would pass a text-only check, and that is the trap this
-      // measurement exists for. The dialog ships at the default 40:60.
-      check("the folder ratio control opens on the shipped 40:60",
-            folderChipText() === "40%" && Math.abs(folderShare() - 0.4) <= 0.05,
-            "chip=" + folderChipText() + " folderShare=" + folderShare().toFixed(3));
-      // Five clicks walk every stop and return home, closing the cycle
-      // (70% -> 30% is the wrap) -- and leaving the default behind for the
-      // later folder-split and restart-persistence checks.
-      const folderCycle = [["50%", 0.5], ["60%", 0.6], ["70%", 0.7],
-                           ["30%", 0.3], ["40%", 0.4]];
-      for (const [label, share] of folderCycle) {
-        q("#folder-ratio-btn").click();
-        await waitFor(() => folderChipText() === label, 3000);
-        await sleep(150);  // let layout settle after the style write
-        const got = folderShare();
-        check("a folder ratio click lands on " + label + " and re-balances the rows",
-              folderChipText() === label && Math.abs(got - share) <= 0.05,
-              "chip=" + folderChipText() + " folderShare=" + got.toFixed(3)
-              + " expected=" + share.toFixed(3));
-      }
-      if (dialogOk) { q("#settings-close").click(); await sleep(300); }
-    }
-
-    const unfiledRows = doc.querySelectorAll("#note-list .item-row");
+    const unfiledRows = doc.querySelectorAll("#note-list .item-row[data-item]");
     check("the note starts out in Unfiled", unfiledRows.length === 1,
           "unfiled rows=" + unfiledRows.length);
     if (unfiledRows.length) {
@@ -1274,7 +1212,7 @@ PROBE = """<!doctype html>
 
         q("#editor-back").click();
         await sleep(700);
-        const left = doc.querySelectorAll("#note-list .item-row").length;
+        const left = doc.querySelectorAll("#note-list .item-row[data-item]").length;
         check("the note has left Unfiled", left === 0, "unfiled rows=" + left);
 
         // --- v36: the agenda returns when the note editor closes ---
@@ -1283,19 +1221,25 @@ PROBE = """<!doctype html>
               && q(".pane-agenda").getBoundingClientRect().height > 2,
               "mode=" + body.dataset.mode
               + " agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
+        // v38: browsing notes shows no context chip at all -- the crumbs bar
+        // IS the context, and a chip repeating it would be noise.
+        check("browsing notes shows no context chip (the crumbs are it)",
+              q("#list-context").textContent === "",
+              "chip=" + JSON.stringify(q("#list-context").textContent));
 
+        // v38: drilling in is clicking the folder row itself.
         const dest = doc.querySelector(
-          '#folder-tree .folder-row[data-folder="' + targetId + '"] .folder-select');
+          '#note-list .folder-row[data-folder="' + targetId + '"]');
         if (dest) {
           dest.click();
           await sleep(700);
-          const arrived = doc.querySelectorAll("#note-list .item-row").length;
+          const arrived = doc.querySelectorAll("#note-list .item-row[data-item]").length;
           check("the note is now in the folder it moved to", arrived === 1,
                 "destination rows=" + arrived);
           // v37: the untitled note's label follows its CURRENT folder -- after
           // the move it reads the destination's name, so the label is not a
           // one-time copy of where the note was born.
-          const movedRow = doc.querySelectorAll("#note-list .item-row")[0];
+          const movedRow = doc.querySelector("#note-list .item-row[data-item]");
           const movedTitle = movedRow ? movedRow.querySelector(".item-title") : null;
           check("the moved note's row title follows the new folder (v37)",
                 !!movedTitle && movedTitle.textContent.trim() === "Probe Folder",
@@ -1308,30 +1252,42 @@ PROBE = """<!doctype html>
     }
 
     // --- deleting a folder ---
-    // The control exists but used to be hover-revealed, which made it impossible
-    // to find and unreachable on a touch screen -- and the user asked for folder
-    // delete precisely because they could not find it. So this checks it is on
-    // screen at rest, that cancelling is honoured, that the confirmation states
-    // what will be destroyed, and that confirming really removes it.
-    const rowSel = '#folder-tree .folder-row[data-folder="' + targetId + '"]';
-    const delBtn = doc.querySelector(rowSel + " .folder-del");
-    check("the folder row offers a delete control", !!delBtn,
+    // The drill list only shows the browsed folder's children, so the flow
+    // first browses back up to the root (the home crumb) where the row is
+    // visible again. The delete lives behind the row's ellipsis menu now; it
+    // must be on screen at rest, cancelling is honoured, the confirmation
+    // states what will be destroyed, and confirming really removes it.
+    const homeCrumbDel = doc.querySelector('#crumbs .crumb[data-crumb=""]');
+    if (homeCrumbDel) {
+      homeCrumbDel.click();
+      await sleep(500);
+    }
+    const rowSel = '#note-list .folder-row[data-folder="' + targetId + '"]';
+    const menuBtn = doc.querySelector(rowSel + " .folder-menu");
+    check("the folder row offers its actions menu", !!menuBtn,
           "row=" + (!!doc.querySelector(rowSel)));
 
-    if (delBtn) {
-      const style = frame.contentWindow.getComputedStyle(delBtn);
-      const box = delBtn.getBoundingClientRect();
-      check("the delete control is on screen without hovering",
+    if (menuBtn) {
+      const style = frame.contentWindow.getComputedStyle(menuBtn);
+      const box = menuBtn.getBoundingClientRect();
+      check("the ellipsis menu is on screen without hovering",
             box.width > 0 && box.height > 0 && style.opacity !== "0"
             && style.visibility !== "hidden" && style.pointerEvents !== "none",
             "w=" + Math.round(box.width) + " opacity=" + style.opacity
             + " pointerEvents=" + style.pointerEvents);
 
+      menuBtn.click();
+      await sleep(400);
+      const folderMenu = q("#folder-menu");
+      check("the ellipsis opens the folder menu dialog",
+            !!(folderMenu && folderMenu.open),
+            "open=" + (folderMenu ? folderMenu.open : "no dialog"));
+
       // Cancel first. A confirmation that removes the folder whichever way it is
       // answered is not a confirmation at all, and that is invisible from the
       // source -- confirm() is stubbed out in every other test here.
       confirmAnswer = false;
-      delBtn.click();
+      q("#folder-menu-delete").click();
       await sleep(600);
       check("cancelling the confirmation keeps the folder",
             !!doc.querySelector(rowSel), "row=" + (!!doc.querySelector(rowSel)));
@@ -1345,15 +1301,17 @@ PROBE = """<!doctype html>
       }
 
       confirmAnswer = true;
-      delBtn.click();
+      menuBtn.click();
+      await sleep(300);
+      q("#folder-menu-delete").click();
       await sleep(900);
-      check("confirming removes the folder from the tree",
+      check("confirming removes the folder from the list",
             !doc.querySelector(rowSel));
       if (movedOk) {
         // Only meaningful when the note actually made it in there first.
         check("its notes go with it",
-              doc.querySelectorAll("#note-list .item-row").length === 0,
-              "rows=" + doc.querySelectorAll("#note-list .item-row").length);
+              doc.querySelectorAll("#note-list .item-row[data-item]").length === 0,
+              "rows=" + doc.querySelectorAll("#note-list .item-row[data-item]").length);
       }
     }
 
@@ -1454,7 +1412,7 @@ PROBE = """<!doctype html>
       await sleep(800);
       q("#editor-back").click();
       await sleep(600);
-      const photoRow = [...doc.querySelectorAll("#note-list .item-row")]
+      const photoRow = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
         .find(row => row.textContent.includes("Photo Note"));
       if (photoRow) photoRow.click();
       await sleep(800);
@@ -1538,7 +1496,7 @@ PROBE = """<!doctype html>
               "line=" + (attachLine ? attachLine.textContent.trim() : "missing"));
       }
 
-      const attachRow = [...doc.querySelectorAll("#note-list .item-row")]
+      const attachRow = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
         .find(row => row.textContent.includes("Photo Note"));
       const attachLine = attachRow && attachRow.querySelector(".item-attach");
       check("the note row counts its attachments by type",
@@ -1582,7 +1540,7 @@ PROBE = """<!doctype html>
             && /Photo Note/.test(deleteWording) && /2 attachments/.test(deleteWording),
             "said=" + deleteWording.slice(0, 120));
       check("the photo note is gone from the list",
-            !([...doc.querySelectorAll("#note-list .item-row")]
+            !([...doc.querySelectorAll("#note-list .item-row[data-item]")]
               .some(row => row.textContent.includes("Photo Note"))));
       check("...and its remaining bytes are gone from OPFS",
             (await opfsCount()).length === 0,
@@ -1619,7 +1577,7 @@ PROBE = """<!doctype html>
       // The preview fix, asserted on the real rendered row: the text keeps
       // its line breaks, the element actually renders multi-line tall, and
       // the CSS half of the fix (pre-line) is what the browser resolved.
-      const keeperRow = [...doc.querySelectorAll("#note-list .item-row")]
+      const keeperRow = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
         .find(row => row.textContent.includes("Keeper Note"));
       const keeperSub = keeperRow && keeperRow.querySelector(".item-sub");
       check("the keeper row exists to preview", !!keeperRow);
@@ -1648,25 +1606,33 @@ PROBE = """<!doctype html>
       q("#new-folder-form").requestSubmit();
       await sleep(800);
 
-      const rootRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-        .find(row => row.dataset.folder);
+      const rootRow = [...doc.querySelectorAll("#note-list .folder-row")]
+        .find(row => /Probe Root/.test(row.textContent));
       check("the export's root folder is created", !!rootRow,
-            "rows=" + doc.querySelectorAll("#folder-tree .folder-row").length);
+            "rows=" + doc.querySelectorAll("#note-list .folder-row").length);
       if (rootRow) {
-        // Selecting the root is what makes the next folder its child:
-        // submitNewFolder parents new folders under whatever is selected.
-        rootRow.querySelector(".folder-select").click();
+        // v38: browsing INTO the row is what makes the next folder its child --
+        // the new-folder form parents to the folder being browsed.
+        rootRow.click();
         await sleep(500);
+        const drillCrumbs = q("#crumbs") ? q("#crumbs").textContent : "";
+        check("the crumbs follow the drill into the folder (v38)",
+              drillCrumbs.indexOf("Probe Root") !== -1,
+              "crumbs=" + drillCrumbs.trim());
         q("#new-folder-btn").click();
         await sleep(400);
         q("#new-folder-name").value = "Probe Sub";
         q("#new-folder-form").requestSubmit();
         await sleep(800);
+        const kidRows = [...doc.querySelectorAll("#note-list .folder-row")];
+        check("the child folder was created inside the browsed folder (v38)",
+              kidRows.length === 1
+              && /Probe Sub/.test(kidRows[0] ? kidRows[0].textContent : ""),
+              "rows=" + kidRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
         // Back to Unfiled so the doomed note below starts out beside its keeper.
-        const unfiledRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-          .find(row => !row.dataset.folder);
-        if (unfiledRow) {
-          unfiledRow.querySelector(".folder-select").click();
+        const homeCrumbSub = doc.querySelector('#crumbs .crumb[data-crumb=""]');
+        if (homeCrumbSub) {
+          homeCrumbSub.click();
           await sleep(500);
         }
       }
@@ -1760,8 +1726,8 @@ PROBE = """<!doctype html>
       await sleep(400);
       const cancelWords = confirms[confirms.length - 1] || "";
       check("cancelling the restore keeps every note",
-            doc.querySelectorAll("#note-list .item-row").length === 2,
-            "rows=" + doc.querySelectorAll("#note-list .item-row").length);
+            doc.querySelectorAll("#note-list .item-row[data-item]").length === 2,
+            "rows=" + doc.querySelectorAll("#note-list .item-row[data-item]").length);
       check("the confirmation states the counts and what is kept",
             cancelWords.indexOf("Replace everything?") !== -1
             && cancelWords.indexOf("2 folders, 2 notes, 1 reminder") !== -1
@@ -1781,35 +1747,49 @@ PROBE = """<!doctype html>
       await sleep(300);
     }
 
-    // The restored world: folders back and still nested, keeper present, doomed
-    // gone, agenda rebuilt, ratio untouched by the whole exercise.
-    const treeRows = [...doc.querySelectorAll("#folder-tree .folder-row")]
-      .filter(row => row.dataset.folder);
-    check("the folders came back", treeRows.length === 2,
-          "rows=" + treeRows.map(r => r.textContent.trim().slice(0, 40)).join(" | "));
-    const restoredRoot = treeRows.find(r => /Probe Root/.test(r.textContent));
-    const restoredSub = treeRows.find(r => /Probe Sub/.test(r.textContent));
-    // Depth renders as inline padding-left (9px + 14px per level), so a child
-    // that lost its parentId would come back at the root's indent.
-    check("the subfolder is still nested under the root",
-          !!restoredRoot && !!restoredSub
-          && parseInt(restoredSub.style.paddingLeft, 10)
-             > parseInt(restoredRoot.style.paddingLeft, 10),
-          "root=" + (restoredRoot ? restoredRoot.style.paddingLeft : "missing")
-          + " sub=" + (restoredSub ? restoredSub.style.paddingLeft : "missing"));
+    // The restored world: the root folder back on the drill list, the keeper
+    // present, the doomed gone, agenda rebuilt, ratio untouched.
+    const restoredRootRows = [...doc.querySelectorAll("#note-list .folder-row")];
+    const restoredRoot = restoredRootRows.find(r => /Probe Root/.test(r.textContent));
+    check("the folders came back (the parent visible, the child only inside it)",
+          restoredRootRows.length === 1 && !!restoredRoot
+          && !restoredRootRows.some(r => /Probe Sub/.test(r.textContent)),
+          "rows=" + restoredRootRows.map(r => r.textContent.trim().slice(0, 40)).join(" | "));
 
-    const keeperRows = [...doc.querySelectorAll("#note-list .item-row")];
+    const keeperRows = [...doc.querySelectorAll("#note-list .item-row[data-item]")];
     check("the keeper note survived and the doomed note did not",
           keeperRows.length === 1 && /Keeper Note/.test(keeperRows[0].textContent)
           && !keeperRows.some(r => /Doomed Note/.test(r.textContent)),
           "rows=" + keeperRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
 
+    // v38: subfolder rows sort above note rows within the one list.
+    check("subfolder rows sort above note rows (v38)",
+          !!restoredRoot && keeperRows.length === 1
+          && doc.querySelector("#note-list").firstElementChild === restoredRoot,
+          "first=" + (doc.querySelector("#note-list").firstElementChild
+            ? doc.querySelector("#note-list").firstElementChild.textContent.trim()
+                .slice(0, 20)
+            : "none"));
+
     if (restoredRoot) {
-      restoredRoot.querySelector(".folder-select").click();
+      restoredRoot.click();
       await sleep(600);
-      const inRoot = doc.querySelectorAll("#note-list .item-row").length;
+      // The child came back INSIDE the parent: only browsing into it reveals
+      // the sub row, which is the nesting proof at drill width.
+      const insideRows = [...doc.querySelectorAll("#note-list .folder-row")];
+      const restoredSub = insideRows.find(r => /Probe Sub/.test(r.textContent));
+      check("the restored subfolder is nested inside its parent (v38)",
+            insideRows.length === 1 && !!restoredSub,
+            "rows=" + insideRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
+      const inRoot = doc.querySelectorAll("#note-list .item-row[data-item]").length;
       check("the restored root folder is empty, as the backup recorded",
             inRoot === 0, "rows=" + inRoot);
+      // Browse back out on the crumbs for the checks below.
+      const homeCrumbRest = doc.querySelector('#crumbs .crumb[data-crumb=""]');
+      if (homeCrumbRest) {
+        homeCrumbRest.click();
+        await sleep(500);
+      }
     }
 
     const agendaAfter = q("#agenda-list");
@@ -1867,41 +1847,27 @@ PROBE = """<!doctype html>
       }
       check("...and is applied to the layout",
             Math.abs(share - 0.6) <= 0.04, "topShare=" + share.toFixed(3));
-      const folderChip = fresh.querySelector("#folder-ratio-value");
-      check("the folder ratio comes back on restart (the cycle closed on 40%)",
-            !!folderChip && folderChip.textContent.trim() === "40%",
-            "chip=" + (folderChip ? folderChip.textContent : "missing"));
-      let folderShareRestart = -1;
-      {
-        const above = fresh.querySelector(".browse-notes .folders-col");
-        const below = fresh.querySelector(".browse-notes .list-col");
-        if (above && below) {
-          const a = above.getBoundingClientRect().height;
-          const b = below.getBoundingClientRect().height;
-          folderShareRestart = a + b > 0 ? a / (a + b) : -1;
-        }
-      }
-      check("...and is applied to the folder rows",
-            Math.abs(folderShareRestart - 0.4) <= 0.05,
-            "folderShare=" + folderShareRestart.toFixed(3));
       const email = fresh.querySelector("#backup-email");
       check("the saved email address comes back",
             !!email && email.value === "probe@example.com",
             "value=" + (email ? email.value : "missing"));
-      const rowsAfter = [...fresh.querySelectorAll("#folder-tree .folder-row")]
-        .filter(row => row.dataset.folder);
+      const rowsAfter = [...fresh.querySelectorAll("#note-list .folder-row")];
       check("the restored data is still there after the restart",
-            rowsAfter.length === 2,
+            rowsAfter.length === 1
+            && /Probe Root/.test(rowsAfter[0] ? rowsAfter[0].textContent : ""),
             "rows=" + rowsAfter.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
     }
 
-    // --- v32: renaming and rearranging folders ---
-    // Folder rows now carry move and rename controls beside the delete; the
-    // sibling order is alphabetical until a move pins it, and the backup
-    // carries the order column through an export/restore. The reload above
-    // replaced the document, so everything here re-queries the fresh one --
-    // and the confirm stub lives on the dead window's old contentWindow frame
-    // state, which now belongs to the reloaded document again in this
+    // --- v38: renaming and moving folders through the ellipsis menu ---
+    // A drill row carries one ellipsis button: rename stays the inline editing
+    // row the earlier probes already knew, move crosses parents through the
+    // sheet (the arrows are gone; the order column survives in storage and
+    // the backup), delete keeps the counted confirmation. The list only ever
+    // shows the browsed folder's children, so the reload above left the stage
+    // at the root with Probe Root visible and Probe Sub only inside it. The
+    // reload replaced the document, so everything here re-queries the fresh
+    // one -- and the confirm stub lives on the dead window's old contentWindow
+    // frame state, which now belongs to the reloaded document again in this
     // variable's window, so restore clicks below re-arm it.
     const fdoc = frame.contentDocument;
     const fq = sel => fdoc.querySelector(sel);
@@ -1912,20 +1878,27 @@ PROBE = """<!doctype html>
     confirmAnswer = false;
 
     const rowNames = () => {
-      // Root-level rows sit at depth 0 (padding-left 5px); the nested Probe Sub
-      // at 13px is a different sibling group entirely.
-      const rows = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-        .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
+      // The browsed stage is the root, so every folder row in the list is a
+      // root-level folder; a nested one only renders inside its parent.
+      const rows = [...fdoc.querySelectorAll("#note-list .folder-row")];
       return rows.map(r => {
-        const name = r.querySelector(".folder-name");
+        const name = r.querySelector(".item-title");
         return name ? name.textContent.trim() : "?";
       });
     };
+    const menuFor = name => {
+      const row = [...fdoc.querySelectorAll("#note-list .folder-row")]
+        .find(r => {
+          const t = r.querySelector(".item-title");
+          return t && t.textContent.trim() === name;
+        });
+      return row ? row.querySelector(".folder-menu") : null;
+    };
 
-    // Two more root folders. The reload left the world at Probe Root (root)
-    // and Probe Sub (child of it); nothing is selected, so creation lands at
-    // the root next to Probe Root. Nothing has an order yet, so the display
-    // must still be plain alphabetical.
+    // Two more root folders. The reload left the world at Probe Root (browsed
+    // root) and Probe Sub (inside it); creation lands at the root next to
+    // Probe Root. Nothing has an order yet, so the display must still be
+    // plain alphabetical.
     fq("#new-folder-btn").click();
     await sleep(400);
     fq("#new-folder-name").value = "Probe Alpha";
@@ -1940,43 +1913,93 @@ PROBE = """<!doctype html>
           rowNames().join("|") === "Probe Alpha|Probe Beta|Probe Root",
           "rows=" + rowNames().join(" | "));
 
-    const firstRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-      .find(r => r.dataset.folder);
-    const moveUp = firstRow && firstRow.querySelector(".folder-up");
-    const moveDown = firstRow && firstRow.querySelector(".folder-down");
-    const pencilBtn = firstRow && firstRow.querySelector(".folder-rename");
-    const trashBtn = firstRow && firstRow.querySelector(".folder-del");
-    check("the folder row offers rename and move controls",
-          !!firstRow && !!moveUp && !!moveDown && !!pencilBtn && !!trashBtn,
-          "row=" + (firstRow ? firstRow.textContent.trim().slice(0, 30) : "missing"));
-    if (moveUp) {
-      const box = moveUp.getBoundingClientRect();
-      const style = frame.contentWindow.getComputedStyle(moveUp);
-      check("the folder controls are on screen without hovering",
-            box.width > 0 && box.height > 0
+    const alphaMenu = menuFor("Probe Alpha");
+    check("the folder row carries its ellipsis menu at rest",
+          !!alphaMenu, "rows=" + rowNames().join(" | "));
+    {
+      const box = alphaMenu ? alphaMenu.getBoundingClientRect() : null;
+      const style = alphaMenu ? frame.contentWindow.getComputedStyle(alphaMenu) : null;
+      check("the ellipsis menu is on screen without hovering",
+            !!alphaMenu && box.width > 0 && box.height > 0
             && style.opacity !== "0" && style.visibility !== "hidden"
             && style.pointerEvents !== "none",
             "w=" + Math.round(box.width) + " h=" + Math.round(box.height)
-            + " opacity=" + style.opacity + " visibility=" + style.visibility);
+            + " opacity=" + style.opacity);
+    }
+    if (alphaMenu) {
+      // The menu is its own dialog whose target is remembered only while it
+      // acts; "move" keeps the memory through the move sheet that follows.
+      alphaMenu.click();
+      await sleep(400);
+      check("the ellipsis opens the folder menu dialog",
+            !!(fq("#folder-menu") && fq("#folder-menu").open),
+            "open=" + (fq("#folder-menu") ? fq("#folder-menu").open : "no dialog"));
+      fq("#folder-menu-move").click();
+      await sleep(500);
+      const sheet = fq("#folder-move-sheet");
+      const sheetRows = sheet ? [...sheet.querySelectorAll("[data-move-target]")] : [];
+      const sheetNames = sheetRows.map(b => b.textContent.trim());
+      check("the move sheet offers the other folders but never the folder itself (v38)",
+            !!(sheet && sheet.open) && sheetNames.some(n => /Unfiled/.test(n))
+            && sheetNames.some(n => /Probe Root/.test(n))
+            && sheetNames.every(n => n.indexOf("Probe Alpha") === -1),
+            "title=" + (fq("#folder-move-title") ? fq("#folder-move-title").textContent : "?")
+            + " options=" + sheetNames.join(" | "));
+      const rootTarget = sheetRows.find(b => /Probe Root/.test(b.textContent));
+      if (rootTarget) {
+        rootTarget.click();
+        await sleep(800);
+        check("a sheet move relocates a folder under another parent (v38)",
+              rowNames().join("|") === "Probe Beta|Probe Root",
+              "rows=" + rowNames().join(" | "));
+      } else {
+        check("a sheet move relocates a folder under another parent (v38)",
+              false, "options=" + sheetNames.join(" | "));
+      }
     }
 
-    if (moveDown) {
-      moveDown.click();
-      await waitFor(() => rowNames()[0] === "Probe Beta", 3000);
-      check("the down arrow moves a folder one position",
-            rowNames().join("|") === "Probe Beta|Probe Alpha|Probe Root",
-            "rows=" + rowNames().join(" | "));
+    // --- the drill: browse INTO the parent and back out on the crumbs ---
+    {
+      const rootRow2 = [...fdoc.querySelectorAll("#note-list .folder-row")]
+        .find(r => {
+          const t = r.querySelector(".item-title");
+          return t && t.textContent.trim() === "Probe Root";
+        });
+      if (rootRow2) {
+        rootRow2.click();
+        await sleep(600);
+        const crumbText = fq("#crumbs") ? fq("#crumbs").textContent : "";
+        const inside = [...fdoc.querySelectorAll("#note-list .folder-row")]
+          .map(r => (r.querySelector(".item-title") || {}).textContent || "?");
+        check("browsing into a folder shows its children under the crumb path (v38)",
+              crumbText.indexOf("Probe Root") !== -1
+              && inside.join("|") === "Probe Alpha|Probe Sub",
+              "crumbs=" + crumbText.trim() + " rows=" + inside.join(" | "));
+        const homeCrumb2 = fq('#crumbs .crumb[data-crumb=""]');
+        check("the home crumb sits above the browsed children (v38)",
+              !!homeCrumb2 && !homeCrumb2.disabled
+              && homeCrumb2.textContent.trim() === "Notes",
+              "crumb=" + (homeCrumb2 ? homeCrumb2.textContent.trim() : "missing"));
+        if (homeCrumb2) {
+          homeCrumb2.click();
+          await sleep(600);
+          check("tapping the home crumb browses back to the root (v38)",
+                rowNames().join("|") === "Probe Beta|Probe Root",
+                "rows=" + rowNames().join(" | "));
+        }
+      }
     }
 
-    let renamedRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-      .find(r => r.dataset.folder && /Probe Alpha/.test(r.textContent));
-    let pencil = renamedRow && renamedRow.querySelector(".folder-rename");
-    if (pencil) {
-      pencil.click();
+    // --- rename through the menu: the inline editing row is unchanged ---
+    const betaMenu = menuFor("Probe Beta");
+    if (betaMenu) {
+      betaMenu.click();
+      await sleep(400);
+      fq("#folder-menu-rename").click();
       await sleep(500);
       const editInput = fq(".folder-rename-input");
       check("the rename edit opens with the folder's current name",
-            !!editInput && editInput.value === "Probe Alpha",
+            !!editInput && editInput.value === "Probe Beta",
             "value=" + (editInput ? editInput.value : "missing"));
       if (editInput) {
         editInput.value = "Probe Renamed";
@@ -1984,41 +2007,50 @@ PROBE = """<!doctype html>
         if (saveForm) saveForm.requestSubmit();
         await waitFor(() => !fq(".folder-rename-input"), 4000);
         check("saving commits the new folder name",
-              rowNames()[1] === "Probe Renamed",
+              rowNames()[0] === "Probe Renamed",
               "rows=" + rowNames().join(" | "));
+      }
+    }
 
-        // The context chip reads the path through folderPath, so a rename of
-        // the selected folder must refresh it the moment the name lands.
-        renamedRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-          .find(r => r.dataset.folder && /Probe Renamed/.test(r.textContent));
+    // --- the crumbs read the folders' live names: a rename reaches the path ---
+    const rootMenuRename = menuFor("Probe Root");
+    if (rootMenuRename) {
+      rootMenuRename.click();
+      await sleep(400);
+      fq("#folder-menu-rename").click();
+      await sleep(500);
+      const rootInput = fq(".folder-rename-input");
+      if (rootInput) {
+        rootInput.value = "Probe Root Too";
+        const rootForm = fq(".folder-rename-form");
+        if (rootForm) rootForm.requestSubmit();
+        await waitFor(() => !fq(".folder-rename-input"), 4000);
+        check("the renamed folder shows its new name in the row list",
+              rowNames().indexOf("Probe Root Too") !== -1,
+              "rows=" + rowNames().join(" | "));
+        const renamedRow = [...fdoc.querySelectorAll("#note-list .folder-row")]
+          .find(r => /Probe Root Too/.test(r.textContent));
         if (renamedRow) {
-          renamedRow.querySelector(".folder-select").click();
-          await sleep(500);
-          pencil = renamedRow.querySelector(".folder-rename");
-          pencil.click();
-          await sleep(400);
-          const chipInput = fq(".folder-rename-input");
-          if (chipInput) {
-            chipInput.value = "Probe Renamed Too";
-            const chipForm = fq(".folder-rename-form");
-            if (chipForm) chipForm.requestSubmit();
-            await waitFor(() => !fq(".folder-rename-input"), 4000);
-            const chipText = fq("#list-context")
-              ? fq("#list-context").textContent : "";
-            check("the breadcrumb chip reflects the renamed folder",
-                  chipText.indexOf("Probe Renamed Too") !== -1,
-                  "chip=" + chipText.slice(0, 60));
+          renamedRow.click();
+          await sleep(600);
+          check("the crumb path reflects the renamed folder (v38)",
+                fq("#crumbs").textContent.indexOf("Probe Root Too") !== -1,
+                "crumbs=" + (fq("#crumbs") ? fq("#crumbs").textContent.trim() : "n/a"));
+          const homeCrumb3 = fq('#crumbs .crumb[data-crumb=""]');
+          if (homeCrumb3) {
+            homeCrumb3.click();
+            await sleep(600);
           }
         }
       }
     }
 
-    const escRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-      .find(r => r.dataset.folder && /Probe Root/.test(r.textContent));
-    const escPencil = escRow && escRow.querySelector(".folder-rename");
-    if (escPencil) {
-      escPencil.click();
+    const escMenu = menuFor("Probe Renamed");
+    if (escMenu) {
+      escMenu.click();
       await sleep(400);
+      fq("#folder-menu-rename").click();
+      await sleep(500);
       const escInput = fq(".folder-rename-input");
       if (escInput) {
         escInput.value = "XXX Wrong";
@@ -2026,23 +2058,27 @@ PROBE = """<!doctype html>
           { key: "Escape", bubbles: true }));
         await waitFor(() => !fq(".folder-rename-input"), 3000);
         check("Escape cancels the rename",
-              fdoc.querySelector("#folder-tree").textContent.indexOf("XXX Wrong") === -1
-              && rowNames().indexOf("Probe Root") !== -1,
+              fdoc.querySelector("#note-list").textContent.indexOf("XXX Wrong") === -1
+              && rowNames().indexOf("Probe Renamed") !== -1,
               "rows=" + rowNames().join(" | "));
 
-        const emptyRow = [...fdoc.querySelectorAll("#folder-tree .folder-row")]
-          .find(r => r.dataset.folder && /Probe Root/.test(r.textContent));
-        if (emptyRow) emptyRow.querySelector(".folder-rename").click();
-        await sleep(400);
-        const emptyInput = fq(".folder-rename-input");
-        if (emptyInput) {
-          emptyInput.value = "";
-          const emptyForm = fq(".folder-rename-form");
-          if (emptyForm) emptyForm.requestSubmit();
-          await waitFor(() => !fq(".folder-rename-input"), 3000);
-          check("an empty name keeps the folder's name silently",
-                !fq(".folder-rename-input") && rowNames()[2] === "Probe Root",
-                "rows=" + rowNames().join(" | "));
+        const emptyMenu = menuFor("Probe Renamed");
+        if (emptyMenu) {
+          emptyMenu.click();
+          await sleep(400);
+          fq("#folder-menu-rename").click();
+          await sleep(500);
+          const emptyInput = fq(".folder-rename-input");
+          if (emptyInput) {
+            emptyInput.value = "";
+            const emptyForm = fq(".folder-rename-form");
+            if (emptyForm) emptyForm.requestSubmit();
+            await waitFor(() => !fq(".folder-rename-input"), 3000);
+            check("an empty name keeps the folder's name silently",
+                  !fq(".folder-rename-input")
+                  && rowNames().indexOf("Probe Renamed") !== -1,
+                  "rows=" + rowNames().join(" | "));
+          }
         }
       }
     }
@@ -2053,16 +2089,16 @@ PROBE = """<!doctype html>
     fq("#export-btn").click();
     await waitFor(() => {
       const box = fq("#export-csv");
-      return box && box.value.indexOf("Probe Renamed Too") !== -1;
+      return box && box.value.indexOf("Probe Renamed") !== -1;
     }, 6000);
     const orderedCsv = fq("#export-csv") ? fq("#export-csv").value : "";
     check("the backup CSV carries the folders' order column",
           orderedCsv.indexOf("id,parentId,name,order,createdAt,updatedAt") !== -1
           && orderedCsv.indexOf("# notes-backup v" + "__EXPECTED_SCHEMA__") === 0
-          && /Probe Beta,0,/.test(orderedCsv)
-          && /Probe Renamed Too,1,/.test(orderedCsv),
-          "header=" + orderedCsv.slice(0, 42) + " foldersRow=" +
-            (orderedCsv.split("\\r\\n")[2] || "?"));
+          && /,Probe Renamed,,/.test(orderedCsv)
+          && /,Probe Root Too,,/.test(orderedCsv)
+          && /,Probe Alpha,/.test(orderedCsv),
+          "header=" + orderedCsv.slice(0, 42));
 
     const orderedBox = fq("#restore-input");
     orderedBox.value = orderedCsv;
@@ -2074,12 +2110,30 @@ PROBE = """<!doctype html>
       fq("#preview-out") ? fq("#preview-out").textContent : ""), 6000);
     fq("#settings-close").click();
     await sleep(300);
-    check("restoring keeps the arranged order",
-          rowNames().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+    check("restoring keeps the folders with their renames",
+          rowNames().join("|") === "Probe Renamed|Probe Root Too",
           "rows=" + rowNames().join(" | "));
-    check("...and the renamed folder's name survives it",
-          rowNames().indexOf("Probe Renamed Too") !== -1,
-          "rows=" + rowNames().join(" | "));
+
+    // And the move survived the round trip too: the relocated folder came back
+    // INSIDE its parent, beside the subfolder the restore itself had made.
+    {
+      const rootRow3 = [...fdoc.querySelectorAll("#note-list .folder-row")]
+        .find(r => /Probe Root Too/.test(r.textContent));
+      if (rootRow3) {
+        rootRow3.click();
+        await sleep(600);
+        const inside3 = [...fdoc.querySelectorAll("#note-list .folder-row")]
+          .map(r => (r.querySelector(".item-title") || {}).textContent || "?");
+        check("...and the moved folder is still nested after the restore (v38)",
+              inside3.join("|") === "Probe Alpha|Probe Sub",
+              "rows=" + inside3.join(" | "));
+        const homeCrumb4 = fq('#crumbs .crumb[data-crumb=""]');
+        if (homeCrumb4) {
+          homeCrumb4.click();
+          await sleep(500);
+        }
+      }
+    }
 
     const olderDoc = fdoc;
     frame.contentWindow.location.reload();
@@ -2091,42 +2145,22 @@ PROBE = """<!doctype html>
     const fdoc2 = frame.contentDocument;
     const fq2 = sel => fdoc2.querySelector(sel);
     const rowNames2 = () => {
-      const rows = [...fdoc2.querySelectorAll("#folder-tree .folder-row")]
-        .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
+      const rows = [...fdoc2.querySelectorAll("#note-list .folder-row")];
       return rows.map(r => {
-        const name = r.querySelector(".folder-name");
+        const name = r.querySelector(".item-title");
         return name ? name.textContent.trim() : "?";
       });
     };
-    check("the arranged order and the rename survive a reload",
-          reloaded2 && rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
+    check("the renames and the moves survive a reload",
+          reloaded2 && rowNames2().join("|") === "Probe Renamed|Probe Root Too",
           "rows=" + rowNames2().join(" | "));
 
-    const postRows = [...fdoc2.querySelectorAll("#folder-tree .folder-row")]
-      .filter(r => r.dataset.folder && parseInt(r.style.paddingLeft, 10) === 5);
-    const topUp = postRows[0] && postRows[0].querySelector(".folder-up");
-    if (topUp) {
-      topUp.click();
-      await sleep(600);
-      check("the up arrow on the topmost folder is a no-op",
-            rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
-            "rows=" + rowNames2().join(" | "));
-    }
-    const bottomDown = postRows[2] && postRows[2].querySelector(".folder-down");
-    if (bottomDown) {
-      bottomDown.click();
-      await sleep(600);
-      check("the down arrow on the bottom folder is a no-op",
-            rowNames2().join("|") === "Probe Beta|Probe Renamed Too|Probe Root",
-            "rows=" + rowNames2().join(" | "));
-    }
-
-    // --- v33: a long note list scrolls INSIDE its own panel ---
-    // Stacked, the tree sits ABOVE the list, so the list must be its own
-    // scroller: when it grew past its row (the flex automatic minimum), the
-    // scrollable overflow fell to .pane-body and scrolling a long list slid
-    // the whole tree aside. Seed enough notes to overflow the panel, scroll
-    // the list, and prove the list took the scroll while the tree's top and
+    // --- a long note list scrolls INSIDE its own panel ---
+    // The crumbs sit ABOVE the list, so the list must be its own scroller:
+    // when it grew past its row (the flex automatic minimum), the scrollable
+    // overflow fell to .pane-body and scrolling a long list slid the crumbs
+    // aside. Seed enough notes to overflow the panel, scroll the list, and
+    // prove the list took the scroll while the crumbs bar's top and
     // .pane-body stayed put. Last on purpose -- the ten notes pollute nothing.
     {
       const seedNote = async label => {
@@ -2143,22 +2177,22 @@ PROBE = """<!doctype html>
       }
       await sleep(400);
       const scrolledList = fq2("#note-list");
-      const treePanel3 = fq2(".browse-notes .folders-col");
+      const crumbBar3 = fq2("#crumbs");
       const paneBody3 = scrolledList ? scrolledList.closest(".pane-body") : null;
-      const treeTop0 = treePanel3 ? treePanel3.getBoundingClientRect().top : -1;
+      const crumbTop0 = crumbBar3 ? crumbBar3.getBoundingClientRect().top : -1;
       const overflowed = !!scrolledList
         && scrolledList.scrollHeight > scrolledList.clientHeight;
       if (scrolledList) scrolledList.scrollTop = 99999;
       await sleep(300);
-      const treeTop1 = treePanel3 ? treePanel3.getBoundingClientRect().top : -1;
-      check("a long note list scrolls inside its own panel",
+      const crumbTop1 = crumbBar3 ? crumbBar3.getBoundingClientRect().top : -1;
+      check("a long note list scrolls inside its own panel (crumbs stay put)",
             overflowed
             && !!scrolledList && scrolledList.scrollTop > 0
-            && Math.abs(treeTop1 - treeTop0) <= 1
+            && Math.abs(crumbTop1 - crumbTop0) <= 1
             && !!paneBody3 && paneBody3.scrollTop === 0,
             "overflowed=" + overflowed
             + " scrollTop=" + (scrolledList ? scrolledList.scrollTop : "n/a")
-            + " treeTop=" + treeTop0 + "->" + treeTop1
+            + " crumbTop=" + crumbTop0 + "->" + crumbTop1
             + " paneBody=" + (paneBody3 ? paneBody3.scrollTop : "n/a"));
     }
 
@@ -2258,7 +2292,7 @@ PROBE_NARROW = """<!doctype html>
     q("#editor-back").click();
     await sleep(600);
 
-    const row = [...doc.querySelectorAll("#note-list .item-row")]
+    const row = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
       .find(r => r.textContent.includes("Narrow Probe"));
     const sub = row && row.querySelector(".item-sub");
     check("narrow: the probe note is in the list", !!row);
@@ -2315,11 +2349,11 @@ PROBE_NARROW = """<!doctype html>
             rowH <= lineH * 1.9, "rowH=" + Math.round(rowH) + " line=" + Math.round(lineH));
     }
 
-    // --- v32: folder controls at phone width ---
+    // --- v38: folder rows at phone width ---
     // Placed BEFORE the editor blocks below (flow convenience since v35: the
-    // tree now stays visible even while a note is open). The row's
-    // move/rename/delete buttons must remain on screen at 380px -- they are
-    // never hover-revealed, and no narrow rule may hide them.
+    // drill list stays visible even while a note is open). The row's ellipsis
+    // menu must remain on screen at 380px -- never hover-revealed, and no
+    // narrow rule may hide it.
     q("#notes-tab").click();
     await sleep(400);
     q("#new-folder-btn").click();
@@ -2327,46 +2361,28 @@ PROBE_NARROW = """<!doctype html>
     q("#new-folder-name").value = "Narrow Folder";
     q("#new-folder-form").requestSubmit();
     await sleep(800);
-    const narrowRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-      .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
-    check("narrow: a created folder shows in the tree", !!narrowRow);
+    const narrowRow = [...doc.querySelectorAll("#note-list .folder-row")]
+      .find(r => /Narrow Folder/.test(r.textContent));
+    check("narrow: a created folder shows in the drill list", !!narrowRow);
     if (narrowRow) {
-      const pencil = narrowRow.querySelector(".folder-rename");
-      const up = narrowRow.querySelector(".folder-up");
-      const down = narrowRow.querySelector(".folder-down");
-      const pencilBox = pencil && pencil.getBoundingClientRect();
-      const pencilStyle = pencil && frame.contentWindow.getComputedStyle(pencil);
-      check("narrow: the rename control is on screen without hover",
-            !!pencil && pencilBox.width > 0 && pencilBox.height > 0
-            && pencilStyle.opacity !== "0" && pencilStyle.visibility !== "hidden"
-            && pencilStyle.pointerEvents !== "none"
-            && pencilStyle.display !== "none",
-            "w=" + (pencilBox ? Math.round(pencilBox.width) : -1)
-            + " h=" + (pencilBox ? Math.round(pencilBox.height) : -1));
-      const upBox = up && up.getBoundingClientRect();
-      const downBox = down && down.getBoundingClientRect();
-      const upStyle = up && frame.contentWindow.getComputedStyle(up);
-      check("narrow: the move controls are on screen without hover",
-            !!up && !!down && upBox.width > 0 && upBox.height > 0
-            && downBox.width > 0 && downBox.height > 0
-            && upStyle.visibility !== "hidden" && upStyle.pointerEvents !== "none"
-            && upStyle.display !== "none",
-            "w=" + (upBox ? Math.round(upBox.width) : -1)
-            + " h=" + (upBox ? Math.round(upBox.height) : -1));
-    }
-
-    // The stacked split is ONE rule at every width since v33; the phone frame
-    // must lay the tree above the list too (no side-by-side at 380px).
-    {
-      const above = q(".browse-notes .folders-col");
-      const below = q(".browse-notes .list-col");
-      const stackOk = !!(above && below)
-        && above.getBoundingClientRect().top < below.getBoundingClientRect().top
-        && above.getBoundingClientRect().bottom
-           <= below.getBoundingClientRect().top + 1;
-      check("narrow: the folder panel is stacked above the note list", stackOk,
-            "aboveTop=" + (above ? Math.round(above.getBoundingClientRect().top) : -1)
-            + " belowTop=" + (below ? Math.round(below.getBoundingClientRect().top) : -1));
+      const menuBtn = narrowRow.querySelector(".folder-menu");
+      const menuBox = menuBtn && menuBtn.getBoundingClientRect();
+      const menuStyle = menuBtn && frame.contentWindow.getComputedStyle(menuBtn);
+      check("narrow: the ellipsis menu is on screen without hover",
+            !!menuBtn && menuBox.width > 0 && menuBox.height > 0
+            && menuStyle.opacity !== "0" && menuStyle.visibility !== "hidden"
+            && menuStyle.pointerEvents !== "none"
+            && menuStyle.display !== "none",
+            "w=" + (menuBox ? Math.round(menuBox.width) : -1)
+            + " h=" + (menuBox ? Math.round(menuBox.height) : -1));
+      menuBtn.click();
+      await sleep(400);
+      const narrowMenu = q("#folder-menu");
+      check("narrow: the ellipsis opens the folder menu dialog",
+            !!(narrowMenu && narrowMenu.open),
+            "open=" + (narrowMenu ? narrowMenu.open : "no dialog"));
+      if (narrowMenu && typeof narrowMenu.close === "function") narrowMenu.close();
+      await sleep(200);
     }
 
     // --- v34: the attachment-count line at phone width ---
@@ -2399,7 +2415,7 @@ PROBE_NARROW = """<!doctype html>
       q("#editor-back").click();
       await sleep(600);
     }
-    const narrowAttached = [...doc.querySelectorAll("#note-list .item-row")]
+    const narrowAttached = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
       .find(r => r.textContent.includes("Narrow Attached"));
     const narrowBadge = narrowAttached && narrowAttached.querySelector(".item-attach");
     check("narrow: an attached note's row shows its attachment count",
@@ -2417,69 +2433,51 @@ PROBE_NARROW = """<!doctype html>
             + " mainW=" + Math.round(mainBox.width));
     }
 
-    // --- v35: folder rows carry child-folder and attachment chips ---
-    // Narrow Folder gains a child; its row then shows the folder chip. The
-    // Unfiled row shows the clip chip for the 2 pngs of "Narrow Attached"
-    // above. Chips sit beside the name at 380px without starving it.
+    // --- v38: creating a folder INSIDE the browsed one, at phone width ---
+    // Narrow Folder gains a child: the row is browsed into, and the new-folder
+    // form parents to the folder on screen. Nothing on the row needs a chip to
+    // prove it -- the child is found only after the drill.
     {
-      const freshRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-        .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
-      const selectBtn = freshRow && freshRow.querySelector(".folder-select");
-      if (freshRow && selectBtn) {
-        selectBtn.click();
+      const freshRow = [...doc.querySelectorAll("#note-list .folder-row")]
+        .find(r => /Narrow Folder/.test(r.textContent));
+      if (freshRow) {
+        freshRow.click();
         await sleep(600);
+        const narrowCrumbs = q("#crumbs") ? q("#crumbs").textContent : "";
+        check("narrow: browsing into the folder updates the crumbs (v38)",
+              narrowCrumbs.indexOf("Notes") !== -1
+              && narrowCrumbs.indexOf("Narrow Folder") !== -1,
+              "crumbs=" + narrowCrumbs.trim());
         q("#new-folder-btn").click();
         await sleep(400);
         q("#new-folder-name").value = "Narrow Kid";
         q("#new-folder-form").requestSubmit();
         await sleep(800);
-
-        const parentRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-          .find(r => r.dataset.folder && /Narrow Folder/.test(r.textContent));
-        const kidRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-          .find(r => r.dataset.folder && /Narrow Kid/.test(r.textContent));
-        check("narrow: the child folder was created inside the selection",
-              !!parentRow && !!kidRow, "kid=" + !!kidRow);
-        if (parentRow) {
-          const chipUse = chip => {
-            const use = chip.querySelector("use");
-            return use ? use.getAttribute("href") : null;
-          };
-          const folderChip = [...parentRow.querySelectorAll(".count")]
-            .find(chip => chipUse(chip) === "#i-folder");
-          check("narrow: the parent row counts its child folders",
-                !!folderChip && /1/.test(folderChip.textContent),
-                "chips=" + [...parentRow.querySelectorAll(".count")]
-                  .map(c => chipUse(c) + ":" + c.textContent.trim()).join(","));
+        const kidRows = [...doc.querySelectorAll("#note-list .folder-row")];
+        check("narrow: the child folder was created inside the browsed folder (v38)",
+              kidRows.length === 1
+              && /Narrow Kid/.test(kidRows[0] ? kidRows[0].textContent : ""),
+              "rows=" + kidRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
+        // Back out to the root for the gallery note below.
+        const homeCrumbN = doc.querySelector('#crumbs .crumb[data-crumb=""]');
+        if (homeCrumbN) {
+          homeCrumbN.click();
+          await sleep(500);
         }
-        const unfiledRow = [...doc.querySelectorAll("#folder-tree .folder-row")]
-          .find(r => r.dataset.folder === "");
-        const clipChip = unfiledRow && [...unfiledRow.querySelectorAll(".count")]
-          .find(chip => {
-            const use = chip.querySelector("use");
-            return use && use.getAttribute("href") === "#i-clip";
-          });
-        check("narrow: the Unfiled row counts its notes' attachments",
-              !!clipChip && /2/.test(clipChip.textContent),
-              "chips=" + (unfiledRow ? unfiledRow.querySelectorAll(".count").length : -1));
       } else {
-        check("narrow: the folder row is selectable for the chip checks", false);
+        check("narrow: the child folder was created inside the browsed folder (v38)",
+              false, "Narrow Folder row missing");
       }
     }
 
-    // --- v36: the picture picker feeds the same pipeline ---
+    // --- the picture picker feeds the same pipeline ---
     // A fresh note attaches one png through #gallery-input -- the same
     // addNoteMedia ritual as the document input -- and its row badge counts
-    // it. Unfiled is selected first: the v35 chip block left Narrow Folder as
-    // the visible folder, and a note filed elsewhere never renders in the
-    // filtered list for this check to find.
+    // it. The browsed stage is Unfiled: the v38 block above browsed back out
+    // of Narrow Folder, so the note and its row land here for the badge check.
     {
       q("#notes-tab").click();
       await sleep(400);
-      const unfiledBtn = [...doc.querySelectorAll("#folder-tree .folder-row")]
-        .find(r => r.dataset.folder === "")
-        ?.querySelector(".folder-select");
-      if (unfiledBtn) { unfiledBtn.click(); await sleep(500); }
       q("#new-note-btn").click();
       await sleep(800);
       // Title is set and SAVED before the attach: addNoteMedia re-renders the
@@ -2507,13 +2505,13 @@ PROBE_NARROW = """<!doctype html>
             "thumbs=" + q("#media-strip").querySelectorAll(".media-thumb").length);
       q("#editor-back").click();
       await sleep(600);
-      const galleryRow = [...doc.querySelectorAll("#note-list .item-row")]
+      const galleryRow = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
         .find(r => r.textContent.includes("Narrow Gallery"));
       const galleryBadge = galleryRow && galleryRow.querySelector(".item-attach");
       check("narrow: the gallery-attached note's row badge counts it",
             !!galleryBadge && /1 png/.test(galleryBadge.textContent.trim()),
             "rowFound=" + !!galleryRow
-            + " titles=" + [...doc.querySelectorAll("#note-list .item-row")]
+            + " titles=" + [...doc.querySelectorAll("#note-list .item-row[data-item]")]
               .map(r => r.textContent.trim().slice(0, 20)).slice(0, 8).join(" | ")
             + " badge=" + (galleryBadge ? galleryBadge.textContent.trim() : "none"));
     }
@@ -2537,34 +2535,49 @@ PROBE_NARROW = """<!doctype html>
             "accept=" + (gallery ? gallery.getAttribute("accept") : "missing"));
     }
 
-    // --- v36: the editor's actions split into two rows at phone width ---
-    // The three attachment pickers fill the first row, Delete + Save the
-    // second. Same-line is still a layout fact per row: the tops inside each
-    // row must agree, and each row must be one button tall, not two stacked.
+    // --- v38: the editor's actions are one row, and the paperclip is a menu ---
+    // Attach (menu), Delete, Save share one line at phone width too, and the
+    // paperclip opens the attach menu whose buttons fire the SAME three
+    // hidden inputs the flow drove above. One line is still a layout fact:
+    // the tops must agree and the row must be one button tall, not two.
     q("#notes-tab").click();
     await sleep(400);
     q("#new-note-btn").click();
     await sleep(800);
-    const pickButtons = ["#add-gallery-btn", "#add-doc-btn", "#add-camera-btn"]
+    const actionRowsN = [...doc.querySelectorAll("#note-editor .editor-actions")];
+    const actionButtonsN = ["#attach-menu-btn", "#delete-note-btn", "#save-note-btn"]
       .map(sel => q(sel));
-    const endButtons = ["#delete-note-btn", "#save-note-btn"].map(sel => q(sel));
-    if (pickButtons.every(b => b) && endButtons.every(b => b)) {
-      const pickTops = pickButtons.map(b => Math.round(b.getBoundingClientRect().top));
-      const endTops = endButtons.map(b => Math.round(b.getBoundingClientRect().top));
-      const rows = [...doc.querySelectorAll("#note-editor .editor-actions")];
-      check("narrow: the three attachment pickers sit on one line",
-            rows.length === 2
-            && Math.max(...pickTops) - Math.min(...pickTops) <= 2,
-            "tops=" + pickTops.join(","));
-      check("narrow: Delete and Save sit on their own line",
-            Math.max(...endTops) - Math.min(...endTops) <= 2,
-            "tops=" + endTops.join(","));
-      const buttonH = endButtons[1].getBoundingClientRect().height;
-      check("narrow: each action row is one button tall, not two",
-            rows.length === 2
-            && rows.every(row => row.getBoundingClientRect().height <= buttonH * 1.35),
-            "rows=" + rows.map(r => Math.round(r.getBoundingClientRect().height)).join(",")
+    if (actionButtonsN.every(b => b)) {
+      const topsN = actionButtonsN.map(b => Math.round(b.getBoundingClientRect().top));
+      const buttonH = actionButtonsN[1].getBoundingClientRect().height;
+      check("narrow: the editor actions are one row -- Attach, Delete, Save",
+            actionRowsN.length === 1
+            && Math.max(...topsN) - Math.min(...topsN) <= 2
+            && actionRowsN[0].getBoundingClientRect().height <= buttonH * 1.35,
+            "rows=" + actionRowsN.length + " tops=" + topsN.join(",")
+            + " rowH=" + Math.round(actionRowsN[0].getBoundingClientRect().height)
             + " btnH=" + Math.round(buttonH));
+      const attachBtn = q("#attach-menu-btn");
+      attachBtn.click();
+      await sleep(300);
+      const attachMenu = q("#attach-menu");
+      check("narrow: the paperclip opens the attach menu dialog",
+            !!(attachMenu && attachMenu.open)
+            && !!q("#menu-gallery-btn") && !!q("#menu-camera-btn")
+            && !!q("#menu-doc-btn"),
+            "open=" + (attachMenu ? attachMenu.open : "no dialog"));
+      // The menu buttons fire the same hidden inputs: spy on the gallery
+      // input's click so no file chooser is involved, then assert the menu
+      // spent itself and the input was the thing fired.
+      let galleryFired = false;
+      const galleryInput = q("#gallery-input");
+      if (galleryInput) galleryInput.click = () => { galleryFired = true; };
+      q("#menu-gallery-btn").click();
+      await sleep(300);
+      check("narrow: choosing gallery closes the menu and fires the gallery input",
+            galleryFired && !!(attachMenu && !attachMenu.open),
+            "fired=" + galleryFired
+            + " stillOpen=" + (attachMenu ? attachMenu.open : "?"));
       check("narrow: an open editor takes the agenda's half too",
             q(".pane-agenda").getBoundingClientRect().height <= 2,
             "agendaH=" + Math.round(q(".pane-agenda").getBoundingClientRect().height));
@@ -2578,7 +2591,7 @@ PROBE_NARROW = """<!doctype html>
               ? !q("#editor-attach").classList.contains("hidden") : "missing"));
     } else {
       check("narrow: the editor action buttons all exist",
-            false, "missing=" + pickButtons.concat(endButtons).map(b => !!b).join(","));
+            false, "missing=" + actionButtonsN.map(b => !!b).join(","));
     }
 
     // --- v37: the untitled note this block created reads its folder ---
@@ -2588,7 +2601,7 @@ PROBE_NARROW = """<!doctype html>
     // and cannot collide with it.
     q("#editor-back").click();
     await sleep(600);
-    const unfiledNamed = [...doc.querySelectorAll("#note-list .item-row")]
+    const unfiledNamed = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
       .filter(row => {
         const t = row.querySelector(".item-title");
         return t && t.textContent.trim() === "Unfiled";

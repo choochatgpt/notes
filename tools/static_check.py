@@ -1230,6 +1230,63 @@ else:
         print("untitled note: titled after its folder -- one helper owns the "
               "row and the delete confirmation")
 
+# --- 18. Notes are created in leaf folders only (v39) ------------------------
+if "export function canHoldNotes(" not in view:
+    fails.append("view.js has no canHoldNotes -- the leaf rule has no single "
+                 "testable owner (v39)")
+if "export function leafFolderOptions(" not in view:
+    fails.append("view.js has no leafFolderOptions -- the picker's filter has "
+                 "no single testable owner (v39)")
+elif "canHoldNotes(" not in body_of("createNote"):
+    fails.append("createNote has no leaf belt check -- a queued, stale-paired "
+                 "or script-driven click could write a note into a folder that "
+                 "cannot hold one (v39)")
+elif "folderOptions(" in body_of("createNote"):
+    fails.append("createNote must not walk the folder tree itself -- the rule "
+                 "answers through canHoldNotes (v39)")
+elif "function syncNewNoteGate(" not in app:
+    fails.append("app.js has no syncNewNoteGate -- a disabled New note with no "
+                 "explanation is the dead-button outage (v39)")
+elif "syncNewNoteGate(" not in body_of("renderAll"):
+    fails.append("renderAll never runs syncNewNoteGate -- the gate must re-read "
+                 "on every render path, because create, move, delete and "
+                 "restore all change what a folder holds (v39)")
+elif not ("disabled" in body_of("syncNewNoteGate")
+          and ".title" in body_of("syncNewNoteGate")):
+    fails.append("syncNewNoteGate must set both disabled and the explanatory "
+                 "title -- a dead button that teaches nothing is the outage "
+                 "pattern (v39)")
+elif "els.newNoteBtn" not in app:
+    fails.append("app.js has no newNoteBtn element -- the gate has nothing to "
+                 "act on (v39)")
+elif not re.search(r'import\s*\{[^}]*canHoldNotes[^}]*\}\s*from "\./view\.js"', app) \
+        or not re.search(r'import\s*\{[^}]*leafFolderOptions[^}]*\}\s*from "\./view\.js"', app):
+    fails.append("app.js must import canHoldNotes and leafFolderOptions from "
+                 "view.js -- a call of an unimported helper cannot start the "
+                 "app at all (v39)")
+elif "leafFolderOptions(" not in body_of("renderFolderPicker"):
+    fails.append("the note picker must be built through leafFolderOptions -- "
+                 "Unfiled, the leaves, and the note's own folder (v39)")
+elif "folderOptions(state.folders)" in body_of("renderFolderPicker"):
+    fails.append("renderFolderPicker still offers every folder -- the picker "
+                 "must go through leafFolderOptions (v39)")
+elif "subfolders)" not in body_of("renderFolderPicker"):
+    fails.append("the picker's current-but-non-leaf entry must say why it is "
+                 "there (v39)")
+elif "data-leaf-hint" not in body_of("renderNoteList"):
+    fails.append("renderNoteList renders no leaf hint -- a disabled button "
+                 "needs a visible explanation on the same screen (v39)")
+elif 'class="muted"' not in body_of("renderNoteList"):
+    fails.append("the leaf hint must reuse the .muted line style -- no new CSS "
+                 "for a line of text (v39)")
+elif "canHoldNotes(" in body_of("restoreBackup"):
+    fails.append("restore must not leaf-filter -- a restore writes back exactly "
+                 "what the backup carried; the rule is a menu, not a migration "
+                 "(v39)")
+else:
+    print("leaf folders: new notes go in Unfiled or a leaf folder -- the gate, "
+          "its explanation and the picker's filter each have one owner (v39)")
+
 print()
 if notes:
     print("NOTES:")

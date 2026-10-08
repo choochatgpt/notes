@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "38";
+export const APP_VERSION = "39";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -208,6 +208,39 @@ export function folderOptions(folders) {
     options.push({ id: folder.id, name: folder.name, depth: 0 });
   }
   return options;
+}
+
+/**
+ * Rule v39: a real folder that has subfolders holds no notes directly -- new
+ * notes go in Unfiled (the pseudo-root, always exempt) or in a leaf folder.
+ * Children are counted from `folders` alone: the store keeps no deleted flag
+ * and nothing else can make a folder a leaf. A folder named as its own parent
+ * (a hand-edited database could hold that) counts as its own child and is
+ * refused, erring on the safe side; a folderId nothing in `folders` knows
+ * answers true, because no children are recorded against it.
+ */
+export function canHoldNotes(folderId, folders) {
+  if (folderId == null) return true;
+  return !((folders || []).some(folder =>
+    (folder?.parentId ?? null) === folderId));
+}
+
+/**
+ * The note editor's folder list (v39): the same folderOptions tree, filtered to
+ * the folders a note may move INTO -- "Unfiled", the leaf folders, and the
+ * note's own current folder, which stays offered exactly as it is even when it
+ * is a legacy folder with subfolders: not offering where a note lives now
+ * would trap the note in it. Every entry gains `leaf`, so the one decorated
+ * entry in the result is always the note's current non-leaf folder. Nothing is
+ * disabled, nothing is hidden, no data moves -- this is a menu, not a migration.
+ */
+export function leafFolderOptions(folders, currentId) {
+  const current = currentId ?? null;
+  return folderOptions(folders).map(entry => ({
+    ...entry,
+    leaf: entry.id === null || !((folders || []).some(folder =>
+      (folder?.parentId ?? null) === entry.id))
+  })).filter(entry => entry.leaf || (entry.id ?? null) === current);
 }
 
 /**

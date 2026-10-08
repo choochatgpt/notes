@@ -153,6 +153,17 @@ them any more.) A new folder is created with the **New folder** button in the
 top bar, and files into the folder you are browsing — no parent picker to
 reason about.
 
+**A folder with subfolders takes no note directly (v39).** New notes are created
+in the folder you are browsing only when that folder has no subfolders of its
+own — or when you are browsing *Unfiled*, which stays a note home for
+everything never filed. While a folder with subfolders is browsed, **New note**
+sits disabled and its list says why, in the words the rule uses everywhere:
+notes go in the innermost folders. A folder that already holds notes and later
+gains subfolders keeps those notes exactly where they are — listed as usual,
+movable as usual, never hidden — until you move them. Folder creation itself is
+unrestricted; making a subfolder inside a leaf that holds notes is exactly how
+it becomes one of these folders.
+
 **Reminders are a flat list.** They are deliberately not filed into folders. Both
 the agenda and the Reminders tab are ordered by the soonest upcoming reminder,
 and each row is one line: title, how it repeats, then a relative due ("in 3 days")
@@ -177,10 +188,14 @@ at 15:00, a yearly birthday, and every 5 years for passport renewal.
 
 ## Moving a note
 
-Open a note and change its **Folder** field, then save. The picker lists every
-folder, indented to show nesting, with *Unfiled* at the top for no folder at all.
-A note is created in whichever folder you were browsing, and this is the only way
-it changes folder afterwards.
+Open a note and change its **Folder** field, then save. The picker lists
+*Unfiled* at the top for no folder at all — always offered — then the folders
+with no subfolders (indentation still shows how a leaf is nested), and it always
+keeps the folder the note is already in, even when that folder now holds
+subfolders; that entry reads `(has subfolders)`. It never offers other folders
+that hold subfolders, which is the same rule that stops new ones. A note is
+created in whichever folder you were browsing, and this is the only way it
+changes folder afterwards.
 
 While the editor is open, the path beside the tabs shows where the note lives,
 so it updates the moment a move is saved. If you move a note out of the folder
@@ -220,9 +235,9 @@ does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with two controls —
-and the release number at the bottom ("Version 38"), so on any device you can
+and the release number at the bottom ("Version 39"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v38`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v39`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -520,12 +535,12 @@ Notes entered in one do not appear in the other.
 
 ```sh
 node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 169 tests
+node tests/view.test.mjs ../view.js             # 198 tests
 node tests/backup.test.mjs ../backup.js         # 89 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 254 checks in real Chrome (225 desktop + 29 at 380px)
+python tools/browser_check.py                   # 269 checks in real Chrome (237 desktop + 32 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and
@@ -536,7 +551,11 @@ recursive folder delete (including that a parent cycle terminates), the wording
 of the delete confirmation, the v38 breadcrumb chain (`folderChain`: root-first
 segments, a looped parent chain terminates, a missing parent stops cleanly),
 the attachment badge text its rows and editor share, the
-folder picker's contents — tree order,
+folder picker's contents — tree order, orphans, cycles — and, since v39, the
+leaf rule itself (`canHoldNotes`: a folder named as its own parent counts as its
+own child, and a dangling id has no children to count; `leafFolderOptions`:
+Unfiled, the leaves, and the note's own folder, the only non-leaf that can be
+offered),
 
 `backup.test.mjs` covers the CSV both directions: build → parse round-trips
 (nesting, commas/quotes/newlines in note bodies, weekday rules, the v2

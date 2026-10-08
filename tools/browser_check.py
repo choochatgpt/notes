@@ -1637,6 +1637,123 @@ PROBE = """<!doctype html>
         }
       }
 
+      // --- v39: new notes go in the innermost folders ---
+      // "Legacy Holder" is created at the root while it is still a leaf, so a
+      // note can be made inside it; the child folder created right after turns
+      // the holder non-leaf, and the note becomes the legacy case the rule
+      // keeps visible until it is moved. The block deletes its own subtree
+      // afterwards, so the export below measures the same world it always did.
+      {
+        q("#new-folder-btn").click();
+        await sleep(400);
+        q("#new-folder-name").value = "Legacy Holder";
+        q("#new-folder-form").requestSubmit();
+        await sleep(800);
+        const holderRow = [...doc.querySelectorAll("#note-list .folder-row")]
+          .find(r => /Legacy Holder/.test(r.textContent));
+        check("v39: a leaf folder is offered and New note is enabled",
+              !!holderRow && q("#new-note-btn").disabled === false,
+              "row=" + !!holderRow);
+        if (holderRow) {
+          holderRow.click();
+          await sleep(600);
+          check("v39: browsing the leaf keeps New note enabled",
+                q("#new-note-btn").disabled === false);
+          q("#new-note-btn").click();
+          await sleep(800);
+          check("v39: a note is created inside a folder with no subfolders",
+                doc.querySelectorAll("#note-list .item-row[data-item]").length === 1,
+                "rows=" + doc.querySelectorAll("#note-list .item-row[data-item]").length);
+          q("#note-title").value = "Legacy Note";
+          q("#note-editor").requestSubmit();
+          await sleep(800);
+          q("#editor-back").click();
+          await sleep(600);
+          // Folder creation itself stays unrestricted: making a subfolder here
+          // is legal, and it is exactly what makes the holder non-leaf.
+          q("#new-folder-btn").click();
+          await sleep(400);
+          q("#new-folder-name").value = "Legacy Kid";
+          q("#new-folder-form").requestSubmit();
+          await sleep(800);
+          const nnb = q("#new-note-btn");
+          check("v39: New note is disabled inside a folder with subfolders",
+                !!nnb && nnb.disabled === true);
+          check("v39: the disabled New note explains itself in its title",
+                (nnb.title || "").indexOf("subfolders") !== -1,
+                "said=" + (nnb.title || ""));
+          check("v39: the drill list states why New note is off",
+                !!doc.querySelector("#note-list [data-leaf-hint]"),
+                "hint=" + !!doc.querySelector("#note-list [data-leaf-hint]"));
+          const legacyRows = [...doc.querySelectorAll("#note-list .item-row[data-item]")];
+          check("v39: a note made before it gained subfolders is still visible",
+                legacyRows.length === 1
+                && /Legacy Note/.test(legacyRows[0] ? legacyRows[0].textContent : ""),
+                "rows=" + legacyRows.map(r => r.textContent.trim().slice(0, 24)).join(" | "));
+          const rowsBeforeTap = legacyRows.length;
+          if (nnb) {
+            nnb.click();
+            await sleep(700);
+            const afterTap = doc.querySelectorAll("#note-list .item-row[data-item]").length;
+            check("v39: a tap on the disabled New note creates nothing",
+                  afterTap === rowsBeforeTap && doc.body.dataset.mode === "browse",
+                  "mode=" + doc.body.dataset.mode + " rows=" + afterTap);
+          }
+          const legacyNoteRow = [...doc.querySelectorAll("#note-list .item-row[data-item]")]
+            .find(r => /Legacy Note/.test(r.textContent));
+          if (legacyNoteRow) {
+            legacyNoteRow.click();
+            await sleep(700);
+            const picker = q("#note-folder");
+            const names = picker ? [...picker.options].map(o => o.textContent.trim()) : [];
+            check("v39: the picker offers Unfiled and the leaves, not other parents",
+                  names.some(n => n === "Unfiled")
+                  && names.some(n => n === "Legacy Kid")
+                  && names.some(n => n === "Probe Sub")
+                  && names.every(n => n.indexOf("Probe Root") === -1 && n.indexOf("Narrow") === -1),
+                  "options=" + names.join(" | "));
+            const mine = names.find(n => n.indexOf("Legacy Holder") !== -1);
+            check("v39: the picker keeps the note's own non-leaf folder, marked",
+                  !!mine && mine.indexOf("has subfolders") !== -1,
+                  "said=" + (mine || "missing"));
+            const marked = names.filter(n => n.indexOf("has subfolders") !== -1);
+            check("v39: only the current folder carries the suffix",
+                  marked.length === 1 && marked[0].indexOf("Legacy Holder") !== -1,
+                  "marked=" + marked.join(" | "));
+            // Leave the note exactly as found, then leave the editor.
+            q("#editor-back").click();
+            await sleep(600);
+          }
+          // Put the export world back exactly as it was: the subtrees go
+          // together, note and child folder included.
+          const homeRoot = doc.querySelector('#crumbs .crumb[data-crumb=""]');
+          if (homeRoot) {
+            homeRoot.click();
+            await sleep(600);
+          }
+          const holderRow2 = [...doc.querySelectorAll("#note-list .folder-row")]
+            .find(r => {
+              const t = r.querySelector(".item-title");
+              return t && t.textContent.trim() === "Legacy Holder";
+            });
+          const holderMenu = holderRow2 ? holderRow2.querySelector(".folder-menu") : null;
+          if (holderMenu) {
+            confirmAnswer = true;
+            holderMenu.click();
+            await sleep(400);
+            q("#folder-menu-delete").click();
+            await sleep(900);
+            check("v39: cleaning up removes the legacy world before the export",
+                  ![...doc.querySelectorAll("#note-list .folder-row")]
+                    .some(r => /Legacy Holder/.test(r.textContent))
+                  && doc.querySelectorAll("#note-list .item-row[data-item]").length === 1
+                  && doc.querySelectorAll("#note-list .item-row[data-item]")[0]
+                     && /Keeper Note/.test(doc.querySelector("#note-list .item-row[data-item]").textContent),
+                  "rows=" + doc.querySelectorAll("#note-list .item-row[data-item]").length);
+          }
+        }
+      }
+
       // Export while the doomed note does not exist yet.
       settingsBtn.click();
       await sleep(300);
@@ -2458,11 +2575,24 @@ PROBE_NARROW = """<!doctype html>
               kidRows.length === 1
               && /Narrow Kid/.test(kidRows[0] ? kidRows[0].textContent : ""),
               "rows=" + kidRows.map(r => r.textContent.trim().slice(0, 30)).join(" | "));
+        // v39 checks while the browsed folder now has a subfolder.
+        const narrowNnb = doc.querySelector("#new-note-btn");
+        check("narrow: New note is disabled while the folder has subfolders (v39)",
+              !!narrowNnb && narrowNnb.disabled === true);
+        check("narrow: the drill list states why New note is off (v39)",
+              !!doc.querySelector("#note-list [data-leaf-hint]"));
         // Back out to the root for the gallery note below.
         const homeCrumbN = doc.querySelector('#crumbs .crumb[data-crumb=""]');
         if (homeCrumbN) {
           homeCrumbN.click();
-          await sleep(500);
+          await waitFor(() =>
+            !!doc.querySelector("#new-note-btn")
+            && doc.querySelector("#new-note-btn").disabled === false, 3000);
+          await sleep(400);
+          const backBtn = doc.querySelector("#new-note-btn");
+          check("narrow: New note is enabled again at Unfiled (v39)",
+                !!backBtn && backBtn.disabled === false,
+                "disabled=" + (backBtn ? String(backBtn.disabled) : "missing"));
         }
       } else {
         check("narrow: the child folder was created inside the browsed folder (v38)",

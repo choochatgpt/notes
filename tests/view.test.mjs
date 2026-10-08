@@ -18,6 +18,7 @@ const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url
 const {
   APP_VERSION,
   absoluteLabel,
+  canHoldNotes,
   collectSubtree,
   DEFAULT_RATIO,
   describeDeletion,
@@ -26,6 +27,7 @@ const {
   folderOptions,
   folderChain,
   folderPath,
+  leafFolderOptions,
   localInputValue,
   nextRatio,
   noteSnippet,
@@ -443,6 +445,138 @@ console.log("\n=== 10. folderOptions -- the folder picker's contents and order =
     folderOptions(missingName).length,
     2
   );
+}
+
+console.log("\n=== 10c. canHoldNotes + leafFolderOptions -- the v39 leaf rule ===");
+{
+  const tree = [
+    { id: "work", parentId: null, name: "Work" },
+    { id: "apollo", parentId: "work", name: "Apollo" },
+    { id: "q3", parentId: "apollo", name: "Q3" }
+  ];
+  equal("Unfiled always holds notes", canHoldNotes(null, tree), true);
+  equal("a missing folderId is Unfiled, not a folder", canHoldNotes(undefined, tree), true);
+  equal("a leaf holds notes", canHoldNotes("q3", tree), true);
+  equal("a folder with subfolders does not", canHoldNotes("apollo", tree), false);
+  equal("a parent with a subfolder does not either", canHoldNotes("work", tree), false);
+  equal("a child under another parent does not spill up", canHoldNotes("hr", tree), true);
+  equal("no folders still allows Unfiled", canHoldNotes(null, []), true);
+  equal("empty folders leaves every real folder childless", canHoldNotes("work", []), true);
+  equal("undefined folders is handled like empty", canHoldNotes("work", undefined), true);
+  equal("a dangling id has no children to count", canHoldNotes("gone", tree), true);
+  check(
+    "a folder named as its own parent counts as its own child",
+    canHoldNotes("loop", [{ id: "loop", parentId: "loop", name: "Loop" }]) === false
+  );
+  {
+    const input = [...tree];
+    canHoldNotes("work", input);
+    equal("input array is not mutated", input.length, tree.length);
+  }
+}
+{
+  // The section-10 tree: leaves are Home, Q3, HR; non-leaves are Work, Apollo.
+  const tree = [
+    { id: "home", parentId: null, name: "Home" },
+    { id: "work", parentId: null, name: "Work" },
+    { id: "apollo", parentId: "work", name: "Apollo" },
+    { id: "hr", parentId: "work", name: "HR" },
+    { id: "q3", parentId: "apollo", name: "Q3" }
+  ];
+
+  const empty = leafFolderOptions([], null);
+  equal("no folders still offers exactly Unfiled", empty.length, 1);
+  equal("the Unfiled entry counts as a leaf for the marker", empty[0].leaf, true);
+  equal("an undefined folder list is handled too", leafFolderOptions(undefined, null).length, 1);
+
+  const options = leafFolderOptions(tree, null);
+  equal(
+    "the picker keeps Unfiled and the leaves, in folderOptions order",
+    options.map(o => o.name).join(","),
+    "Unfiled,Home,Q3,HR"
+  );
+  check(
+    "every kept entry is a leaf when the note is in Unfiled",
+    options.every(o => o.leaf === true)
+  );
+  equal(
+    "indent depth survives the filter",
+    options.find(o => o.id === "q3").depth,
+    2
+  );
+
+  const current = leafFolderOptions(tree, "work");
+  check(
+    "the note's own non-leaf folder stays offered",
+    current.some(o => o.id === "work")
+  );
+  equal(
+    "the current non-leaf entry is the only non-leaf offered",
+    current.filter(o => !o.leaf).map(o => o.id).join(","),
+    "work"
+  );
+  equal(
+    "a non-leaf that is not current stays out (even its sibling's child)",
+    current.some(o => o.id === "apollo"),
+    false
+  );
+  equal(
+    "the current entry keeps its position and indent",
+    current.map(o => o.name).join(","),
+    "Unfiled,Home,Work,Q3,HR"
+  );
+
+  const leafCurrent = leafFolderOptions(tree, "home");
+  check(
+    "a leaf current folder needs no suffix -- it is a plain leaf entry",
+    leafCurrent.find(o => o.id === "home").leaf === true
+  );
+
+  const gone = leafFolderOptions(tree, "not-created");
+  equal(
+    "a dangling current folder changes nothing",
+    gone.map(o => o.name).join(","),
+    "Unfiled,Home,Q3,HR"
+  );
+
+  const orphan = [
+    { id: "lost", parentId: "gone", name: "Lost" },
+    { id: "lostKid", parentId: "lost", name: "Lost Kid" }
+  ];
+  const orphanOptions = leafFolderOptions(orphan, null);
+  equal(
+    "an orphan with subfolders is dropped, its leaf child stays offered",
+    orphanOptions.map(o => o.name).join(","),
+    "Unfiled,Lost Kid"
+  );
+
+  const cyc = [
+    { id: "x", parentId: "y", name: "X" },
+    { id: "y", parentId: "x", name: "Y" }
+  ];
+  const cycOptions = leafFolderOptions(cyc, null);
+  equal(
+    "a parent cycle terminates -- both sides name a child, both are dropped",
+    cycOptions.length,
+    1
+  );
+  const cycCurrent = leafFolderOptions(cyc, "x");
+  equal(
+    "a cycle member still stays offered when it is the current folder",
+    cycCurrent.map(o => o.name).join(","),
+    "Unfiled,X"
+  );
+  equal(
+    "and it is marked non-leaf like any other current non-leaf",
+    cycCurrent.filter(o => !o.leaf).map(o => o.id).join(","),
+    "x"
+  );
+
+  {
+    const input = [...tree];
+    leafFolderOptions(input, "work");
+    equal("leafFolderOptions does not mutate its input", input.length, tree.length);
+  }
 }
 
 console.log(

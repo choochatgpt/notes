@@ -18,6 +18,7 @@ import { reminderWithNextDue } from "./reminder.js";
 import {
   APP_VERSION,
   absoluteLabel,
+  canHoldNotes,
   collectSubtree,
   folderChain,
   describeDeletion,
@@ -25,6 +26,7 @@ import {
   esc,
   folderOptions,
   folderPath,
+  leafFolderOptions,
   localInputValue,
   nextRatio,
   noteSnippet,
@@ -99,6 +101,7 @@ const els = {
   editorHost: $("#editor-host"),
   editorBack: $("#editor-back"),
   listContext: $("#list-context"),
+  newNoteBtn: $("#new-note-btn"),
   notesTab: $("#notes-tab"),
   remindersTab: $("#reminders-tab"),
   noteEditor: $("#note-editor"),
@@ -237,6 +240,15 @@ async function renderNoteList() {
     folder => (folder.parentId ?? null) === (state.selectedFolderId ?? null)
   ));
 
+  // v39: when the browsed folder cannot take a note, the topbar's New note is
+  // disabled with a title -- which a phone cannot show. The explanation must be
+  // on screen, so the list opens with it, above the subfolder rows it points
+  // to. The early return below cannot reach here: it needs subfolders to be
+  // gone too, and a folder with none of them is a leaf again.
+  const leafHint = canHoldNotes(state.selectedFolderId, state.folders)
+    ? ""
+    : `<p class="muted" data-leaf-hint>New notes go in a folder with no subfolders — open one of the folders below to create a note there. Notes already in this folder stay in it.</p>`;
+
   if (!notes.length && !children.length) {
     els.noteList.innerHTML = `<p class="muted">No notes here yet — use “New note”.</p>`;
     return;
@@ -272,7 +284,7 @@ async function renderNoteList() {
     </button>`;
   });
 
-  els.noteList.innerHTML =
+  els.noteList.innerHTML = leafHint +
     children.map(folder =>
       folder.id === state.renamingFolderId ? renameRowHtml(folder) : folderRowHtml(folder)
     ).join("") + noteRows.join("");
@@ -468,12 +480,17 @@ const INDENT = NBSP + NBSP;
 function renderFolderPicker(selectedId) {
   if (!els.noteFolder) return;
 
+  // v39: the picker offers Unfiled, the LEAF folders, and the note's own
+  // folder -- even when it is a legacy folder that has subfolders, since not
+  // offering it would hide the only folder the note is allowed to keep. The
+  // single entry that can carry the suffix is therefore the current one.
   const current = selectedId ?? null;
   els.noteFolder.replaceChildren();
-  for (const entry of folderOptions(state.folders)) {
+  for (const entry of leafFolderOptions(state.folders, current)) {
     const option = document.createElement("option");
     option.value = entry.id ?? "";
-    option.textContent = INDENT.repeat(entry.depth) + String(entry.name ?? "");
+    option.textContent = INDENT.repeat(entry.depth) + String(entry.name ?? "")
+      + (entry.leaf ? "" : " (has subfolders)");
     option.selected = (entry.id ?? null) === current;
     els.noteFolder.append(option);
   }
@@ -524,6 +541,27 @@ async function loadEditor() {
   syncWeekdayVisibility();
 }
 
+/**
+ * The New note button is as usable as the folder being browsed (v39): notes are
+ * created in Unfiled (always exempt) or in a leaf folder -- a folder holding
+ * subfolders takes no note directly. The disabled state goes out WITH its
+ * explanation (a tap on a dead button teaches nothing -- see refreshDriveUi),
+ * and the drill list re-says it in renderNoteList, because a title attribute is
+ * untappable on a touch screen. It runs from renderAll, the one choke point
+ * every browsing, create, save, move, delete and restore path re-renders
+ * through, and it reads only selectedFolderId against state.folders: the New
+ * note button creates in the browsed folder from any tab or mode, exactly as
+ * before, so the honest answer is the same in all of them.
+ */
+function syncNewNoteGate() {
+  if (!els.newNoteBtn) return;
+  const allowed = canHoldNotes(state.selectedFolderId, state.folders);
+  els.newNoteBtn.disabled = !allowed;
+  els.newNoteBtn.title = allowed
+    ? "New note"
+    : "New notes go in a folder with no subfolders — open one to create a note inside";
+}
+
 async function renderAll() {
   // Folders load BEFORE the note list renders (load-bearing since v37): the
   // rows name untitled notes after the folder they sit in. The crumbs read the
@@ -531,6 +569,7 @@ async function renderAll() {
   // never disagree mid-flight.
   await loadFolders();
   await renderNoteList();
+  syncNewNoteGate();
   renderCrumbs();
   await renderReminderManage();
   await renderAgenda();
@@ -787,6 +826,10 @@ async function onFolderMenuAction(kind) {
 }
 
 async function createNote() {
+  // v39 belt: the button is already disabled while a folder with subfolders is
+  // browsed; the write must refuse a click it can never see (a queued,
+  // stale-paired or script-driven one), not rely on the button alone.
+  if (!canHoldNotes(state.selectedFolderId, state.folders)) return;
   const note = {
     id: newId(),
     folderId: state.selectedFolderId,

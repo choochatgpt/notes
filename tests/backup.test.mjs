@@ -64,6 +64,11 @@ const fixture = {
     { id: "r1", folderId: null, title: "Standup", body: "details, daily", enabled: true,
       startAt: "2027-01-05T09:00:00.000Z", timeZone: "America/New_York",
       recurrence: { version: 1, kind: "weekly", interval: 2, weekdays: [2, 4] },
+      doneAt: null,
+      history: [
+        { id: "h1", title: "Standup", body: "details, daily", dueAt: "2026-09-29T15:00:00.000Z",
+          completedAt: "2026-09-29T15:02:00.000Z", recurrenceKind: "weekly" }
+      ],
       createdAt: STAMP, updatedAt: STAMP },
     { id: "r2", folderId: null, title: "Spent one-off", body: "", enabled: false,
       startAt: "2026-01-01T00:00:00.000Z", timeZone: "UTC",
@@ -130,6 +135,11 @@ console.log("=== 1. build -> parse round-trip ===");
   equal("a disabled reminder stays disabled", byId(parsed.reminders, "r2").enabled, false);
   equal("a comma inside a reminder body round-trips",
         byId(parsed.reminders, "r1").body, "details, daily");
+  equal("a completed occurrence round-trips",
+        JSON.stringify(byId(parsed.reminders, "r1").history),
+        JSON.stringify(fixture.reminders[0].history));
+  equal("doneAt is carried for an archived one-off",
+        byId(parsed.reminders, "r2").doneAt, null);
 
   // nextDueAt is a cached value that goes stale; trusting it from the file
   // would resurrect dates computed on the machine that exported it.

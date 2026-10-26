@@ -1,5 +1,7 @@
 const DB_NAME = "notes-local";
-const DB_VERSION = 1;
+// v2 adds mediaBlobs, the IndexedDB fallback for attachment bytes on WebViews
+// or browsers that do not expose OPFS. Existing stores and rows are untouched.
+const DB_VERSION = 2;
 
 let dbPromise;
 
@@ -25,6 +27,12 @@ function upgrade(db) {
   if (!db.objectStoreNames.contains("media")) {
     const store = db.createObjectStore("media", { keyPath: "id" });
     store.createIndex("noteId", "noteId", { unique: false });
+  }
+
+  // Added in DB v2. The full attachment Blob is cloned into IndexedDB when OPFS
+  // is unavailable; normal desktop/Chrome installs keep using OPFS.
+  if (!db.objectStoreNames.contains("mediaBlobs")) {
+    db.createObjectStore("mediaBlobs", { keyPath: "id" });
   }
 
   if (!db.objectStoreNames.contains("settings")) {
@@ -140,19 +148,38 @@ async function mediaDir() {
   return root.getDirectoryHandle("media", { create: true });
 }
 
-/** Store one attachment's bytes under its media id. */
+/**
+ * Store one attachment's bytes under its media id.
+ *
+ * OPFS is the primary home. A WebView or restricted browser without
+ * navigator.storage.getDirectory() falls back to a Blob in IndexedDB, so a
+ * phone can still attach a JPG or video instead of losing the feature. A failed
+ * OPFS write cleans its half-file before trying the fallback.
+ */
 export async function opfsPut(id, file) {
-  const dir = await mediaDir();
-  const handle = await dir.getFileHandle(id, { create: true });
-  const writable = await handle.createWritable();
   try {
-    await writable.write(file);
-    await writable.close();
+    const dir = await mediaDir();
+    const handle = await dir.getFileHandle(id, { create: true });
+    const writable = await handle.createWritable();
+    try {
+      await writable.write(file);
+      await writable.close();
+      // A successful OPFS write supersedes any stale fallback copy.
+      await remove("mediaBlobs", id).catch(() => {});
+      return;
+    } catch (error) {
+      // A half-written file is worse than none: drop it so a failed add cannot
+      // leave bytes the note does not reference.
+      try { await dir.removeEntry(id); } catch (_) { /* nothing to clean up */ }
+      throw error;
+    }
   } catch (error) {
-    // A half-written file is worse than none: drop it so a failed add cannot
-    // leave bytes the note does not reference.
-    try { await dir.removeEntry(id); } catch (_) { /* nothing to clean up */ }
-    throw error;
+    await put("mediaBlobs", {
+      id,
+      blob: file,
+      type: file.type || "",
+      name: file.name || id
+    });
   }
 }
 
@@ -163,9 +190,16 @@ export async function opfsGet(id) {
     const handle = await dir.getFileHandle(id);
     return await handle.getFile();
   } catch (error) {
-    if (error && (error.name === "NotFoundError" || error.name === "TypeError")) return null;
-    throw error;
+    if (error && !(error.name === "NotFoundError" || error.name === "TypeError")) {
+      // A real OPFS read failure should not hide a perfectly good fallback.
+    }
   }
+
+  const row = await get("mediaBlobs", id).catch(() => null);
+  if (!row?.blob) return null;
+  return new File([row.blob], row.name || id, {
+    type: row.type || row.blob.type || ""
+  });
 }
 
 /** Delete one attachment's bytes. A missing entry is already the goal state. */
@@ -174,8 +208,12 @@ export async function opfsDelete(id) {
     const dir = await mediaDir();
     await dir.removeEntry(id);
   } catch (error) {
-    if (error && error.name !== "NotFoundError") throw error;
+    if (error && error.name !== "NotFoundError" && error.name !== "TypeError") {
+      // Still remove the IndexedDB fallback below; one store failing must not
+      // strand bytes in the other.
+    }
   }
+  await remove("mediaBlobs", id).catch(() => {});
 }
 
 /**

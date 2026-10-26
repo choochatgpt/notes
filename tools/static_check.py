@@ -976,12 +976,15 @@ else:
     print("attachments: strip + PDF iframe wired; rows carry attachmentBadge; "
           "bytes in OPFS; delete and revoke paths pinned")
 
-# 15e. Backup v3: the notes section carries mediaIds, folders carry order, and
-# OLDER files (v1 and v2) parse.
+# 15e. Backup v4: notes carry mediaIds, folders carry order, reminders carry
+# their completion history, and OLDER files (v1-v3) parse.
 backup = read("backup.js")
-if 'SCHEMA_VERSION = 3' not in backup:
-    fails.append("backup.js SCHEMA_VERSION is not 3 -- the folder order column needs "
-                 "a version bump (v2 readers must refuse v3 files, never choke on them)")
+if 'SCHEMA_VERSION = 4' not in backup:
+    fails.append("backup.js SCHEMA_VERSION is not 4 -- reminder doneAt/history need "
+                 "a version bump (v3 readers must refuse v4 files, never choke on them)")
+if '"history"' not in backup or '"doneAt"' not in backup:
+    fails.append("backup.js lost the reminder doneAt/history columns -- Done would "
+                 "survive on the device but vanish from an email restore")
 if '"mediaIds"' not in backup:
     fails.append("backup.js has no mediaIds column in the notes section")
 if '"order"' not in backup:
@@ -1001,8 +1004,8 @@ if "Attached files are not included in a backup." not in app:
     fails.append("the restore panel's own preview paragraph lost the attachment "
                  "exclusion sentence (v34: it must say attached FILES, not photos)")
 else:
-    print("backup: v3 with mediaIds + order columns; v1 and v2 files still parse; "
-          "the attachment exclusion is stated in the restore confirmation")
+    print("backup: v4 with mediaIds + order + reminder history columns; older files "
+          "still parse; the attachment exclusion is stated in the restore confirmation")
 
 # 15f. One-tap backup (2026-10-03; destination-independent since v28): the
 # export panel's primary action runs every configured destination. The relay

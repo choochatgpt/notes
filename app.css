@@ -622,6 +622,70 @@ body[data-mode="edit"][data-kind="notes"] .pane-agenda {
 /* A spent one-off has no due block at all, so nothing follows the chip. */
 .item-row.reminder-row .item-when:empty { display: none; }
 
+/* Active / History switch on the Reminders tab. Kept inside the browse pane so
+   the reminder list itself is untouched by the tab bar above it. */
+.reminder-switch {
+  display: flex;
+  gap: 3px;
+  padding: 5px 5px 2px;
+  flex: none;
+}
+.view-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.view-tab:hover { color: var(--text); background: var(--surface-2); }
+.view-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border); }
+@media (prefers-color-scheme: dark) { .view-tab.active { color: var(--accent-2); } }
+.view-tab:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.history-count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.history-count:empty { display: none; }
+
+/* Done is a tick on the row, not a nested button inside another button: the
+   reminder row is a role=button div so this control stays valid and its tap
+   can be intercepted before the row opens its editor. */
+.done-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: 700 14px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.done-btn:hover { color: var(--accent); border-color: var(--accent); }
+.done-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.pane-agenda .done-btn { display: none; }
+
+/* A completed row is a compact archive entry: title, when it was done, and the
+   due date it carried. A one-off also carries Restore. */
+.history-row { align-items: flex-start; }
+.history-row .item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-row .item-title { flex: none; }
+.history-row .item-sub { white-space: pre-line; }
+.restore-btn { flex: none; }
+.email-backup-actions { margin-top: 4px; }
+
 /* -------------------------------------------------------------- editors */
 
 .editor-host { height: 100%; min-height: 0; }

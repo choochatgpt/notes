@@ -2,14 +2,37 @@
 
 A local-first HTML5/PWA app for notes and reminders.
 
-**All note data stays in your browser.** There is no backend, no account, and no
-upload. The app contains no `fetch`, no `XMLHttpRequest` and no `sendBeacon` —
-nothing you type can leave the device.
+**All note data stays on your device.** There is no backend and no account. Core
+notes, reminders and attachments never leave the device on their own. The only
+network code is the optional Google Drive and legacy PC-relay backup you
+explicitly configure and tap; email opens your own mail app. Nothing you type
+leaves the device without that action.
 
 ## Use it
 
 Open <https://choochatgpt.github.io/notes/> and use your browser's
 *Add to Home Screen*. It installs as an app and works offline.
+
+### Android APK (v40)
+
+`build/android/Notes-1.0.0.apk` is the sideloadable Android app. It wraps this
+same local-first app in a native WebView shell, serves the assets from a stable
+app-private `https://appassets.androidplatform.net` origin (so IndexedDB, OPFS
+and service-worker storage survive updates), and adds:
+
+- the Android photo/video/document picker and camera for note attachments;
+- native alarm-backed reminder notifications (including future occurrences of a
+  recurring reminder, rescheduled after reboot);
+- a real email chooser with a **CSV** attachment for **Email text backup**, and
+  an optional **ZIP** containing the CSV plus every photo/video for **Email
+  text + photos**. The text-only path is the default promise; photo bytes leave
+  only after that second button is tapped.
+
+The APK requires Android 10 (API 29) or newer. Installation is a normal
+sideload: open the APK on the phone and allow installation from that source.
+The included APK is release-built and signed with the local Android debug key;
+that is fine for personal installation, but a dedicated key is needed before
+sharing updates from another machine.
 
 ## How the screen is laid out
 
@@ -172,6 +195,19 @@ occurrence, so it sorts to the bottom and is labelled **Past** rather than jumpi
 to the top. The agenda shows only what is still upcoming, and says in a footer how
 many past reminders it is holding back.
 
+**Done archives a completion; it never deletes the reminder (v40).** Every
+active reminder row carries a tick button, and the reminder editor carries a
+**Done** button. For a one-off, Done removes the row from the active list and
+puts it in **History**; for a recurring reminder, the completed occurrence goes
+to History and the reminder stays active at its next due date. The Reminders tab
+has an **Active / History** switch with a count, so a completed one-off can be
+inspected later and restored with **Restore** — nothing silently disappears.
+History entries keep the title, body and due time as they were at completion,
+so editing a recurring reminder later cannot rewrite its past. In the Android
+APK the same list is mirrored to native alarms, including the next 24 future
+occurrences of a recurring reminder, and rescheduled after a reboot or app
+launch.
+
 **The bottom of the screen is empty unless something has failed.** There used to be
 a status bar carrying two lines of small print — local storage usage, and the next
 reminder. Both are gone: the agenda directly above already says what is coming up,
@@ -235,9 +271,9 @@ does not work.
 ## Settings: the ratio, export, import
 
 The **Settings** button in the top bar opens one dialog with two controls —
-and the release number at the bottom ("Version 39"), so on any device you can
+and the release number at the bottom ("Version 40"), so on any device you can
 see which revision is running. The number is not free-floating decoration:
-`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v39`) and
+`tools/static_check.py` pins it to `sw.js`'s cache name (`notes-shell-v40`) and
 fails the build if the two drift, and the browser check compares what the
 dialog shows against the version this checkout carries (and, on the deployed
 site, against the live `sw.js` bytes). Bump `APP_VERSION` in `view.js` and
@@ -256,7 +292,8 @@ itself in v38: there is no second panel to size.
 
 **Export notes/reminders to email.** The panel builds the whole database —
 nested folders with their parenting, notes, and reminders — as one text CSV
-under a versioned `# notes-backup v3` header, and the primary action is the
+under a versioned `# notes-backup v4` header (v4 adds each reminder's
+`doneAt` and completion `history`), and the primary action is the
 one-tap **Back up notes + photos now**: it collects the bundle once and hands
 it to every configured destination independently (since v28) — each
 destination reports its own status line, one destination's failure never
@@ -329,16 +366,24 @@ served. The app now has no `navigator.share` anywhere; the static check bans it
 outright.
 
 The address is remembered in the same local database as your notes — it never
-leaves the device either. The backup is **text only**: attachments ride along
-as an id list (`mediaIds`) and never as bytes. On the same device a restore
-therefore reattaches the files; on a new device the notes come back without
-them.
+leaves the device either. The APK adds two explicit email buttons above the
+CSV box: **Email text backup** prepares a real CSV attachment and
+**Email text + photos** prepares a ZIP containing the CSV and every attached
+photo/video. The first is the default promise; the second is the only path
+that sends media bytes. In a browser without the native bridge, the text path
+falls back to the mailto body and the media path says the APK is required.
+
+Outside the explicit attachment buttons, the backup is **text only**:
+attachments ride along as an id list (`mediaIds`) and never as bytes. On the
+same device a restore therefore reattaches the files; on a new device the notes
+come back without them.
 Folders carry their hand arrangement back too: an `order` column rides along
-(v3). A v1 backup (no mediaIds column) and a v2 backup (no order column) still
-restore — older files parse, alphabetically arranged as their releases showed
-them. Reminder due dates are
-deliberately left out — they are recomputed from the start date and the rule on
-restore, so a due date can never be imported stale from another machine.
+(v3). Reminder `doneAt` and completion `history` ride along since v4. A v1
+backup (no mediaIds column), a v2 backup (no order column) and a v3 backup (no
+history columns) still restore — older files parse, alphabetically arranged as
+their releases showed them. Reminder due dates are deliberately left out —
+they are recomputed from the start date and the rule on restore, so a due date
+can never be imported stale from another machine.
 
 **Emailing a backup from the PC.** `tools/email_backup.py` is the PC half: it
 SMTPs a downloaded CSV as a real attachment, so the mailbox credentials live on
@@ -499,10 +544,12 @@ room.
 ## Not built yet
 
 - Undo or a trash for a deleted folder.
-- Notification delivery, and marking a reminder as done.
 
-A static PWA cannot guarantee an alarm that fires while the app is closed, and it
-cannot send email silently without credentials embedded in a public page.
+Done and History are built (v40). Closed-app notifications are built in the
+Android APK, not in the browser PWA: a static web app cannot guarantee an alarm
+while it is closed, and it cannot send mail silently without embedding
+credentials in public code. The browser keeps its honest fallback — due dates
+and the agenda are always correct, and email opens the user's own mail client.
 
 ## Run it locally
 
@@ -527,20 +574,20 @@ Notes entered in one do not appear in the other.
 | `app.js` | State, rendering, and event wiring |
 | `view.js` | Pure formatting, ordering and pane-ratio helpers — no DOM, so Node can test it |
 | `backup.js` | Pure CSV backup serializer/parser and confirmation wording — no DOM, so Node can test it |
-| `storage.js` | IndexedDB wrapper (`notes-local`, v1) + the OPFS byte store for attached files |
+| `storage.js` | IndexedDB wrapper (`notes-local`, v2) + the OPFS byte store, with an IndexedDB Blob fallback for WebViews without OPFS |
 | `reminder.js` | Recurrence engine and `nextDueAt` calculation |
 | `sw.js` | Offline cache |
 
 ## Tests
 
 ```sh
-node tests/recurrence.test.mjs ../reminder.js   # 23 tests
-node tests/view.test.mjs ../view.js             # 198 tests
-node tests/backup.test.mjs ../backup.js         # 89 tests
+node tests/recurrence.test.mjs ../reminder.js   # 32 tests (incl. Done/history/restore)
+node tests/view.test.mjs ../view.js             # 209 tests
+node tests/backup.test.mjs ../backup.js         # 91 tests
 node tests/sync.test.mjs ../sync.js             # 47 tests (stubbed GitHub API)
 node tests/drive.test.mjs ../drive.js           # 79 tests (stubbed Google API)
 python tools/static_check.py                    # wiring and structural invariants (incl. the version pin)
-python tools/browser_check.py                   # 269 checks in real Chrome (237 desktop + 32 at 380px)
+python tools/browser_check.py                   # 286 checks in real Chrome (254 desktop + 32 at 380px)
 ```
 
 `recurrence.test.mjs` covers every rule family, the Feb-29 leap-year case, and

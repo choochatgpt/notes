@@ -17,7 +17,13 @@
 // Resolve against this file, not the caller's cwd, so the harness works from
 // either the durable-mirror layout or the flat active workspace.
 const resolved = new URL(process.argv[2] || "../source/reminder.js", import.meta.url);
-const { nextOccurrence, normalizeRule, reminderWithNextDue } = await import(resolved.href);
+const {
+  completeReminder,
+  nextOccurrence,
+  normalizeRule,
+  reminderWithNextDue,
+  restoreCompletedReminder
+} = await import(resolved.href);
 
 const pad = value => String(value).padStart(2, "0");
 
@@ -139,6 +145,47 @@ check("disabled reminder yields no next due date",
     at(2026, 9, 28, 12)
   ).nextDueAt === null ? at(2026, 1, 1) : null,
   "2026-01-01 00:00");
+
+console.log("\n=== 8. DONE / HISTORY / RESTORE ===");
+{
+  const once = {
+    id: "once", title: "File tax", body: "receipts",
+    startAt: at(2026, 10, 1, 9).toISOString(),
+    recurrence: { kind: "once", interval: 1, weekdays: [] }
+  };
+  const doneOnce = completeReminder(once, at(2026, 9, 28, 12));
+  check("a completed one-off is archived, not deleted",
+        doneOnce.doneAt ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+  check("...and has no next due date",
+        doneOnce.nextDueAt === null ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+  check("...with the completion stored in history",
+        doneOnce.history.length === 1 ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+  check("...keeping the original due date",
+        doneOnce.history[0].dueAt === once.startAt ? at(2026, 1, 1) : null,
+        "2026-01-01 00:00");
+
+  const recurring = {
+    id: "rec", title: "Standup",
+    startAt: at(2026, 9, 1, 15).toISOString(),
+    nextDueAt: at(2026, 9, 29, 15).toISOString(),
+    recurrence: { kind: "weekly", interval: 1, weekdays: [2, 4] }
+  };
+  const doneRecurring = completeReminder(recurring, at(2026, 9, 28, 12));
+  check("a completed recurring reminder stays active",
+        doneRecurring.doneAt === null ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+  check("...and advances past the completed occurrence",
+        doneRecurring.nextDueAt === at(2026, 10, 1, 15).toISOString() ? at(2026, 1, 1) : null,
+        "2026-01-01 00:00");
+  check("...with one history entry",
+        doneRecurring.history.length === 1 ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+
+  const reopened = restoreCompletedReminder(
+    doneOnce, doneOnce.history[0].id, at(2026, 9, 28, 13));
+  check("restoring clears doneAt",
+        reopened.doneAt === null ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+  check("...removes that completion from history",
+        reopened.history.length === 0 ? at(2026, 1, 1) : null, "2026-01-01 00:00");
+}
 
 console.log(`\n===== ${pass} passed, ${fail} failed =====`);
 process.exit(fail ? 1 : 0);

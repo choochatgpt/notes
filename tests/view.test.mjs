@@ -18,6 +18,7 @@ const resolved = new URL(process.argv[2] || "../source/view.js", import.meta.url
 const {
   APP_VERSION,
   absoluteLabel,
+  activeReminders,
   canHoldNotes,
   collectSubtree,
   DEFAULT_RATIO,
@@ -27,6 +28,7 @@ const {
   folderOptions,
   folderChain,
   folderPath,
+  isReminderDone,
   leafFolderOptions,
   localInputValue,
   nextRatio,
@@ -36,6 +38,7 @@ const {
   RATIOS,
   ratioToTracks,
   relativeFromNow,
+  reminderHistory,
   SNIPPET_LINE_CHARS,
   sortFoldersSiblings,
   sortReminders
@@ -98,6 +101,35 @@ console.log("=== 1. sortReminders -- soonest upcoming first ===");
   equal("input array is not mutated", input.map(r => r.title).join(","), copy.map(r => r.title).join(","));
 }
 check("empty list is handled", sortReminders([]).length === 0);
+
+console.log("\n=== 1b. Done archives, it does not delete ===");
+{
+  const active = { id: "a", title: "Active", nextDueAt: "2026-10-01T12:00:00Z" };
+  const done = {
+    id: "d", title: "Done", doneAt: "2026-09-30T10:00:00Z", nextDueAt: null,
+    recurrence: { kind: "once" },
+    history: [{ id: "h-done", title: "Done", completedAt: "2026-09-30T10:00:00Z", dueAt: "2026-09-30T09:00:00Z" }]
+  };
+  const recurring = {
+    id: "r", title: "Recurring", nextDueAt: "2026-10-02T12:00:00Z",
+    recurrence: { kind: "weekly" },
+    history: [{ id: "h-old", title: "Old", completedAt: "2026-09-01T10:00:00Z", dueAt: "2026-09-01T09:00:00Z" }]
+  };
+  const history = reminderHistory([active, done, recurring]);
+
+  equal("isReminderDone only marks an archived row", isReminderDone(done), true);
+  equal("...an active row is not done", isReminderDone(active), false);
+  equal("...nor is a recurring row with history", isReminderDone(recurring), false);
+  equal("activeReminders drops the archived one-off",
+        activeReminders([active, done, recurring]).map(r => r.id).join(","), "a,r");
+  equal("history carries both completion entries", history.length, 2);
+  equal("newest completion sorts first", history[0].reminderId, "d");
+  equal("...with a snapshot of its title", history[0].title, "Done");
+  equal("the older recurring completion follows", history[1].reminderId, "r");
+  equal("a completed one-off is restorable", history[0].restorable, true);
+  equal("recurring history is not restorable as a one-off", history[1].restorable, false);
+  check("empty history is handled", reminderHistory([]).length === 0);
+}
 
 console.log("\n=== 2. describeRule -- recurrence in plain words ===");
 equal("once", describeRule({ kind: "once" }), "Once");

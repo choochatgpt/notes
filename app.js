@@ -14,10 +14,16 @@ import {
   requestPersistentStorage,
   setSetting
 } from "./storage.js";
-import { reminderWithNextDue } from "./reminder.js";
+import {
+  completeReminder,
+  nextOccurrence,
+  reminderWithNextDue,
+  restoreCompletedReminder
+} from "./reminder.js";
 import {
   APP_VERSION,
   absoluteLabel,
+  activeReminders,
   canHoldNotes,
   collectSubtree,
   folderChain,
@@ -32,6 +38,8 @@ import {
   noteSnippet,
   noteDisplayTitle,
   attachmentBadge,
+  isReminderDone,
+  reminderHistory,
   RATIOS,
   ratioToTracks,
   DEFAULT_RATIO,
@@ -86,6 +94,9 @@ const state = {
   // buttons know which row they act for.
   menuFolderId: null,
   reminderChip: "",
+  // "active" or "history": the Reminders tab's two views. Done is a deliberate
+  // archive, not a delete, so history is always one tap away.
+  reminderView: "active",
   editChip: ""
 };
 
@@ -94,6 +105,9 @@ const els = {
   crumbs: $("#crumbs"),
   noteList: $("#note-list"),
   reminderManage: $("#reminder-manage-list"),
+  reminderActiveView: $("#reminder-active-view"),
+  reminderHistoryView: $("#reminder-history-view"),
+  reminderHistoryCount: $("#reminder-history-count"),
   agendaList: $("#agenda-list"),
   agendaContext: $("#agenda-context"),
   browseNotes: $("#browse-notes"),
@@ -353,26 +367,82 @@ function reminderRow(reminder) {
        </span>`
     : "";
 
-  return `<button class="item-row reminder-row ${due ? "" : "past"} ${state.mode === "edit" && state.selectedItemId === reminder.id ? "active" : ""}"
-                  type="button" data-item="${esc(reminder.id)}">
+  return `<div class="item-row reminder-row ${due ? "" : "past"} ${state.mode === "edit" && state.selectedItemId === reminder.id ? "active" : ""}"
+                  role="button" tabindex="0" data-item="${esc(reminder.id)}">
     <svg class="icon"><use href="#i-clock"></use></svg>
     <span class="item-title">${esc(title)}</span>
     <span class="chip ${due ? "accent" : "past"}">${esc(due ? rule : "Past")}</span>
     ${when}
-  </button>`;
+    <button class="done-btn" type="button" data-done="${esc(reminder.id)}"
+            title="Mark this reminder done" aria-label="Mark ${esc(title)} done">&#x2713;</button>
+  </div>`;
 }
 
-/** Where reminders are created, edited and deleted. Sorted soonest first too. */
+/**
+ * One archived completion. The title and due date are the values captured when
+ * it was completed, so a later edit to the recurring reminder cannot rewrite
+ * the history. A completed one-off gets Restore, which reopens the same record.
+ */
+function historyRow(entry) {
+  const done = entry.completedAt ? relativeFromNow(entry.completedAt) : "";
+  const due = entry.dueAt ? absoluteLabel(entry.dueAt) : "no due time";
+  return `<div class="item-row history-row" data-history="${esc(entry.reminderId)}"
+                data-completion="${esc(entry.id)}">
+    <svg class="icon"><use href="#i-check"></use></svg>
+    <span class="item-main">
+      <span class="item-title">${esc(entry.title)}</span>
+      <span class="item-sub">Done ${esc(done)} · was due ${esc(due)}</span>
+    </span>
+    ${entry.restorable
+      ? `<button class="btn small restore-btn" type="button"
+                 data-restore="${esc(entry.reminderId)}"
+                 data-completion="${esc(entry.id)}">Restore</button>`
+      : `<span class="chip">${esc(describeRule(entry.recurrence))}</span>`}
+  </div>`;
+}
+
+/**
+ * The Reminders tab has two views: active reminders (soonest first) and the
+ * completion history (newest first). Done archives a row instead of deleting
+ * it, so nothing disappears without a way back. The toggle is visible only on
+ * the Reminders tab and states both counts.
+ */
 async function renderReminderManage() {
-  const reminders = sortReminders(await getAll("reminders"));
-  state.reminderChip = reminders.length ? `${reminders.length} · soonest first` : "";
+  const all = await getAll("reminders");
+  const reminders = activeReminders(all);
+  const history = reminderHistory(all);
+  const historyCount = history.length;
+
+  if (els.reminderHistoryCount) {
+    els.reminderHistoryCount.textContent = historyCount ? String(historyCount) : "";
+  }
+  for (const [button, view] of [
+    [els.reminderActiveView, "active"],
+    [els.reminderHistoryView, "history"]
+  ]) {
+    if (!button) continue;
+    const selected = state.reminderView === view;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+  }
+  state.reminderChip = state.reminderView === "history"
+    ? (historyCount ? `${historyCount} done` : "history")
+    : (reminders.length ? `${reminders.length} · soonest first` : "");
+
+  if (state.reminderView === "history") {
+    if (!history.length) {
+      els.reminderManage.innerHTML = `<p class="muted">No completed reminders yet. Tap the tick beside a reminder to put it here.</p>`;
+      return;
+    }
+    els.reminderManage.innerHTML = history.map(historyRow).join("");
+    return;
+  }
 
   if (!reminders.length) {
-    els.reminderManage.innerHTML = `<p class="muted">No reminders yet — use “New reminder”.</p>`;
+    els.reminderManage.innerHTML = `<p class="muted">No active reminders — use “New reminder”.</p>`;
     return;
   }
   els.reminderManage.innerHTML = reminders.map(reminderRow).join("");
-  wireRows(els.reminderManage, "reminders");
 }
 
 /**
@@ -382,8 +452,11 @@ async function renderReminderManage() {
  */
 async function renderAgenda() {
   const all = await getAll("reminders");
-  const upcoming = sortReminders(all).filter(reminder => reminder.nextDueAt);
-  const pastCount = all.length - upcoming.length;
+  const active = activeReminders(all);
+  const upcoming = sortReminders(active)
+    .filter(reminder => reminder.nextDueAt)
+    .filter(reminder => !isReminderDone(reminder));
+  const pastCount = active.length - upcoming.length;
 
   els.agendaContext.textContent = upcoming.length
     ? `${upcoming.length} · soonest first`
@@ -402,15 +475,6 @@ async function renderAgenda() {
     + (pastCount
       ? `<p class="muted agenda-foot">${countLabel(pastCount, "past reminder")} — open the Reminders tab to see ${pastCount === 1 ? "it" : "them"}.</p>`
       : "");
-
-  wireRows(els.agendaList, "reminders");
-}
-
-/** Opening any row -- from either pane -- swaps the upper pane into its editor. */
-function wireRows(container, kind) {
-  container.querySelectorAll(".item-row").forEach(rowEl => {
-    rowEl.addEventListener("click", () => openItem(kind, rowEl.dataset.item));
-  });
 }
 
 async function openItem(kind, id) {
@@ -580,6 +644,9 @@ async function renderAll() {
     await loadEditor();
     await syncUpper();
   }
+  // The APK schedules the next occurrence natively. This is a no-op in a plain
+  // browser (there is no bridge) and never blocks the render.
+  syncAndroidReminders(await getAll("reminders"));
 }
 
 /* ------------------------------------------------------------------ actions */
@@ -867,6 +934,7 @@ async function createReminder() {
 
   await put("reminders", reminder);
   state.activeKind = "reminders";
+  state.reminderView = "active";
   state.mode = "edit";
   state.selectedItemId = reminder.id;
   await renderAll();
@@ -932,6 +1000,9 @@ async function saveReminder(event) {
   const start = new Date(els.reminderStart.value);
   let reminder = {
     ...current,
+    // Editing an archived one-off is an explicit re-open; saving must not leave
+    // it hidden behind a stale doneAt.
+    doneAt: null,
     title: els.reminderTitle.value,
     body: els.reminderBody.value,
     startAt: start.toISOString(),
@@ -956,12 +1027,86 @@ async function deleteSelectedReminder() {
   if (!reminder) return;
 
   const title = reminder.title?.trim() || "Untitled reminder";
-  if (!confirm(`Delete “${title}”? This cannot be undone.`)) return;
+  const archived = Array.isArray(reminder.history) ? reminder.history.length : 0;
+  const extra = archived
+    ? ` Its ${archived} completed occurrence${archived === 1 ? "" : "s"} will go too.`
+    : "";
+  if (!confirm(`Delete “${title}”?${extra} This cannot be undone.`)) return;
 
   await remove("reminders", reminder.id);
   state.mode = "browse";
   state.selectedItemId = null;
   await renderAll();
+}
+
+/**
+ * Done. The reminder is never deleted: a one-off is archived under doneAt and
+ * can be restored from History, while a recurring one records this occurrence
+ * and stays active at its next due date.
+ */
+async function markReminderDone(reminderId) {
+  const reminder = await get("reminders", reminderId);
+  if (!reminder) return;
+  const next = completeReminder(reminder, new Date());
+  await put("reminders", next);
+  if (state.selectedItemId === reminderId) {
+    state.mode = "browse";
+    state.selectedItemId = null;
+  }
+  await renderAll();
+}
+
+async function restoreHistoryEntry(reminderId, completionId) {
+  const reminder = await get("reminders", reminderId);
+  if (!reminder) return;
+  const restored = restoreCompletedReminder(reminder, completionId, new Date());
+  await put("reminders", restored);
+  state.reminderView = "active";
+  state.activeKind = "reminders";
+  state.mode = "browse";
+  state.selectedItemId = null;
+  await renderAll();
+}
+
+function setReminderView(view) {
+  state.reminderView = view === "history" ? "history" : "active";
+  if (state.activeKind !== "reminders") {
+    return switchKind("reminders");
+  }
+  if (state.mode === "edit") {
+    state.mode = "browse";
+    state.selectedItemId = null;
+  }
+  return renderAll();
+}
+
+/** Done/restore are delegated so freshly rendered rows need no re-wiring. */
+async function onReminderManageClick(event) {
+  const done = event.target.closest("[data-done]");
+  if (done?.dataset.done) {
+    event.stopPropagation();
+    await markReminderDone(done.dataset.done);
+    return;
+  }
+  const restore = event.target.closest("[data-restore]");
+  if (restore?.dataset.restore) {
+    event.stopPropagation();
+    await restoreHistoryEntry(restore.dataset.restore, restore.dataset.completion);
+    return;
+  }
+  const row = event.target.closest("[data-item]");
+  if (row?.dataset.item) await openItem("reminders", row.dataset.item);
+}
+
+async function onAgendaClick(event) {
+  const done = event.target.closest("[data-done]");
+  if (done?.dataset.done) {
+    event.stopPropagation();
+    await markReminderDone(done.dataset.done);
+    return;
+  }
+  const row = event.target.closest("[data-item]");
+  if (row?.dataset.item) await openItem("reminders", row.dataset.item);
 }
 
 /* ------------------------------------------------------------------- media */
@@ -1374,6 +1519,156 @@ async function showExportPanel() {
   // it backs up to Drive only while the sign-in from an earlier tap still
   // lives, and says "next tap" otherwise.
   await runBackupAll({ driveAllowed: false });
+}
+
+/* ---- native APK bridge (reminders + email attachments) ----------------- */
+
+/**
+ * The APK injects NotesNative. A browser has no such object, so every call is
+ * guarded and the PWA remains fully usable without it.
+ */
+function nativeBridge() {
+  return typeof window !== "undefined" ? window.NotesNative : null;
+}
+
+/**
+ * Give Android the active reminders and their next due instants. The native
+ * side stores the list and schedules one alarm per future occurrence; opening
+ * the app again (or the next notification tap) refreshes it. In a browser this
+ * does nothing, which preserves the PWA's honest "no closed-app alarm" limit.
+ */
+function syncAndroidReminders(reminders) {
+  const bridge = nativeBridge();
+  if (!bridge || typeof bridge.syncReminders !== "function") return;
+  try {
+    const payload = [];
+    for (const reminder of activeReminders(reminders)) {
+      if (!reminder.nextDueAt) continue;
+      // Schedule a run of future occurrences, not only the next one. Android
+      // otherwise stops firing a recurring reminder until the app is reopened.
+      // The app remains authoritative: every render replaces this whole list.
+      let after = new Date(Date.parse(reminder.nextDueAt) - 1);
+      for (let index = 0; index < 24; index += 1) {
+        const occurrence = nextOccurrence(reminder.startAt, reminder.recurrence, after);
+        if (!occurrence) break;
+        payload.push({
+          key: `${reminder.id}:${index}`,
+          reminderId: reminder.id,
+          title: reminder.title?.trim() || "Untitled reminder",
+          body: reminder.body || "",
+          triggerAt: occurrence.getTime(),
+          recurrence: reminder.recurrence?.kind || "once"
+        });
+        after = occurrence;
+        if ((reminder.recurrence?.kind || "once") === "once") break;
+      }
+    }
+    bridge.syncReminders(JSON.stringify(payload));
+  } catch (error) {
+    console.warn("Could not hand reminders to Android:", error);
+  }
+}
+
+function base64Chunk(bytes) {
+  let text = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    text += String.fromCharCode(...bytes.subarray(i, i + step));
+  }
+  return btoa(text);
+}
+
+/** Stream one file into the native email composer without one huge JS string. */
+async function bridgeAttachment(bridge, name, mime, bytes) {
+  if (!bridge.addAttachment(name, mime)) return false;
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    if (!bridge.appendAttachmentChunk(base64Chunk(bytes.subarray(at, at + 0x8000)))) {
+      return false;
+    }
+  }
+  return bridge.endAttachment();
+}
+
+function setEmailBackupStatus(message) {
+  const el = $("#email-backup-status");
+  if (el) el.textContent = message;
+}
+
+/**
+ * Email a text-only backup, or explicitly opt into photos/videos.
+ *
+ * In the APK this hands a real CSV (text-only) or a ZIP (text + every media
+ * byte) to the Android email chooser. A browser has no attachment bridge, so
+ * the text path falls back to the mailto body and the media path explains why
+ * it needs the APK instead of pretending it worked.
+ */
+async function emailBackup(includeMedia = false) {
+  const bridge = nativeBridge();
+  const address = $("#backup-email")?.value.trim() || "";
+  const button = includeMedia ? $("#email-media-btn") : $("#email-text-btn");
+  if (button) button.disabled = true;
+  setEmailBackupStatus(includeMedia ? "Preparing text + photos…" : "Preparing text backup…");
+
+  try {
+    if (!bridge || typeof bridge.beginEmail !== "function") {
+      if (includeMedia) {
+        setEmailBackupStatus("Attaching photos needs the Android app. Use Email text backup here, or the Google Drive backup below.");
+        return;
+      }
+      const [folders, notes, reminders] = await Promise.all([
+        getAll("folders"), getAll("notes"), getAll("reminders")
+      ]);
+      const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
+      const built = buildMailtoHref({
+        to: address,
+        subject: "Notes backup",
+        body: csv
+      });
+      if (!built.ok) {
+        setEmailBackupStatus("The text backup is too large for a mailto link. Use Copy CSV or the Android app's real attachment.");
+        return;
+      }
+      window.location.href = built.href;
+      setEmailBackupStatus("Opened your mail app with the text backup in the body.");
+      return;
+    }
+
+    if (!bridge.beginEmail(address, "Notes backup")) {
+      throw new Error("the native email composer could not start");
+    }
+
+    if (includeMedia) {
+      const bundle = await collectBackupBundle();
+      const entries = [{ name: "backup.csv", bytes: utf8(bundle.csv) }]
+        .concat(bundle.media.map(item => ({ name: `media/${item.name}`, bytes: item.bytes })));
+      const zip = buildZip(entries);
+      const name = `notes-backup-${bundle.exportId}.zip`;
+      if (!(await bridgeAttachment(bridge, name, "application/zip", zip))) {
+        throw new Error("the ZIP attachment could not be staged");
+      }
+      bridge.sendEmail();
+      setEmailBackupStatus(
+        `Opened email with ${name}: text backup plus ${bundle.media.length} attachment(s).`
+        + (bundle.skipped.length ? ` Skipped: ${bundle.skipped.join(", ")}.` : "")
+      );
+    } else {
+      const [folders, notes, reminders] = await Promise.all([
+        getAll("folders"), getAll("notes"), getAll("reminders")
+      ]);
+      const csv = buildBackupCsv({ folders, notes, reminders, exportedAt: nowIso() });
+      const name = `notes-backup-${newExportId()}.csv`;
+      if (!(await bridgeAttachment(bridge, name, "text/csv", utf8(csv)))) {
+        throw new Error("the CSV attachment could not be staged");
+      }
+      bridge.sendEmail();
+      setEmailBackupStatus(`Opened email with ${name}. Photos and videos are not included.`);
+    }
+  } catch (error) {
+    try { bridge?.cancelEmail?.(); } catch (_) { /* already gone */ }
+    setEmailBackupStatus(`Email backup failed: ${error?.message || String(error)}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 /* ---- one-tap backup: independent destinations (sync.js, drive.js) ------- */
@@ -2054,6 +2349,8 @@ function wireControls() {
   on("#export-btn", "click", showExportPanel);
   on("#import-btn", "click", showImportPanel);
   on("#copy-csv-btn", "click", copyExportCsv);
+  on("#email-text-btn", "click", () => emailBackup(false));
+  on("#email-media-btn", "click", () => emailBackup(true));
   on("#backup-email", "change", saveBackupEmail);
   on("#sync-now-btn", "click", runSync);
   on("#sync-token-save", "click", saveSyncToken);
@@ -2063,8 +2360,24 @@ function wireControls() {
   on("#preview-btn", "click", previewRestore);
   on("#restore-btn", "click", restoreBackup);
   on("#delete-note-btn", "click", deleteSelectedNote);
+  on("#done-reminder-btn", "click", () => markReminderDone(state.selectedItemId));
   on("#delete-reminder-btn", "click", deleteSelectedReminder);
   on("#editor-back", "click", backToBrowse);
+  on("#reminder-active-view", "click", () => setReminderView("active"));
+  on("#reminder-history-view", "click", () => setReminderView("history"));
+  on("#reminder-manage-list", "click", onReminderManageClick);
+  on("#agenda-list", "click", onAgendaClick);
+  // Rows are divs (they contain the Done button), so Enter/Space must still
+  // open them like a native button.
+  const activateReminderRow = handler => async event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("[data-item]");
+    if (!row || event.target.closest("[data-done]")) return;
+    event.preventDefault();
+    await handler({ target: row });
+  };
+  on("#reminder-manage-list", "keydown", activateReminderRow(onReminderManageClick));
+  on("#agenda-list", "keydown", activateReminderRow(onAgendaClick));
   on("#notes-tab", "click", () => switchKind("notes"));
   on("#reminders-tab", "click", () => switchKind("reminders"));
   on("#new-folder-form", "submit", submitNewFolder);
@@ -2183,6 +2496,25 @@ function reportStartupFailure(error) {
     `Startup error: ${error.message} — reload the page. A new version may have been published and this one could not start.`
   );
 }
+
+/**
+ * Android's back button asks this first. A dialog closes, an open editor
+ * returns to its list, and only then does the APK finish the activity.
+ */
+window.__notesHandleBack = () => {
+  const open = [...document.querySelectorAll("dialog[open]")].pop();
+  if (open) {
+    if (open.id === "settings-dialog") closeSettings();
+    else if (typeof open.close === "function") open.close();
+    else open.removeAttribute("open");
+    return true;
+  }
+  if (state.mode === "edit") {
+    backToBrowse();
+    return true;
+  }
+  return false;
+};
 
 async function init() {
   syncThemeColor();

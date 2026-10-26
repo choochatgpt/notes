@@ -25,7 +25,7 @@
  * refuse the restore rather than half-apply it.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * mailto: URLs are silently truncated by some mail clients somewhere between
@@ -40,7 +40,7 @@ const SECTIONS = [
   {
     name: "reminders",
     columns: ["id", "folderId", "title", "body", "enabled", "startAt",
-              "timeZone", "recurrence", "createdAt", "updatedAt"]
+              "timeZone", "recurrence", "doneAt", "history", "createdAt", "updatedAt"]
   }
 ];
 
@@ -82,6 +82,7 @@ export function buildBackupCsv({ folders = [], notes = [], reminders = [], expor
     for (const row of rows) {
       lines.push(csvRow(section.columns.map(column => {
         if (column === "recurrence") return JSON.stringify(row.recurrence ?? null);
+        if (column === "history") return JSON.stringify(Array.isArray(row.history) ? row.history : []);
         if (column === "enabled") return row.enabled === false ? "false" : "true";
         if (column === "mediaIds") return (row.mediaIds || []).join(";");
         return row[column];
@@ -308,6 +309,20 @@ export function parseBackupCsv(text) {
           continue;
         }
 
+        const rawHistory = cellAt(entry, header, "history");
+        let history = [];
+        if (rawHistory) {
+          try {
+            const parsedHistory = JSON.parse(rawHistory);
+            if (!Array.isArray(parsedHistory)) throw new Error("not an array");
+            history = parsedHistory.filter(item =>
+              item && typeof item === "object" && !Array.isArray(item));
+          } catch (error) {
+            errors.push(`line ${entry.line}: reminder "${cellAt(entry, header, "title")}" has a completion history that is not valid JSON.`);
+            continue;
+          }
+        }
+
         seen.add(id);
         result.reminders.push({
           id,
@@ -318,6 +333,8 @@ export function parseBackupCsv(text) {
           startAt,
           timeZone: cellAt(entry, header, "timeZone"),
           recurrence,
+          doneAt: cellAt(entry, header, "doneAt") || null,
+          history,
           createdAt: cellAt(entry, header, "createdAt"),
           updatedAt: cellAt(entry, header, "updatedAt")
         });

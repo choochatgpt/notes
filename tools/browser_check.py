@@ -413,6 +413,93 @@ PROBE = """<!doctype html>
     q("#editor-back").click();
     await sleep(700);
 
+    // --- Done archives a completion and keeps recurring reminders active ---
+    // The user's rule: Done disappears from the active list by default, but
+    // the completed occurrence can be checked in History. For a recurring
+    // reminder the occurrence moves to History and the reminder stays active
+    // at its next due date -- otherwise the recurrence would silently stop.
+    {
+      const firstRow = q("#reminder-manage-list .reminder-row");
+      const doneBtn = firstRow && firstRow.querySelector(".done-btn");
+      check("an active reminder offers Done", !!doneBtn,
+            "row=" + !!firstRow + " done=" + !!doneBtn);
+      if (doneBtn) doneBtn.click();
+      await sleep(900);
+      check("Done keeps a recurring reminder active",
+            !!q("#reminder-manage-list .reminder-row"),
+            "rows=" + doc.querySelectorAll("#reminder-manage-list .reminder-row").length);
+      const count = q("#reminder-history-count");
+      check("Done records the completion in History",
+            !!count && count.textContent.trim() === "1",
+            "count=" + (count ? count.textContent : "missing"));
+      q("#reminder-history-view").click();
+      await sleep(700);
+      const historyRow = q("#reminder-manage-list .history-row");
+      check("History shows the completed occurrence",
+            !!historyRow && /Probe Standup/.test(historyRow.textContent)
+            && /was due/.test(historyRow.textContent),
+            "row=" + (historyRow ? historyRow.textContent.trim().slice(0, 80) : "missing"));
+      q("#reminder-active-view").click();
+      await sleep(700);
+      check("Active returns from History",
+            !!q("#reminder-manage-list .reminder-row")
+            && !q("#reminder-manage-list .history-row"));
+    }
+
+    // --- a completed ONE-OFF disappears and can be restored from History ---
+    {
+      q("#new-reminder-btn").click();
+      await sleep(700);
+      q("#reminder-title").value = "Probe Oneoff";
+      q("#reminder-start").value = "2027-02-01T10:00";
+      const onceRepeat = q("#reminder-repeat");
+      onceRepeat.value = "once";
+      onceRepeat.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
+      q("#reminder-editor").requestSubmit();
+      await sleep(800);
+      q("#editor-back").click();
+      await sleep(600);
+
+      const oneRow = () => [...doc.querySelectorAll("#reminder-manage-list .reminder-row")]
+        .find(row => /Probe Oneoff/.test(row.textContent));
+      check("a one-off reminder is active before Done", !!oneRow());
+      oneRow()?.querySelector(".done-btn")?.click();
+      await sleep(800);
+      check("Done removes a one-off from the active list",
+            !oneRow(),
+            "rows=" + doc.querySelectorAll("#reminder-manage-list .reminder-row").length);
+      check("...and the completed occurrence joins History",
+            q("#reminder-history-count")?.textContent.trim() === "2",
+            "count=" + (q("#reminder-history-count")
+              ? q("#reminder-history-count").textContent : "missing"));
+
+      q("#reminder-history-view").click();
+      await sleep(600);
+      const archived = [...doc.querySelectorAll("#reminder-manage-list .history-row")]
+        .find(row => /Probe Oneoff/.test(row.textContent));
+      const restore = archived && archived.querySelector("[data-restore]");
+      check("a completed one-off is restorable from History",
+            !!archived && !!restore,
+            "row=" + !!archived + " restore=" + !!restore);
+      if (restore) restore.click();
+      await sleep(800);
+      check("Restore brings the one-off back to Active",
+            !!oneRow() && q("#reminder-history-count")?.textContent.trim() === "1",
+            "rows=" + doc.querySelectorAll("#reminder-manage-list .reminder-row").length);
+
+      // Clean it up so the later single-reminder checks stay single.
+      oneRow()?.click();
+      await sleep(600);
+      confirmAnswer = true;
+      q("#delete-reminder-btn").click();
+      await sleep(800);
+      confirmAnswer = false;
+      check("the probe one-off is deleted after its Done/History test",
+            !oneRow()
+            && doc.querySelectorAll("#reminder-manage-list .reminder-row").length === 1,
+            "rows=" + doc.querySelectorAll("#reminder-manage-list .reminder-row").length);
+    }
+
     // The release chip beside the title (2026-10-05): visible without
     // opening Settings, and always showing the RUNNING version.
     const homeChip = q("#home-version");
@@ -551,6 +638,77 @@ PROBE = """<!doctype html>
       emailInput.value = "probe@example.com";
       emailInput.dispatchEvent(new frame.contentWindow.Event("change", { bubbles: true }));
       await sleep(400);
+
+      // --- the APK email bridge: real CSV attachment, no photo bytes ---
+      // The browser probe has no native bridge, so a stub proves the JS half:
+      // the right address, a .csv attachment, chunked bytes, and an explicit
+      // "photos are not included" result. This is the same call surface the
+      // Kotlin NotesNative object implements.
+      {
+        const calls = [];
+        const prior = frame.contentWindow.NotesNative;
+        frame.contentWindow.NotesNative = {
+          beginEmail: (to, subject) => {
+            calls.push(["begin", to, subject]);
+            return true;
+          },
+          addAttachment: (name, mime) => {
+            calls.push(["attach", name, mime]);
+            return true;
+          },
+          appendAttachmentChunk: chunk => {
+            calls.push(["chunk", chunk.length]);
+            return true;
+          },
+          endAttachment: () => {
+            calls.push(["end"]);
+            return true;
+          },
+          sendEmail: () => {
+            calls.push(["send"]);
+            return true;
+          },
+          cancelEmail: () => calls.push(["cancel"])
+        };
+        q("#email-text-btn").click();
+        await waitFor(() => /Opened email/.test(
+          q("#email-backup-status") ? q("#email-backup-status").textContent : ""), 8000);
+        const status = q("#email-backup-status");
+        check("Email text backup opens the native composer",
+              calls.some(c => c[0] === "begin" && c[1] === "probe@example.com")
+              && calls.some(c => c[0] === "send"),
+              JSON.stringify(calls.slice(0, 4)));
+        check("...with a CSV attachment, not a ZIP",
+              calls.some(c => c[0] === "attach" && /\\.csv$/.test(c[1])
+                && c[2] === "text/csv")
+              && !calls.some(c => c[0] === "attach" && /\\.zip$/.test(c[1])),
+              JSON.stringify(calls.filter(c => c[0] === "attach")));
+        check("...streamed in chunks",
+              calls.filter(c => c[0] === "chunk").length >= 1
+              && calls.some(c => c[0] === "end"),
+              "chunks=" + calls.filter(c => c[0] === "chunk").length);
+        check("...and states that photos are excluded",
+              !!status && /Photos and videos are not included/.test(status.textContent),
+              "said=" + (status ? status.textContent : "missing"));
+
+        // The explicit opt-in path builds a ZIP. There are no media records at
+        // this point in the probe, so the ZIP is the CSV alone -- but the call
+        // surface is the one that carries photos once any are attached.
+        calls.length = 0;
+        q("#email-media-btn").click();
+        await waitFor(() => /Opened email with .*\\.zip/.test(
+          q("#email-backup-status") ? q("#email-backup-status").textContent : ""), 8000);
+        check("Email text + photos uses a ZIP attachment",
+              calls.some(c => c[0] === "attach" && /\\.zip$/.test(c[1])
+                && c[2] === "application/zip"),
+              JSON.stringify(calls.filter(c => c[0] === "attach")));
+        check("...without pretending media was included when none exists",
+              /plus 0 attachment/.test(q("#email-backup-status").textContent),
+              "said=" + q("#email-backup-status").textContent);
+
+        if (prior === undefined) delete frame.contentWindow.NotesNative;
+        else frame.contentWindow.NotesNative = prior;
+      }
 
       const mailLink = q("#open-email-btn");
       const href = mailLink ? (mailLink.getAttribute("href") || "") : "";

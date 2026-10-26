@@ -22,7 +22,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * tools/static_check.py fails the build when the two drift. Bump this and
  * CACHE_NAME together on every release that changes a shell asset.
  */
-export const APP_VERSION = "39";
+export const APP_VERSION = "40";
 
 /** Escape for both element text and quoted attribute values. */
 export function esc(text) {
@@ -106,6 +106,44 @@ export function sortReminders(list) {
     const bNext = b.nextDueAt ? Date.parse(b.nextDueAt) : Infinity;
     if (aNext !== bNext) return aNext - bNext;
     return (a.title || "").localeCompare(b.title || "");
+  });
+}
+
+/**
+ * A completed one-off is archived, not deleted: `doneAt` is the marker the
+ * active list uses to hide it, and the History tab uses to find it again.
+ * Recurring reminders keep `doneAt` null -- each completed occurrence goes
+ * into `history` and the reminder stays active at its next due date.
+ */
+export function isReminderDone(reminder) {
+  return Boolean(reminder?.doneAt);
+}
+
+/** The active reminders: everything not archived as a completed one-off. */
+export function activeReminders(list) {
+  return sortReminders((list || []).filter(reminder => !isReminderDone(reminder)));
+}
+
+/**
+ * Every completion, newest first, flattened out of the reminders that carry
+ * one. The entry stores a snapshot of the title and body at completion time,
+ * so editing a recurring reminder later cannot rewrite its past.
+ */
+export function reminderHistory(list) {
+  return (list || []).flatMap(reminder => {
+    const entries = Array.isArray(reminder.history) ? reminder.history : [];
+    return entries.map(entry => ({
+      ...entry,
+      reminderId: reminder.id,
+      title: entry.title || reminder.title || "Untitled reminder",
+      body: entry.body ?? reminder.body ?? "",
+      recurrence: reminder.recurrence,
+      restorable: (reminder.recurrence?.kind || "once") === "once"
+    }));
+  }).sort((a, b) => {
+    const aDone = a.completedAt ? Date.parse(a.completedAt) : 0;
+    const bDone = b.completedAt ? Date.parse(b.completedAt) : 0;
+    return bDone - aDone;
   });
 }
 

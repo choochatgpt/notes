@@ -46,6 +46,9 @@
     <symbol id="i-clock" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>
     </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="M4.5 12.5l5 5L20 6.5"/>
+    </symbol>
     <symbol id="i-clip" viewBox="0 0 24 24">
       <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
     </symbol>
@@ -199,6 +202,17 @@
              The always-visible agenda below is read-only, so this is the only
              place a reminder can be changed. -->
         <div id="browse-reminders" class="browse hidden">
+          <!-- Active vs History. Done archives the row instead of deleting it,
+               so a completed item disappears from the active list but remains
+               one tap away for checking or restoring. -->
+          <div class="reminder-switch" role="tablist" aria-label="Reminder view">
+            <button id="reminder-active-view" class="view-tab active" type="button"
+                    role="tab" aria-selected="true">Active</button>
+            <button id="reminder-history-view" class="view-tab" type="button"
+                    role="tab" aria-selected="false">History
+              <span id="reminder-history-count" class="history-count"></span>
+            </button>
+          </div>
           <div id="reminder-manage-list" class="item-list"></div>
         </div>
 
@@ -240,6 +254,9 @@
               </fieldset>
             </div>
             <div class="editor-actions">
+              <button id="done-reminder-btn" class="btn" type="button">
+                <svg class="icon"><use href="#i-check"></use></svg><span>Done</span>
+              </button>
               <button id="delete-reminder-btn" class="btn danger" type="button">
                 <svg class="icon"><use href="#i-trash"></use></svg><span>Delete</span>
               </button>
@@ -359,6 +376,15 @@
         Email address
         <input id="backup-email" type="email" placeholder="you@example.com" autocomplete="off">
       </label>
+      <!-- Two deliberate email paths: text only is the default promise; the
+           second tap explicitly opts into attaching the photo/video bytes. In
+           the APK these become a real email intent with a CSV or ZIP attachment;
+           a browser falls back to the mailto text body. -->
+      <div class="dialog-actions email-backup-actions">
+        <button id="email-text-btn" class="btn primary" type="button">Email text backup</button>
+        <button id="email-media-btn" class="btn" type="button">Email text + photos</button>
+      </div>
+      <p id="email-backup-status" class="muted" role="status"></p>
       <textarea id="export-csv" class="csv-box" readonly spellcheck="false"
                 aria-label="Backup CSV"></textarea>
       <p id="export-size-note" class="muted"></p>
